@@ -1,0 +1,38 @@
+name: Build Installer Desktop (Windows)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Pasang dependensi
+        run: bun install
+      - name: Build aplikasi
+        run: bun run build
+      - name: Kemas installer Windows (NSIS)
+        run: npx electron-builder --win nsis --publish never
+      - name: Unggah artefak build
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: release/*.exe
+          if-no-files-found: error
+      - name: Buat Rilis GitHub (jika dijalankan lewat tag v*)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "VidSplit ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            release/*.exe

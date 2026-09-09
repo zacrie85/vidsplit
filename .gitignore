@@ -1,0 +1,8 @@
+node_modules/
+.next/
+work/
+release/
+dist/
+*.log
+next-env.d.ts
+.DS_Store
