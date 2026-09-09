@@ -1,0 +1,76 @@
+name: Rilis VidSplit (installer Windows)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Ambil kode
+        uses: actions/checkout@v4
+
+      - name: Pasang Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instal dependensi
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm install --no-audit --no-fund
+
+      - name: Build Next.js (standalone)
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build
+
+      - name: Paket installer Windows (NSIS)
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npx electron-builder --win nsis --publish never
+
+      - name: Terbitkan release + unggah installer
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          EXE=$(ls release/VidSplit-Setup-*.exe | head -n 1)
+          echo "Installer: $EXE"
+          CATATAN=$(cat << ISI
+          ## VidSplit $TAG — installer Windows
+
+          Aplikasi desktop untuk kreator konten:
+
+          - Ubah video horizontal menjadi vertikal 9:16 (blur lembut / potong penuh / warna solid)
+          - Tulisan judul statis + tulisan "Part X" berganti otomatis sesuai durasi set
+          - Split otomatis tepat di batas part (mode presisi atau cepat)
+          - Background PNG/JPG otomatis di awal setiap hasil split
+          - Semua diproses lokal di PC-mu dengan ffmpeg yang sudah dibundel — tidak ada unggahan ke internet
+
+          ### Cara memasang
+
+          1. Unduh VidSplit-Setup-0.1.0.exe di bawah
+          2. Jalankan installer (boleh pilih folder instalasi sendiri)
+          3. Jika Windows SmartScreen muncul karena installer belum ditandatangani: klik "More info" lalu "Run anyway"
+
+          Persyaratan: Windows 10/11 64-bit.
+          ISI
+          )
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$EXE" --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" "$EXE" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "VidSplit $TAG" \
+              --notes "$CATATAN"
+          fi
