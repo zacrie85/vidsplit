@@ -1,6 +1,6 @@
 {
   "name": "vidsplit",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "private": true,
   "description": "VidSplit — ubah video horizontal jadi vertikal 9:16, beri judul + Part otomatis, split per durasi set, intro background di tiap potongan",
   "author": "zacrie85",

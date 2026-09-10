@@ -267,7 +267,10 @@ export interface ArgPart {
 /** Susun argumen ffmpeg lengkap untuk satu part hasil split */
 export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number } {
   const p = a.pengaturan;
-  const total = p.durasiIntro + a.durasi;
+  const pakaiBg = !!a.bg && existsSync(a.bg);
+  // TANPA bg: total = durasi video saja (bukan + durasiIntro — kalau tidak,
+  // track audio/hening ikut memanjang dan hasil split punya ekor diam ±3 dtk)
+  const total = pakaiBg ? p.durasiIntro + a.durasi : a.durasi;
   const W = a.W;
   const H = a.H;
   const fps = a.fps;
@@ -277,7 +280,6 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const fileJudul = path.join(a.dirTmp, `${a.tag}-judul.txt`);
   const filePart = path.join(a.dirTmp, `${a.tag}-part.txt`);
 
-  const pakaiBg = !!a.bg && existsSync(a.bg);
   const inputs: string[] = ["-ss", a.mulai.toFixed(3), "-i", a.src];
   if (pakaiBg) inputs.push("-loop", "1", "-t", p.durasiIntro.toFixed(3), "-i", a.bg as string);
 

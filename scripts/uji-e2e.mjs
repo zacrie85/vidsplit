@@ -73,7 +73,8 @@ async function main() {
     await new Promise((res) => setTimeout(res, 1200));
     const j = await (await fetch(`${BASE}/api/job?id=${mulai.id}`)).json();
     job = j.job;
-    log(`progres: ${job.selesai}/${job.total} part=${job.partAktif} ${job.progresPart}% err=${job.error}`);
+    const av = job.antrean[0];
+    log(`progres: ${av.selesai}/${av.total} part=${job.partAktif} total=${job.progresTotal}% err=${job.error}`);
     if (job.selesaiSemua || job.error) break;
   }
   if (job.error) gagal("job error:", job.error);
