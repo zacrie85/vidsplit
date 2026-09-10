@@ -11,7 +11,7 @@ import {
   pilihFfmpeg,
   type InfoVideo,
 } from "./ffmpeg";
-import { hitungPart, rentangPart, slugify, type Pengaturan } from "./types";
+import { durasiEfektif, hitungPart, rentangPart, slugify, type Pengaturan } from "./types";
 
 export interface KeluaranJob {
   /** nama video asal (nama file sumber) */
@@ -82,7 +82,12 @@ export function mulaiEksporAntrean(
   const dirTmp = dirWork("tmp");
   const paralel = Math.min(4, Math.max(1, Math.round(daftar[0]?.pengaturan.prosesParalel || 2)));
 
-  const nTotalPerVideo = daftar.map((it) => hitungPart(it.info.durasi, it.pengaturan.durasiPart));
+  const nTotalPerVideo = daftar.map((it) =>
+    hitungPart(
+      durasiEfektif(it.info.durasi, it.pengaturan.mulaiDetik, it.pengaturan.akhirDetik),
+      it.pengaturan.durasiPart,
+    ),
+  );
   const totalPartSemua = nTotalPerVideo.reduce((a, b) => a + b, 0);
 
   const job: InfoJob = {
@@ -145,7 +150,13 @@ export function mulaiEksporAntrean(
     /** render SATU part dari video ke-vi */
     const renderSatu = (vi: number, it: ItemEkspor, n: number) => {
       const p = it.pengaturan;
-      const [mulai, durasi] = rentangPart(n, it.info.durasi, p.durasiPart);
+      const [mulai, durasi] = rentangPart(
+        n,
+        it.info.durasi,
+        p.durasiPart,
+        p.mulaiDetik,
+        p.akhirDetik,
+      );
       const W = p.resolusi === "720" ? 720 : 1080;
       const H = p.resolusi === "720" ? 1280 : 1920;
       const fps = Math.min(60, Math.max(15, Math.round(it.info.fps)));

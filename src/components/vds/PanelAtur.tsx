@@ -1,6 +1,7 @@
 "use client";
 
-// VidSplit — panel pengaturan: mode konversi, judul, Part, background, ringkasan
+// VidSplit — panel pengaturan: mode konversi, rentang waktu, judul, Part, background, ringkasan
+import { useState } from "react";
 import {
   Copy,
   Crop,
@@ -13,9 +14,11 @@ import {
   Type,
 } from "lucide-react";
 import {
+  durasiEfektif,
   hitungPart,
   formatDurasi,
   labelPosisiPotong,
+  uraiWaktu,
   type GayaTeks,
   type ModeKonversi,
   type NamaFont,
@@ -78,6 +81,41 @@ function GayaEditor({
   );
 }
 
+/** Input waktu ramah — terima "90" (detik) atau "1:30" (m:ss) atau "1:02:03" */
+function InputWaktu({
+  label,
+  nilaiDetik,
+  onSet,
+}: {
+  label: string;
+  nilaiDetik: number;
+  onSet: (det: number) => void;
+}) {
+  const [teks, setTeks] = useState<string | null>(null);
+  const tampil = teks ?? (nilaiDetik > 0 ? formatDurasi(nilaiDetik) : "0:00");
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs text-slate-400">{label}</span>
+      <input
+        value={tampil}
+        onChange={(e) => setTeks(e.target.value)}
+        onBlur={() => {
+          if (teks === null) return;
+          const d = uraiWaktu(teks);
+          if (d >= 0) onSet(d);
+          setTeks(null); // kembali tampil format rapi
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        inputMode="numeric"
+        placeholder="0:00"
+        className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
+      />
+    </label>
+  );
+}
+
 export function PanelAtur({
   pengaturan,
   onChange,
@@ -106,8 +144,10 @@ export function PanelAtur({
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
-  const nPart = hitungPart(durasiVideo, pengaturan.durasiPart);
-  const durasiOutput = durasiVideo + nPart * pengaturan.durasiIntro;
+  const spanEfektif = durasiEfektif(durasiVideo, pengaturan.mulaiDetik, pengaturan.akhirDetik);
+  const nPart = hitungPart(spanEfektif, pengaturan.durasiPart);
+  const durasiOutput = spanEfektif + nPart * pengaturan.durasiIntro;
+  const adaTrim = pengaturan.mulaiDetik > 0 || pengaturan.akhirDetik > 0;
 
   return (
     <div className="space-y-4">
@@ -161,6 +201,34 @@ export function PanelAtur({
             nilai={pengaturan.resolusi}
             onChange={(v) => set("resolusi", v)}
           />
+        </div>
+        <div className="mt-3 border-t border-slate-700/50 pt-3">
+          <div className="flex items-baseline justify-between">
+            <p className="text-xs text-slate-400">Rentang yang diproses (opsional)</p>
+            <span className="text-[11px] text-slate-500">durasi video {formatDurasi(durasiVideo)}</span>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <InputWaktu
+              label="Mulai dari"
+              nilaiDetik={pengaturan.mulaiDetik}
+              onSet={(d) => set("mulaiDetik", d)}
+            />
+            <InputWaktu
+              label="Sampai (kosong 0:00 = habis)"
+              nilaiDetik={pengaturan.akhirDetik}
+              onSet={(d) => set("akhirDetik", d)}
+            />
+          </div>
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            Isi menitnya saja — contoh mulai <b>1:00</b> sampai <b>5:00</b> berarti hanya menit
+            1–5 yang di-split &amp; diekspor. Format bebas: <b>90</b> atau <b>1:30</b>.
+            {adaTrim && (
+              <span className="text-amber-300">
+                {" "}
+                Aktif: {formatDurasi(pengaturan.mulaiDetik)} → {formatDurasi(pengaturan.akhirDetik)} ({formatDurasi(spanEfektif)})
+              </span>
+            )}
+          </p>
         </div>
       </Kartu>
 
@@ -227,8 +295,17 @@ export function PanelAtur({
           />
         </div>
         <p className="mt-2 rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-          Video {formatDurasi(durasiVideo)} ÷ {pengaturan.durasiPart} dtk ={" "}
-          <b>{nPart} part</b> — nanti otomatis di-split jadi {nPart} file.
+          {adaTrim ? (
+            <>
+              Rentang {formatDurasi(pengaturan.mulaiDetik)}–{formatDurasi(pengaturan.akhirDetik)} ({formatDurasi(spanEfektif)}) ÷{" "}
+              {pengaturan.durasiPart} dtk = <b>{nPart} part</b>
+            </>
+          ) : (
+            <>
+              Video {formatDurasi(durasiVideo)} ÷ {pengaturan.durasiPart} dtk = <b>{nPart} part</b>
+            </>
+          )}{" "}
+          — nanti otomatis di-split jadi {nPart} file.
         </p>
         <GayaEditor
           gaya={pengaturan.gayaPart}
@@ -305,6 +382,12 @@ export function PanelAtur({
           <dt className="text-slate-500">Video sumber</dt>
           <dd className="text-right text-slate-200">
             {formatDurasi(durasiVideo)} · {ukuranVideo}
+          </dd>
+          <dt className="text-slate-500">Rentang diproses</dt>
+          <dd className="text-right text-slate-200">
+            {adaTrim
+              ? `${formatDurasi(pengaturan.mulaiDetik)} → ${formatDurasi(pengaturan.akhirDetik || durasiVideo)}`
+              : "seluruh video"}
           </dd>
           <dt className="text-slate-500">Mode konversi</dt>
           <dd className="text-right text-slate-200">

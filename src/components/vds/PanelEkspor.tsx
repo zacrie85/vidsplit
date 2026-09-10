@@ -15,9 +15,8 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
-import { zipSync } from "fflate";
 import type { InfoJob } from "@/lib/vidsplit/jobs";
-import { slugify, type Pengaturan } from "@/lib/vidsplit/types";
+import { durasiEfektif, slugify, type Pengaturan } from "@/lib/vidsplit/types";
 import { BarisSlider, Kartu, fmtUkuran } from "./bits";
 
 interface ItemVideo {
@@ -95,6 +94,7 @@ export function PanelEkspor({
         body: JSON.stringify({
           daftar: daftar.map((v) => ({
             file: v.file,
+            nama: v.nama,
             bg: v.pengaturan.bgId || undefined,
             pengaturan: v.pengaturan,
           })),
@@ -109,7 +109,10 @@ export function PanelEkspor({
           nama: v.nama,
           total: Math.max(
             1,
-            Math.ceil(v.durasi / Math.max(1, v.pengaturan.durasiPart)),
+            Math.ceil(
+              durasiEfektif(v.durasi, v.pengaturan.mulaiDetik, v.pengaturan.akhirDetik) /
+                Math.max(1, v.pengaturan.durasiPart),
+            ),
           ),
           selesai: 0,
           status: "menunggu",
@@ -137,46 +140,17 @@ export function PanelEkspor({
   const totalProgres = job ? job.progresTotal : 0;
   const berjalan = !!job && !job.selesaiSemua;
 
-  const unduhZip = async () => {
+  const unduhZip = () => {
     if (!job?.outputs.length) return;
-    try {
-      toast.info("Menyiapkan ZIP…");
-      // folder per video — nama unik kalau ada file sumber dengan nama sama
-      const mapFolder = new Map<string, string>();
-      job.antrean.forEach((v, i) => {
-        mapFolder.set(v.nama, `${String(i + 1).padStart(2, "0")}-${slugify(v.nama)}`);
-      });
-      const fileBersih: Record<string, Uint8Array> = {};
-      for (const o of job.outputs) {
-        const r = await fetch(`/api/file?p=${encodeURIComponent(`output/${job.id}/${o.file}`)}&dl=1`);
-        if (!r.ok) throw new Error(`Gagal ambil ${o.file}`);
-        const folder = mapFolder.get(o.video) ?? "video";
-        fileBersih[`${folder}/${o.file}`] = new Uint8Array(await r.arrayBuffer());
-      }
-      fileBersih["BACA-SAYA.txt"] = new TextEncoder().encode(
-        [
-          "VidSplit — hasil split antrean",
-          `Video: ${job.antrean.length}, diproses berurutan dari atas`,
-          `Paralel: ${job.paralel} part serentak · Encoder: ${job.akselerasi}`,
-          "",
-          "Isi (folder per video):",
-          ...job.antrean.map(
-            (v) =>
-              `- ${mapFolder.get(v.nama)} (${LABEL_STATUS[v.status] ?? v.status}, ${v.selesai}/${v.total} part)`,
-          ),
-        ].join("\n"),
-      );
-      const zip = zipSync(fileBersih, { level: 0 });
-      const blob = new Blob([zip.buffer as ArrayBuffer], { type: "application/zip" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `vidsplit-antrean-${job.antrean.length}video.zip`;
-      a.click();
-      URL.revokeObjectURL(a.href);
-      toast.success("ZIP siap, cek folder unduhan");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal bikin ZIP");
-    }
+    // ZIP dirakit DI SERVER secara streaming — memori browser tidak terbebani
+    // (fix "Array buffer allocation failed" saat unduh semua video)
+    const a = document.createElement("a");
+    a.href = `/api/zip?id=${job.id}`;
+    a.download = `vidsplit-antrean-${job.antrean.length}video.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast.info("ZIP mulai diunduh — dirakit di server, tinggal tunggu selesai");
   };
 
   const ikonStatus = (status: string) => {

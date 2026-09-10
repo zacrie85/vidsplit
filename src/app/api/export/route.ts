@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { NextRequest, NextResponse } from "next/server";
 import { pathAman, probe } from "@/lib/vidsplit/ffmpeg";
 import { mulaiEksporAntrean, type ItemEkspor } from "@/lib/vidsplit/jobs";
-import { BATAS_VIDEO, pengaturanDefault, type Pengaturan } from "@/lib/vidsplit/types";
+import { BATAS_VIDEO, durasiEfektif, pengaturanDefault, type Pengaturan } from "@/lib/vidsplit/types";
 
 export const runtime = "nodejs";
 
@@ -31,6 +31,8 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.gayaPart.ukuran = clamp(p.gayaPart?.ukuran, 16, 120, 48);
   p.gayaPart.outlineLebar = clamp(p.gayaPart?.outlineLebar, 0, 12, 3);
   p.posisiPotong = clamp(p.posisiPotong, 0, 100, 50);
+  p.mulaiDetik = clamp(p.mulaiDetik, 0, 86400, 0);
+  p.akhirDetik = clamp(p.akhirDetik, 0, 86400, 0);
   p.prosesParalel = clamp(p.prosesParalel, 1, 4, 2);
   p.pakaiGpu = p.pakaiGpu !== false;
   return p;
@@ -43,7 +45,7 @@ export async function POST(req: NextRequest) {
       bg?: string;
       pengaturan?: Partial<Pengaturan>;
       modeEkspor?: string;
-      daftar?: Array<{ file?: string; bg?: string; pengaturan?: Partial<Pengaturan> }>;
+      daftar?: Array<{ file?: string; nama?: string; bg?: string; pengaturan?: Partial<Pengaturan> }>;
     };
 
     // kompatibilitas lama: satu video → daftar 1 item
@@ -95,19 +97,37 @@ export async function POST(req: NextRequest) {
       }
       if (!(info.durasi > 0.5)) throw new Error(`${label}: durasi tidak terbaca / terlalu pendek`);
 
+      const pgh = rapikanPengaturan(mentah[i].pengaturan);
+      // rentang trim: clip ke durasi nyata + validasi urutan mulai < akhir
+      pgh.mulaiDetik = Math.min(pgh.mulaiDetik, Math.max(0, info.durasi - 1));
+      if (pgh.akhirDetik > 0) {
+        pgh.akhirDetik = Math.min(pgh.akhirDetik, info.durasi);
+        if (pgh.akhirDetik <= pgh.mulaiDetik + 0.4) {
+          throw new Error(
+            `${label}: rentang tidak valid — akhir (${pgh.akhirDetik.toFixed(1)} dtk) harus SETELAH mulai (${pgh.mulaiDetik.toFixed(1)} dtk)`,
+          );
+        }
+      }
+
       items.push({
-        nama: mentah[i].file as string,
+        // nama tampilan bersih (tanpa folder upload & UUID) — dipakai daftar antrean + folder ZIP
+        nama:
+          String(mentah[i].nama || mentah[i].file || "video")
+            .split(/[\\/]/)
+            .pop()!
+            .replace(/\.[^.]+$/, "")
+            .slice(0, 80) || "video",
         srcAbs,
         bgAbs,
-        pengaturan: rapikanPengaturan(mentah[i].pengaturan),
+        pengaturan: pgh,
         info,
       });
     }
 
-    const totalPart = items.reduce(
-      (a, it) => a + Math.max(1, Math.ceil(it.info.durasi / it.pengaturan.durasiPart)),
-      0,
-    );
+    const totalPart = items.reduce((a, it) => {
+      const efektif = durasiEfektif(it.info.durasi, it.pengaturan.mulaiDetik, it.pengaturan.akhirDetik);
+      return a + Math.max(1, Math.ceil(efektif / it.pengaturan.durasiPart));
+    }, 0);
     const id = mulaiEksporAntrean(items, modeEkspor);
     return NextResponse.json({ ok: true, id, total: items.length, totalPart });
   } catch (e) {
