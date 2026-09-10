@@ -5,18 +5,13 @@ directories:
 files:
   - electron/**/*
   - package.json
+afterPack: scripts/after-pack.cjs
 extraResources:
-  - from: .next/standalone
-    to: server
-  - from: .next/static
-    to: server/vidsplit/.next/static
-  - from: public
-    to: server/vidsplit/public
   - from: assets/fonts
     to: fonts
   - from: node_modules/ffmpeg-static/ffmpeg.exe
     to: ffmpeg.exe
-  - from: node_modules/ffprobe-static/bin/win/x64/ffprobe.exe
+  - from: node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe
     to: ffprobe.exe
 win:
   target:

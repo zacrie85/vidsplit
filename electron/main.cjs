@@ -1,4 +1,5 @@
 // VidSplit — proses utama Electron: nyalakan server Next standalone lalu buka jendela
+// v0.1.1: deteksi server.js adaptif, dialog error saat gagal, log ke file, aman di Windows
 const { app, BrowserWindow, dialog, ipcMain } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
@@ -8,26 +9,82 @@ const path = require("node:path");
 const port = 31900 + Math.floor(Math.random() * 400);
 let server;
 let win;
+let logStream;
+
+function catat(pesan) {
+  const baris = `[${new Date().toISOString()}] ${pesan}\n`;
+  try {
+    logStream?.write(baris);
+  } catch {}
+  try {
+    process.stdout?.write(baris);
+  } catch {}
+}
 
 function nyalakanServer() {
   const res = process.resourcesPath || path.join(__dirname, "..");
-  const serverJs = path.join(res, "server", "vidsplit", "server.js");
+
+  // Layout standalone bisa berbeda: nested vidsplit/ (monorepo) atau root (CI)
+  const kandidat = [
+    path.join(res, "server", "vidsplit", "server.js"),
+    path.join(res, "server", "server.js"),
+  ];
+  const serverJs = kandidat.find((p) => fs.existsSync(p));
+  if (!serverJs) {
+    throw new Error(
+      `server.js tidak ditemukan. Dicari:\n${kandidat.join("\n")}\nIsi ${res}:\n${amankanList(res)}`
+    );
+  }
+
+  const dirKerja = path.join(app.getPath("userData"), "data");
+  fs.mkdirSync(dirKerja, { recursive: true });
+  logStream = fs.createWriteStream(path.join(app.getPath("userData"), "server.log"), {
+    flags: "a",
+  });
+
   const env = {
     ...process.env,
     ELECTRON_RUN_AS_NODE: "1",
     NODE_ENV: "production",
     PORT: String(port),
     HOSTNAME: "127.0.0.1",
-    VIDSPLIT_WORK: path.join(app.getPath("userData"), "data"),
+    VIDSPLIT_WORK: dirKerja,
     VIDSPLIT_FONTS: path.join(res, "fonts"),
     VIDSPLIT_FFMPEG: path.join(res, "ffmpeg.exe"),
     VIDSPLIT_FFPROBE: path.join(res, "ffprobe.exe"),
     VIDSPLIT_ELECTRON: "1",
   };
-  server = spawn(process.execPath, [serverJs], { env, stdio: ["ignore", "pipe", "pipe"] });
-  server.stdout.on("data", (d) => process.stdout.write(`[server] ${d}`));
-  server.stderr.on("data", (d) => process.stderr.write(`[server] ${d}`));
-  server.on("exit", (code) => console.log("[server] keluar", code));
+  catat(`Menjalankan server: ${serverJs} (port ${port}, kerja: ${dirKerja})`);
+  server = spawn(process.execPath, [serverJs], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+  });
+  server.stdout.on("data", (d) => catat(`[server] ${String(d).trimEnd()}`));
+  server.stderr.on("data", (d) => catat(`[server] ${String(d).trimEnd()}`));
+  server.on("exit", (code) => {
+    catat(`[server] keluar, kode ${code}`);
+    if (!win) {
+      tampilkanGalat(
+        `Server internal berhenti (kode ${code}).`,
+        `Log lengkap: ${path.join(app.getPath("userData"), "server.log")}`
+      );
+    }
+  });
+}
+
+function amankanList(dir) {
+  try {
+    return fs.readdirSync(dir).slice(0, 30).join(", ");
+  } catch (e) {
+    return `(gagal membaca: ${e.message})`;
+  }
+}
+
+function tampilkanGalat(judul, detail) {
+  try {
+    dialog.showErrorBox(`VidSplit — ${judul}`, detail);
+  } catch {}
 }
 
 function tungguServer(coba = 0) {
@@ -37,7 +94,16 @@ function tungguServer(coba = 0) {
       resolve();
     });
     req.on("error", () => {
-      if (coba > 150) return reject(new Error("Server internal tidak mau hidup"));
+      if (coba > 300) {
+        return reject(
+          new Error(
+            `Server internal tidak merespons setelah 60 detik. Log: ${path.join(
+              app.getPath("userData"),
+              "server.log"
+            )}`
+          )
+        );
+      }
       setTimeout(() => tungguServer(coba + 1).then(resolve, reject), 200);
     });
   });
@@ -82,9 +148,21 @@ ipcMain.handle("vdsplit:pilih", async (_e, jenis) => {
 });
 
 app.whenReady().then(async () => {
-  nyalakanServer();
-  await tungguServer();
-  await buatJendela();
+  try {
+    nyalakanServer();
+    await tungguServer();
+    await buatJendela();
+  } catch (err) {
+    catat(`GAGAL: ${err.stack || err.message}`);
+    tampilkanGalat(
+      "gagal menyala",
+      `${err.message}\n\nLog lengkap: ${path.join(
+        app.getPath("userData"),
+        "server.log"
+      )}`
+    );
+    app.quit();
+  }
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) buatJendela();
   });
