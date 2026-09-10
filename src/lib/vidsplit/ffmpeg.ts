@@ -285,7 +285,9 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const inputAudio: string[] = [];
   const filterAudio: string[] = [];
   let mapAudio: string[];
-  const durasiAudio = pakaiBg ? p.durasiIntro : total;
+  // kasus bg + video tanpa audio: track hening harus sepanjang TOTAL (intro+durasi),
+  // bukan cuma durasi intro — kalau tidak, track audio output terpotong pendek
+  const durasiAudio = pakaiBg && a.adaAudio ? p.durasiIntro : total;
   inputAudio.push("-f", "lavfi", "-t", durasiAudio.toFixed(3), "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");
   if (pakaiBg) {
     if (a.adaAudio) {

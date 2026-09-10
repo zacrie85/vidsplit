@@ -65,7 +65,14 @@ export function PanelEkspor({
       const r = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file: videoInfo.file, pengaturan, modeEkspor }),
+        // bg = path background terpilih (relatif work utk web, absolut utk Electron) —
+        // tanpa ini, intro background tidak pernah ikut ke hasil split
+        body: JSON.stringify({
+          file: videoInfo.file,
+          bg: pengaturan.bgId || undefined,
+          pengaturan,
+          modeEkspor,
+        }),
       });
       const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
       if (!j.ok || !j.id) throw new Error(j.error || "Ekspor gagal dimulai");
