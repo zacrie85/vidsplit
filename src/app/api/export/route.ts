@@ -27,6 +27,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.gayaJudul.outlineLebar = clamp(p.gayaJudul?.outlineLebar, 0, 12, 4);
   p.gayaPart.ukuran = clamp(p.gayaPart?.ukuran, 16, 120, 48);
   p.gayaPart.outlineLebar = clamp(p.gayaPart?.outlineLebar, 0, 12, 3);
+  p.posisiPotong = clamp(p.posisiPotong, 0, 100, 50);
+  p.prosesParalel = clamp(p.prosesParalel, 1, 4, 2);
+  p.pakaiGpu = p.pakaiGpu !== false;
   return p;
 }
 

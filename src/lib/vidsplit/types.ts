@@ -29,6 +29,12 @@ export interface Pengaturan {
   durasiIntro: number;
   resolusi: Resolusi;
   posisiTeks: PosisiTeks;
+  /** posisi area potong horizontal utk mode "crop" — 0=kiri, 50=tengah, 100=kanan */
+  posisiPotong: number;
+  /** jumlah part dirender serentak (1–4) */
+  prosesParalel: number;
+  /** pakai akselerasi GPU (NVENC/QSV/AMF) bila tersedia */
+  pakaiGpu: boolean;
 }
 
 export const pengaturanDefault: Pengaturan = {
@@ -43,6 +49,9 @@ export const pengaturanDefault: Pengaturan = {
   durasiIntro: 3,
   resolusi: "1080",
   posisiTeks: "atas",
+  posisiPotong: 50,
+  prosesParalel: 2,
+  pakaiGpu: true,
 };
 
 export const INFO_FONT: Record<NamaFont, string> = {
@@ -61,6 +70,14 @@ export function rentangPart(n: number, durasiVideo: number, durasiPart: number):
   const mulai = (n - 1) * durasiPart;
   const durasi = Math.min(durasiPart, Math.max(0.5, durasiVideo - mulai));
   return [mulai, durasi];
+}
+
+/** Label ramah utk posisi potong 0–100 */
+export function labelPosisiPotong(n: number): string {
+  if (n <= 20) return `Kiri (${n}%)`;
+  if (n >= 80) return `Kanan (${n}%)`;
+  if (n >= 40 && n <= 60) return `Tengah (${n}%)`;
+  return n < 50 ? `Agak kiri (${n}%)` : `Agak kanan (${n}%)`;
 }
 
 export function formatDurasi(det: number): string {

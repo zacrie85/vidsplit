@@ -171,10 +171,13 @@ function rantaiUtama(
   warna: string,
   fps: number,
   durasi: number,
+  posisiPotong = 50,
 ): string {
   const ekor = `fps=${fps},trim=duration=${durasi.toFixed(3)},setpts=PTS-STARTPTS,setsar=1`;
   if (mode === "crop") {
-    return `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},${ekor}[mv]`;
+    // posisiPotong 0=kiri, 50=tengah, 100=kanan — geser jendela potong secara horizontal
+    const pp = Math.min(100, Math.max(0, posisiPotong));
+    return `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}:(iw-ow)*${pp}/100:0,${ekor}[mv]`;
   }
   if (mode === "warna") {
     return `[0:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${warnaFf(warna)},${ekor}[mv]`;
@@ -256,8 +259,8 @@ export interface ArgPart {
   partTxt: string;
   dirTmp: string;
   tag: string;
-  preset: string;
-  crf: number;
+  /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
+  codecArgs: string[];
   keluar: string;
 }
 
@@ -307,10 +310,12 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     filterVideo.push(
       `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
     );
-    filterVideo.push(rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi));
+    filterVideo.push(rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong));
     filterVideo.push(`[bgv][mv]concat=n=2:v=1:a=0[cc]`);
   } else {
-    filterVideo.push(rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi).replace("[mv]", "[cc]"));
+    filterVideo.push(
+      rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong).replace("[mv]", "[cc]"),
+    );
   }
   const rantaiTeksStr = rantaiTeks(p, W, H, fileJudul, filePart);
   filterVideo.push(rantaiTeksStr);
@@ -330,12 +335,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     total.toFixed(3),
     "-r",
     String(fps),
-    "-c:v",
-    "libx264",
-    "-preset",
-    a.preset,
-    "-crf",
-    String(a.crf),
+    ...a.codecArgs,
     "-pix_fmt",
     "yuv420p",
     "-c:a",
@@ -351,15 +351,17 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   return { args, total };
 }
 
-/** Jalankan ffmpeg, laporkan progres 0..1 dari parsing time= stderr */
+/** Jalankan ffmpeg, laporkan progres 0..1 dari parsing time= stderr.
+ *  bin boleh kosong — akan dipilih otomatis via pilihFfmpeg(). */
 export async function jalankanFfmpeg(
   args: string[],
   totalDetik: number,
   onProgres?: (fraksi: number) => void,
+  bin?: string,
 ): Promise<void> {
-  const bin = await cariBinary("ffmpeg");
+  const binFinal = bin || (await pilihFfmpeg()).bin;
   await new Promise<void>((resolve, reject) => {
-    const c = spawn(bin, args, { windowsHide: true });
+    const c = spawn(binFinal, args, { windowsHide: true });
     let stderr = "";
     c.stderr.on("data", (d) => {
       const s = d.toString();
@@ -377,4 +379,161 @@ export async function jalankanFfmpeg(
       else reject(new Error(`ffmpeg keluar dengan kode ${code}: ${stderr.slice(-600)}`));
     });
   });
+}
+
+/* ---------- akselerasi perangkat keras (NVENC / QSV / AMF) ---------- */
+
+export interface PilihanEncoder {
+  /** nama ramah untuk ditampilkan */
+  nama: string;
+  /** apakah ini encoder GPU */
+  gpu: boolean;
+  /** argumen codec lengkap (tanpa -pix_fmt) */
+  codecArgs: string[];
+}
+
+/** argumen codec CPU dari preset/crf mode ekspor */
+export function codecCpu(preset: string, crf: number): string[] {
+  return ["-c:v", "libx264", "-preset", preset, "-crf", String(crf)];
+}
+
+const KANDIDAT_GPU: Array<{
+  encoder: string;
+  nama: string;
+  codecArgs: (crf: number) => string[];
+}> = [
+  {
+    encoder: "h264_nvenc",
+    nama: "NVIDIA NVENC (GPU)",
+    codecArgs: (crf) => ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0"],
+  },
+  {
+    encoder: "h264_qsv",
+    nama: "Intel Quick Sync (GPU)",
+    codecArgs: (crf) => ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", String(crf)],
+  },
+  {
+    encoder: "h264_amf",
+    nama: "AMD AMF (GPU)",
+    codecArgs: (crf) => ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf)],
+  },
+];
+
+let cacheUjiGpu: Map<string, boolean> | null = null;
+
+/** Uji encoder benar-benar jalan (terdaftar ≠ berfungsi — butuh GPU fisiknya) */
+async function ujiEncoder(encoder: string, bin: string): Promise<boolean> {
+  if (!cacheUjiGpu) cacheUjiGpu = new Map();
+  const tercache = cacheUjiGpu.get(encoder);
+  if (tercache !== undefined) return tercache;
+  let hasil = false;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const c = spawn(
+        bin,
+        [
+          "-hide_banner", "-v", "error",
+          "-f", "lavfi", "-i", "color=c=black:s=320x320:d=0.3:r=25",
+          "-c:v", encoder, "-f", "null", "-",
+        ],
+        { windowsHide: true, timeout: 15000 },
+      );
+      c.on("error", reject);
+      c.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`kode ${code}`))));
+    });
+    hasil = true;
+  } catch {
+    hasil = false;
+  }
+  cacheUjiGpu.set(encoder, hasil);
+  return hasil;
+}
+
+/** Pilih encoder: GPU bila diminta & tersedia, selain itu CPU. Hasilnya di-cache. */
+export async function pilihEncoder(
+  pakaiGpu: boolean,
+  preset: string,
+  crf: number,
+  bin: string,
+): Promise<PilihanEncoder> {
+  if (pakaiGpu) {
+    for (const k of KANDIDAT_GPU) {
+      if (await ujiEncoder(k.encoder, bin)) {
+        return { nama: k.nama, gpu: true, codecArgs: k.codecArgs(crf) };
+      }
+    }
+  }
+  return { nama: "CPU (libx264)", gpu: false, codecArgs: codecCpu(preset, crf) };
+}
+
+/* ---------- pemilihan ffmpeg terbaik (harus dukung drawtext bila ada) ---------- */
+
+export interface FfmpegTerpilih {
+  bin: string;
+  /** apakah binary ini mendukung filter drawtext (libfreetype) */
+  drawtext: boolean;
+}
+
+let cacheFfmpeg: FfmpegTerpilih | null = null;
+
+async function bisaDieksekusi(bin: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const c = spawn(bin, ["-version"], { windowsHide: true, timeout: 10000 });
+    c.on("error", () => resolve(false));
+    c.on("close", (code) => resolve(code === 0));
+  });
+}
+
+/** Uji sungguhan filter drawtext (biner terdaftar ≠ punya libfreetype) */
+async function ujiDrawtext(bin: string): Promise<boolean> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const c = spawn(
+        bin,
+        [
+          "-hide_banner", "-v", "error",
+          "-f", "lavfi", "-i", "color=c=black:s=64x64:d=0.1:r=10",
+          "-filter_complex", "drawtext=text='x'",
+          "-f", "null", "-",
+        ],
+        { windowsHide: true, timeout: 15000 },
+      );
+      c.on("error", reject);
+      c.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`kode ${code}`))));
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pilih binary ffmpeg terbaik: utamakan yang punya drawtext (untuk tulisan judul/Part).
+ * Urutan: env VIDSPLIT_FFMPEG → ffmpeg-static → PATH. Hasil di-cache per proses.
+ */
+export async function pilihFfmpeg(): Promise<FfmpegTerpilih> {
+  if (cacheFfmpeg) return cacheFfmpeg;
+  const kandidat: string[] = [];
+  if (process.env.VIDSPLIT_FFMPEG) kandidat.push(process.env.VIDSPLIT_FFMPEG);
+  const statik = [
+    cariDiNodeModules("ffmpeg-static/ffmpeg"),
+    cariDiNodeModules("ffmpeg-static/ffmpeg.exe"),
+  ];
+  for (const s of statik) if (s) kandidat.push(s);
+  kandidat.push("ffmpeg");
+
+  let cadangan: string | null = null;
+  for (const k of [...new Set(kandidat)]) {
+    if (!(await bisaDieksekusi(k))) continue;
+    if (await ujiDrawtext(k)) {
+      cacheFfmpeg = { bin: k, drawtext: true };
+      return cacheFfmpeg;
+    }
+    if (!cadangan) cadangan = k;
+  }
+  if (cadangan) {
+    cacheFfmpeg = { bin: cadangan, drawtext: false };
+    return cacheFfmpeg;
+  }
+  throw new Error("ffmpeg tidak ditemukan. Install ffmpeg atau set VIDSPLIT_FFMPEG");
 }

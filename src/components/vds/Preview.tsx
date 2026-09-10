@@ -124,6 +124,7 @@ export function Preview({
               ref={refV}
               src={srcUrl}
               className="absolute inset-0 h-full w-full object-cover"
+              style={{ objectPosition: `${Math.min(100, Math.max(0, pengaturan.posisiPotong))}% 50%` }}
               muted={bisu}
               onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
               onPlay={() => setJeda(false)}

@@ -3,11 +3,11 @@
 // VidSplit — panel ekspor: mode presisi/cepat, progres per part, unduh per file / ZIP
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Download, FileArchive, Loader2, Rocket, Timer } from "lucide-react";
+import { Cpu, Download, FileArchive, Loader2, Rocket, Timer, Zap } from "lucide-react";
 import { zipSync } from "fflate";
 import type { InfoJob } from "@/lib/vidsplit/jobs";
 import { slugify, type Pengaturan } from "@/lib/vidsplit/types";
-import { Kartu, fmtUkuran } from "./bits";
+import { BarisSlider, Kartu, fmtUkuran } from "./bits";
 
 interface InfoVideoClient {
   file: string;
@@ -18,9 +18,11 @@ interface InfoVideoClient {
 export function PanelEkspor({
   videoInfo,
   pengaturan,
+  onChange,
 }: {
   videoInfo: InfoVideoClient;
   pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
 }) {
   const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("presisi");
   const [job, setJob] = useState<InfoJob | null>(null);
@@ -71,12 +73,15 @@ export function PanelEkspor({
         id: j.id,
         total: 0,
         selesai: 0,
-        partAktif: 1,
+        partAktif: 0,
         progresPart: 0,
+        progresTotal: 0,
         outputs: [],
         error: null,
         selesaiSemua: false,
         dibuat: Date.now(),
+        akselerasi: "mendeteksi…",
+        paralel: pengaturan.prosesParalel || 2,
       });
       toast.info("Ekspor dimulai — duduk manis ya");
     } catch (e) {
@@ -86,7 +91,11 @@ export function PanelEkspor({
     }
   };
 
-  const totalProgres = job ? Math.min(100, ((job.selesai + job.progresPart / 100) / Math.max(1, job.total)) * 100) : 0;
+  const totalProgres = job
+    ? Math.min(100, typeof job.progresTotal === "number"
+        ? job.progresTotal
+        : ((job.selesai + job.progresPart / 100) / Math.max(1, job.total)) * 100)
+    : 0;
 
   const unduhZip = async () => {
     if (!job?.outputs.length) return;
@@ -166,6 +175,40 @@ export function PanelEkspor({
         </button>
       </div>
 
+      {/* kecepatan render */}
+      <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-300">
+          <Zap className="h-3.5 w-3.5 text-amber-400" /> Kecepatan render
+        </p>
+        <BarisSlider
+          label="Proses paralel"
+          nilai={pengaturan.prosesParalel ?? 2}
+          min={1}
+          max={4}
+          onChange={(n) => onChange({ ...pengaturan, prosesParalel: n })}
+          fmt={(n) => `${n} video sekaligus`}
+        />
+        <button
+          type="button"
+          onClick={() => onChange({ ...pengaturan, pakaiGpu: !(pengaturan.pakaiGpu !== false) })}
+          className={`mt-2 flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
+            pengaturan.pakaiGpu !== false
+              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <Cpu className="h-3.5 w-3.5" />
+            Akselerasi GPU (NVIDIA / Intel / AMD)
+          </span>
+          <span className="font-medium">{pengaturan.pakaiGpu !== false ? "Aktif" : "Mati"}</span>
+        </button>
+        <p className="mt-1.5 text-[11px] text-slate-500">
+          GPU dipakai otomatis kalau tersedia — kalau tidak, render tetap jalan di CPU.
+          Paralel lebih tinggi = lebih cepat, tapi pakai lebih banyak CPU/RAM.
+        </p>
+      </div>
+
       <button
         type="button"
         onClick={ekspor}
@@ -180,7 +223,7 @@ export function PanelEkspor({
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
             <span>
-              Part {job.selesaiSemua ? job.total : job.partAktif} dari {job.total}
+              {job.paralel > 1 ? `${job.partAktif} part serentak · ` : ""}selesai {job.selesai}/{job.total}
             </span>
             <span className="font-medium text-slate-200">{totalProgres.toFixed(0)}%</span>
           </div>
@@ -190,6 +233,11 @@ export function PanelEkspor({
               style={{ width: `${totalProgres}%` }}
             />
           </div>
+          {job.akselerasi && (
+            <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
+              <Cpu className="h-3 w-3" /> Encoder: {job.akselerasi}
+            </p>
+          )}
           {job.error && (
             <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{job.error}</p>
           )}

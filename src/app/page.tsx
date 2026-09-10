@@ -161,7 +161,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.1.0
+            v0.2.0
           </span>
         </div>
         <p className="mt-2 max-w-xl text-sm text-slate-400">
@@ -218,7 +218,11 @@ export default function Halaman() {
                 totalPart={Math.max(1, Math.ceil(video.durasi / Math.max(1, pengaturan.durasiPart)))}
               />
             </Kartu>
-            <PanelEkspor videoInfo={{ file: video.file, nama: video.nama, durasi: video.durasi }} pengaturan={pengaturan} />
+            <PanelEkspor
+              videoInfo={{ file: video.file, nama: video.nama, durasi: video.durasi }}
+              pengaturan={pengaturan}
+              onChange={setPengaturan}
+            />
             <button
               type="button"
               onClick={() => {

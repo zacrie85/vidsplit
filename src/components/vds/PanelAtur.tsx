@@ -14,6 +14,7 @@ import {
 import {
   hitungPart,
   formatDurasi,
+  labelPosisiPotong,
   type GayaTeks,
   type ModeKonversi,
   type NamaFont,
@@ -117,6 +118,22 @@ export function PanelAtur({
           nilai={pengaturan.mode}
           onChange={(v) => set("mode", v)}
         />
+        {pengaturan.mode === "crop" && (
+          <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
+            <BarisSlider
+              label="Posisi area yang dipertahankan"
+              nilai={pengaturan.posisiPotong}
+              min={0}
+              max={100}
+              onChange={(n) => set("posisiPotong", n)}
+              fmt={(n) => labelPosisiPotong(n)}
+            />
+            <p className="mt-1 text-[11px] text-slate-400">
+              Geser ke kiri / kanan untuk memilih bagian video horizontal yang ikut ke frame
+              9:16 — lihat hasilnya di pratinjau.
+            </p>
+          </div>
+        )}
         {pengaturan.mode === "warna" && (
           <div className="mt-3">
             <PilihWarna
@@ -283,7 +300,11 @@ export function PanelAtur({
           </dd>
           <dt className="text-slate-500">Mode konversi</dt>
           <dd className="text-right text-slate-200">
-            {pengaturan.mode === "blur" ? "Blur lembut" : pengaturan.mode === "crop" ? "Potong penuh" : "Warna solid"}
+            {pengaturan.mode === "blur"
+              ? "Blur lembut"
+              : pengaturan.mode === "crop"
+                ? `Potong penuh · ${labelPosisiPotong(pengaturan.posisiPotong)}`
+                : "Warna solid"}
           </dd>
           <dt className="text-slate-500">Hasil split</dt>
           <dd className="text-right text-slate-200">
