@@ -166,15 +166,17 @@ ipcMain.handle("vdsplit:pilih", async (_e, jenis) => {
             { name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v"] },
             { name: "Semua file", extensions: ["*"] },
           ],
+          properties: ["openFile", "multiSelections"], // antrean: boleh pilih banyak video
         };
   const r = await dialog.showOpenDialog(win, { properties: ["openFile"], ...opsi });
-  if (r.canceled || !r.filePaths[0]) return null;
-  const p = r.filePaths[0];
-  let ukuran = 0;
-  try {
-    ukuran = fs.statSync(p).size;
-  } catch {}
-  return { path: p, nama: path.basename(p), ukuran };
+  if (r.canceled || !r.filePaths.length) return [];
+  return r.filePaths.map((p) => {
+    let ukuran = 0;
+    try {
+      ukuran = fs.statSync(p).size;
+    } catch {}
+    return { path: p, nama: path.basename(p), ukuran };
+  });
 });
 
 app.whenReady().then(async () => {

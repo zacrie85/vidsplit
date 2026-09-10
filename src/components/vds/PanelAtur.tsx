@@ -2,6 +2,7 @@
 
 // VidSplit — panel pengaturan: mode konversi, judul, Part, background, ringkasan
 import {
+  Copy,
   Crop,
   Droplets,
   Film,
@@ -86,6 +87,9 @@ export function PanelAtur({
   bgSibuk,
   durasiVideo,
   ukuranVideo,
+  nomorVideo,
+  totalVideo,
+  onTerapkanKeSemua,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -95,6 +99,10 @@ export function PanelAtur({
   bgSibuk: boolean;
   durasiVideo: number;
   ukuranVideo: string;
+  /** nomor video yang sedang diedit (1-based) */
+  nomorVideo: number;
+  totalVideo: number;
+  onTerapkanKeSemua: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
@@ -159,7 +167,7 @@ export function PanelAtur({
       {/* B — Judul */}
       <Kartu
         judul="2. Tulisan judul"
-        deskripsi="Tampil statis di semua potongan (boleh banyak baris)"
+        deskripsi={`Statis di semua potongan video #${nomorVideo} (boleh banyak baris)`}
         ikon={<Type className="h-4 w-4" />}
       >
         <textarea
@@ -180,7 +188,7 @@ export function PanelAtur({
       {/* C — Part */}
       <Kartu
         judul="3. Tulisan Part otomatis"
-        deskripsi="Berganti sendiri tiap batas durasi set — split mengikuti batas ini"
+        deskripsi={`Video #${nomorVideo}: berganti sendiri tiap batas durasi set — split mengikuti batas ini`}
         ikon={<Scissors className="h-4 w-4" />}
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -244,7 +252,7 @@ export function PanelAtur({
       {/* D — Background intro */}
       <Kartu
         judul="4. Background intro (opsional)"
-        deskripsi="Gambar PNG/JPG muncul di awal SETIAP hasil split"
+        deskripsi={`Gambar PNG/JPG muncul di awal SETIAP hasil split video #${nomorVideo}`}
         ikon={<ImageIcon className="h-4 w-4" />}
       >
         {bgInfo ? (
@@ -327,6 +335,16 @@ export function PanelAtur({
           )}
           Audio asli dipertahankan; intro diisi hening agar tetap sinkron.
         </p>
+        {totalVideo > 1 && (
+          <button
+            type="button"
+            onClick={onTerapkanKeSemua}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-400/50 bg-sky-400/10 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-400/20"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Terapkan pengaturan video #{nomorVideo} ke SEMUA video ({totalVideo})
+          </button>
+        )}
       </Kartu>
     </div>
   );

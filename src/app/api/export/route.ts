@@ -1,9 +1,12 @@
-// POST /api/export { file, bg?, pengaturan, modeEkspor } — mulai job ekspor
+// POST /api/export — mulai job ekspor ANTREAN
+// Body: { daftar: [{ file, bg?, pengaturan? }], modeEkspor } — 1..15 video,
+// diproses BERURUTAN sesuai urutan daftar. Bentuk lama { file, bg, pengaturan }
+// (satu video) tetap didukung: otomatis dibungkus jadi daftar 1 item.
 import { existsSync } from "node:fs";
 import { NextRequest, NextResponse } from "next/server";
 import { pathAman, probe } from "@/lib/vidsplit/ffmpeg";
-import { mulaiEkspor } from "@/lib/vidsplit/jobs";
-import { pengaturanDefault, type Pengaturan } from "@/lib/vidsplit/types";
+import { mulaiEksporAntrean, type ItemEkspor } from "@/lib/vidsplit/jobs";
+import { BATAS_VIDEO, pengaturanDefault, type Pengaturan } from "@/lib/vidsplit/types";
 
 export const runtime = "nodejs";
 
@@ -40,25 +43,73 @@ export async function POST(req: NextRequest) {
       bg?: string;
       pengaturan?: Partial<Pengaturan>;
       modeEkspor?: string;
+      daftar?: Array<{ file?: string; bg?: string; pengaturan?: Partial<Pengaturan> }>;
     };
-    if (!body.file) throw new Error("File video wajib ada");
-    const srcAbs = pathAman(body.file);
-    if (!existsSync(srcAbs)) throw new Error("File video tidak ditemukan di server");
 
-    let bgAbs: string | null = null;
-    if (body.bg) {
-      const cand = pathAman(body.bg);
-      if (existsSync(cand)) bgAbs = cand;
+    // kompatibilitas lama: satu video → daftar 1 item
+    const mentah =
+      Array.isArray(body.daftar) && body.daftar.length
+        ? body.daftar
+        : [{ file: body.file, bg: body.bg, pengaturan: body.pengaturan }];
+
+    if (!mentah.length) throw new Error("Daftar video kosong");
+    if (mentah.length > BATAS_VIDEO) {
+      throw new Error(`Maksimal ${BATAS_VIDEO} video dalam satu antrean`);
     }
 
-    const info = await probe(srcAbs);
-    if (!(info.durasi > 0.5)) throw new Error("Durasi video tidak terbaca / terlalu pendek");
-
-    const pengaturan = rapikanPengaturan(body.pengaturan);
     const modeEkspor = body.modeEkspor === "cepat" ? "cepat" : "presisi";
 
-    const id = mulaiEkspor({ srcAbs, bgAbs, pengaturan, info, modeEkspor });
-    return NextResponse.json({ ok: true, id, total: Math.ceil(info.durasi / pengaturan.durasiPart) });
+    // resolve & probe semua video terlebih dahulu (cepat — ffprobe hanya baca header)
+    const items: ItemEkspor[] = [];
+    for (let i = 0; i < mentah.length; i++) {
+      const label = `Video ${i + 1}${mentah[i].file ? ` (${mentah[i].file})` : ""}`;
+      if (!mentah[i].file) throw new Error(`${label}: file video wajib ada`);
+      const srcAbs = pathAman(mentah[i].file as string);
+      if (!existsSync(srcAbs)) throw new Error(`${label}: file video tidak ditemukan di server`);
+
+      let bgAbs: string | null = null;
+      const bg = mentah[i].bg;
+      if (bg) {
+        const cand = pathAman(bg);
+        if (existsSync(cand)) {
+          // validasi benar-benar gambar — bg korup membuat ffmpeg menggantung saat render
+          try {
+            const infoBg = await probe(cand);
+            if (!(infoBg.lebar > 0)) throw new Error("tanpa dimensi");
+          } catch {
+            throw new Error(
+              `${label}: background tidak bisa dibaca (pastikan PNG/JPG/WebP yang valid)`,
+            );
+          }
+          bgAbs = cand;
+        }
+      }
+
+      let info;
+      try {
+        info = await probe(srcAbs);
+      } catch (e) {
+        throw new Error(
+          `${label}: video tidak bisa dibaca (${e instanceof Error ? e.message : String(e)})`,
+        );
+      }
+      if (!(info.durasi > 0.5)) throw new Error(`${label}: durasi tidak terbaca / terlalu pendek`);
+
+      items.push({
+        nama: mentah[i].file as string,
+        srcAbs,
+        bgAbs,
+        pengaturan: rapikanPengaturan(mentah[i].pengaturan),
+        info,
+      });
+    }
+
+    const totalPart = items.reduce(
+      (a, it) => a + Math.max(1, Math.ceil(it.info.durasi / it.pengaturan.durasiPart)),
+      0,
+    );
+    const id = mulaiEksporAntrean(items, modeEkspor);
+    return NextResponse.json({ ok: true, id, total: items.length, totalPart });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "Ekspor gagal dimulai" },

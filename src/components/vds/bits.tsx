@@ -138,11 +138,14 @@ export function JatuhBerkas({
   onFile,
   hint,
   sibuk = false,
+  multiple = false,
 }: {
   terima: string;
   onFile: (f: File) => void;
   hint: string;
   sibuk?: boolean;
+  /** true = input file & drop menerima BANYAK file (onFile dipanggil satu per satu, urut) */
+  multiple?: boolean;
 }) {
   const [diAtas, setDiatas] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
@@ -150,13 +153,15 @@ export function JatuhBerkas({
   const lepas = (e: DragEvent) => {
     e.preventDefault();
     setDiatas(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) onFile(f);
+    const fs = Array.from(e.dataTransfer.files ?? []);
+    if (!fs.length) return;
+    // video folder bisa tak terurut — biarkan urutan OS; caller memakai sisa kapasitas
+    for (const f of fs) onFile(f);
   };
 
   const ubah = (e: ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) onFile(f);
+    const fs = Array.from(e.target.files ?? []);
+    for (const f of fs) onFile(f);
     e.target.value = "";
   };
 
@@ -178,7 +183,14 @@ export function JatuhBerkas({
           : "border-slate-600/70 bg-slate-800/40 hover:border-slate-500"
       }`}
     >
-      <input ref={ref} type="file" accept={terima} className="hidden" onChange={ubah} />
+      <input
+        ref={ref}
+        type="file"
+        accept={terima}
+        multiple={multiple}
+        className="hidden"
+        onChange={ubah}
+      />
       <Upload className="h-6 w-6 text-slate-400" />
       <p className="text-sm text-slate-300">
         {sibuk ? "Memproses…" : "Klik atau seret file ke sini"}

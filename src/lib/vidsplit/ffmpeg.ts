@@ -354,7 +354,9 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
 }
 
 /** Jalankan ffmpeg, laporkan progres 0..1 dari parsing time= stderr.
- *  bin boleh kosong — akan dipilih otomatis via pilihFfmpeg(). */
+ *  bin boleh kosong — akan dipilih otomatis via pilihFfmpeg().
+ *  Detektor macet: bila 40 detik TANPA progres time= sama sekali, proses dibunuh
+ *  (input korup dgn -loop bisa membuat ffmpeg menggantung tanpa keluar). */
 export async function jalankanFfmpeg(
   args: string[],
   totalDetik: number,
@@ -365,18 +367,39 @@ export async function jalankanFfmpeg(
   await new Promise<void>((resolve, reject) => {
     const c = spawn(binFinal, args, { windowsHide: true });
     let stderr = "";
+    let terakhirProgres = Date.now();
+    const pemeriksa = setInterval(() => {
+      if (Date.now() - terakhirProgres > 40_000) {
+        clearInterval(pemeriksa);
+        try {
+          c.kill("SIGKILL");
+        } catch {}
+        reject(
+          new Error(
+            "ffmpeg macet (tidak ada progres 40 detik) — kemungkinan file sumber/background rusak",
+          ),
+        );
+      }
+    }, 5000);
     c.stderr.on("data", (d) => {
       const s = d.toString();
       stderr += s;
       if (stderr.length > 8000) stderr = stderr.slice(-8000);
       const m = s.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
-      if (m && onProgres && totalDetik > 0) {
-        const det = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
-        onProgres(Math.min(1, Math.max(0, det / totalDetik)));
+      if (m) {
+        terakhirProgres = Date.now();
+        if (onProgres && totalDetik > 0) {
+          const det = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+          onProgres(Math.min(1, Math.max(0, det / totalDetik)));
+        }
       }
     });
-    c.on("error", (e) => reject(new Error(`ffmpeg gagal dijalankan: ${e.message}`)));
+    c.on("error", (e) => {
+      clearInterval(pemeriksa);
+      reject(new Error(`ffmpeg gagal dijalankan: ${e.message}`));
+    });
     c.on("close", (code) => {
+      clearInterval(pemeriksa);
       if (code === 0) resolve();
       else reject(new Error(`ffmpeg keluar dengan kode ${code}: ${stderr.slice(-600)}`));
     });

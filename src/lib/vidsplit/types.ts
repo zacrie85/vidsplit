@@ -5,6 +5,9 @@ export type Resolusi = "1080" | "720";
 export type NamaFont = "tebal" | "bersih" | "klasik";
 export type PosisiTeks = "atas" | "tengah" | "bawah";
 
+/** Batas jumlah video dalam satu antrean ekspor */
+export const BATAS_VIDEO = 15;
+
 export interface GayaTeks {
   font: NamaFont;
   /** px pada lebar 1080 — otomatis diskalakan untuk 720 */

@@ -1,4 +1,5 @@
-// VidSplit — manajer job ekspor: pool paralel per part, progres dipolling API
+// VidSplit — manajer job ekspor ANTREAN: video diproses berurutan dari atas ke bawah,
+// di dalam tiap video part dirender paralel (pool 1-4 ffmpeg), progres dipolling API
 import { randomBytes } from "node:crypto";
 import { statSync, unlinkSync } from "node:fs";
 import path from "node:path";
@@ -13,27 +14,43 @@ import {
 import { hitungPart, rentangPart, slugify, type Pengaturan } from "./types";
 
 export interface KeluaranJob {
+  /** nama video asal (nama file sumber) */
+  video: string;
   file: string;
   ukuran: number;
 }
 
-export interface InfoJob {
-  id: string;
+export type StatusVideo = "menunggu" | "proses" | "selesai" | "gagal";
+
+export interface StatusVideoAntrean {
+  nama: string;
+  /** jumlah part video ini */
   total: number;
   selesai: number;
+  status: StatusVideo;
+}
+
+export interface InfoJob {
+  id: string;
+  /** status tiap video dalam antrean, urut dari atas */
+  antrean: StatusVideoAntrean[];
+  /** index video yang sedang dirender (-1 = sudah tidak ada) */
+  videoAktif: number;
   /** jumlah part yang sedang dirender serentak */
   partAktif: number;
   /** 0..100 rata-rata part yang sedang berjalan (kompatibilitas lama) */
   progresPart: number;
-  /** 0..100 progres keseluruhan (semua part digabung) */
+  /** 0..100 progres keseluruhan lintas semua video */
   progresTotal: number;
   outputs: KeluaranJob[];
   error: string | null;
+  /** true bila ada video yang gagal (antrean tetap lanjut) */
+  adaGagal: boolean;
   selesaiSemua: boolean;
   dibuat: number;
   /** encoder yang dipakai, mis. "NVIDIA NVENC (GPU)" / "CPU (libx264)" */
   akselerasi: string;
-  /** jumlah proses serentak */
+  /** jumlah proses serentak per video */
   paralel: number;
 }
 
@@ -47,37 +64,42 @@ export function daftarJob(): InfoJob[] {
   return [...jobs.values()].sort((a, b) => b.dibuat - a.dibuat);
 }
 
-export interface OpsiEkspor {
+export interface ItemEkspor {
+  /** nama tampilan (nama file sumber) */
+  nama: string;
   srcAbs: string;
   bgAbs: string | null;
   pengaturan: Pengaturan;
   info: InfoVideo;
-  modeEkspor: "presisi" | "cepat";
 }
 
-export function mulaiEkspor(o: OpsiEkspor): string {
+export function mulaiEksporAntrean(
+  daftar: ItemEkspor[],
+  modeEkspor: "presisi" | "cepat",
+): string {
   const id = randomBytes(4).toString("hex");
   const folder = dirWork(`output/${id}`);
   const dirTmp = dirWork("tmp");
-  const p = o.pengaturan;
-  const nTotal = hitungPart(o.info.durasi, p.durasiPart);
-  const W = p.resolusi === "720" ? 720 : 1080;
-  const H = p.resolusi === "720" ? 1280 : 1920;
-  const fps = Math.min(60, Math.max(15, Math.round(o.info.fps)));
-  const preset = o.modeEkspor === "cepat" ? "ultrafast" : "medium";
-  const crf = o.modeEkspor === "cepat" ? 23 : 20;
-  const slug = slugify(p.judul);
-  const paralel = Math.min(4, Math.max(1, Math.round(p.prosesParalel || 2)));
+  const paralel = Math.min(4, Math.max(1, Math.round(daftar[0]?.pengaturan.prosesParalel || 2)));
+
+  const nTotalPerVideo = daftar.map((it) => hitungPart(it.info.durasi, it.pengaturan.durasiPart));
+  const totalPartSemua = nTotalPerVideo.reduce((a, b) => a + b, 0);
 
   const job: InfoJob = {
     id,
-    total: nTotal,
-    selesai: 0,
+    antrean: daftar.map((it, i) => ({
+      nama: it.nama,
+      total: nTotalPerVideo[i],
+      selesai: 0,
+      status: "menunggu" as StatusVideo,
+    })),
+    videoAktif: 0,
     partAktif: 0,
     progresPart: 0,
     progresTotal: 0,
     outputs: [],
     error: null,
+    adaGagal: false,
     selesaiSemua: false,
     dibuat: Date.now(),
     akselerasi: "mendeteksi…",
@@ -86,26 +108,31 @@ export function mulaiEkspor(o: OpsiEkspor): string {
   jobs.set(id, job);
 
   (async () => {
-    // pilih ffmpeg terbaik (yang punya drawtext utk tulisan) + encoder sekali untuk seluruh job
     const ff = await pilihFfmpeg();
-    const butuhTeks = !!(p.judul || "").trim() || !!(p.kataPart || "").trim();
+    // ffmpeg tanpa drawtext hanya fatal kalau memang ada video yang butuh tulisan
+    const butuhTeks = daftar.some(
+      (it) => !!(it.pengaturan.judul || "").trim() || !!(it.pengaturan.kataPart || "").trim(),
+    );
     if (butuhTeks && !ff.drawtext) {
       throw new Error(
         `ffmpeg yang terpilih (${ff.bin}) tidak mendukung filter drawtext (libfreetype), padahal ada tulisan judul/Part. Pasang ffmpeg lengkap atau arahkan VIDSPLIT_FFMPEG ke ffmpeg yang punya libfreetype.`,
       );
     }
-    const enc = await pilihEncoder(p.pakaiGpu !== false, preset, crf, ff.bin);
+    // encoder dipilih sekali dari video pertama (paralel/GPU memang global)
+    const p0 = daftar[0].pengaturan;
+    const preset = modeEkspor === "cepat" ? "ultrafast" : "medium";
+    const crf = modeEkspor === "cepat" ? 23 : 20;
+    const enc = await pilihEncoder(p0.pakaiGpu !== false, preset, crf, ff.bin);
     job.akselerasi = enc.nama;
 
-    const slot: (KeluaranJob | null)[] = Array.from({ length: nTotal }, () => null);
-    const fraksi = new Map<number, number>(); // progres per part 0..1
-    let berikut = 1;
-    let mati = false;
+    const slot: (KeluaranJob | null)[] = Array.from({ length: totalPartSemua }, () => null);
+    let pengisi = 0; // index slot berikutnya (urut: video berurutan, part paralel dalam video)
+    const fraksi = new Map<string, number>(); // "vi:part" → 0..1
 
     const perbaruiProgres = () => {
-      let jumlah = job.selesai;
+      let jumlah = 0;
       for (const f of fraksi.values()) jumlah += f;
-      job.progresTotal = Math.min(100, Math.round((jumlah / Math.max(1, nTotal)) * 100));
+      job.progresTotal = Math.min(100, Math.round((jumlah / Math.max(1, totalPartSemua)) * 100));
       let rata = 0;
       if (fraksi.size) {
         for (const f of fraksi.values()) rata += f;
@@ -115,15 +142,20 @@ export function mulaiEkspor(o: OpsiEkspor): string {
       job.partAktif = fraksi.size;
     };
 
-    const renderSatu = async (n: number) => {
-      if (mati) return;
-      const [mulai, durasi] = rentangPart(n, o.info.durasi, p.durasiPart);
+    /** render SATU part dari video ke-vi */
+    const renderSatu = (vi: number, it: ItemEkspor, n: number) => {
+      const p = it.pengaturan;
+      const [mulai, durasi] = rentangPart(n, it.info.durasi, p.durasiPart);
+      const W = p.resolusi === "720" ? 720 : 1080;
+      const H = p.resolusi === "720" ? 1280 : 1920;
+      const fps = Math.min(60, Math.max(15, Math.round(it.info.fps)));
+      const slug = slugify(p.judul);
       const nama = `${slug}-part-${String(n).padStart(2, "0")}.mp4`;
       const keluar = path.join(folder, nama);
-      const tag = `${id}-${n}`;
+      const tag = `${id}-${vi}-${n}`;
       const { args, total } = bangunArgumenPart({
-        src: o.srcAbs,
-        bg: o.bgAbs,
+        src: it.srcAbs,
+        bg: it.bgAbs,
         pengaturan: p,
         n,
         mulai,
@@ -131,7 +163,7 @@ export function mulaiEkspor(o: OpsiEkspor): string {
         W,
         H,
         fps,
-        adaAudio: o.info.adaAudio,
+        adaAudio: it.info.adaAudio,
         judulTxt: p.judul || "",
         partTxt: `${p.kataPart || "Part"} ${n}`,
         dirTmp,
@@ -139,47 +171,77 @@ export function mulaiEkspor(o: OpsiEkspor): string {
         codecArgs: enc.codecArgs,
         keluar,
       });
-      try {
-        await jalankanFfmpeg(args, total, (f) => {
-          fraksi.set(n, f);
+      const slotIdx = pengisi++;
+      return jalankanFfmpeg(args, total, (f) => {
+        fraksi.set(`${vi}:${n}`, f);
+        perbaruiProgres();
+      }, ff.bin)
+        .then(() => {
+          for (const akhiran of ["judul", "part"]) {
+            try {
+              unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
+            } catch {
+              /* abaikan */
+            }
+          }
+          slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
+          job.antrean[vi].selesai += 1;
+        })
+        .finally(() => {
+          fraksi.delete(`${vi}:${n}`);
           perbaruiProgres();
-        }, ff.bin);
-      } finally {
-        fraksi.delete(n);
-      }
-      for (const akhiran of ["judul", "part"]) {
-        try {
-          unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
-        } catch {
-          /* abaikan */
-        }
-      }
-      slot[n - 1] = { file: nama, ukuran: statSync(keluar).size };
-      job.selesai += 1;
-      job.outputs = slot.filter((s): s is KeluaranJob => !!s);
-      perbaruiProgres();
+        });
     };
 
-    // pool pekerja: `paralel` ffmpeg serentak, antre part berikutnya saat ada yang selesai
-    const pekerja = Array.from({ length: Math.min(paralel, nTotal) }, async () => {
-      while (true) {
-        const n = berikut;
-        berikut += 1;
-        if (n > nTotal || mati) return;
-        try {
-          await renderSatu(n);
-        } catch (e) {
-          mati = true; // hentikan pengambilan part baru; part berjalan biarkan selesai
-          throw e;
+    /** render semua part satu video — pool paralel; antrean video BERURUTAN.
+     *  Bila video ini gagal, tandai gagal lalu antrean LANJUT ke video berikutnya. */
+    const renderVideo = async (vi: number, it: ItemEkspor) => {
+      job.videoAktif = vi;
+      job.antrean[vi].status = "proses";
+      const nTotal = nTotalPerVideo[vi];
+      let berikut = 1;
+      let gagal = false;
+      const pekerja = Array.from({ length: Math.min(paralel, nTotal) }, async () => {
+        while (true) {
+          const n = berikut;
+          berikut += 1;
+          if (n > nTotal || gagal) return;
+          try {
+            await renderSatu(vi, it, n);
+          } catch (e) {
+            // hentikan pengambilan part baru video INI; part berjalan biar selesai
+            if (!gagal) {
+              gagal = true;
+              job.error = `${it.nama}: ${e instanceof Error ? e.message : String(e)}`;
+            }
+          }
         }
+      });
+      await Promise.all(pekerja);
+      if (gagal) {
+        job.antrean[vi].status = "gagal";
+        job.adaGagal = true;
+      } else {
+        job.antrean[vi].status = "selesai";
       }
-    });
-    await Promise.all(pekerja);
+    };
+
+    for (let vi = 0; vi < daftar.length; vi++) {
+      await renderVideo(vi, daftar[vi]);
+    }
+
+    // bila ada video gagal, tukar urutan slot supaya outputs yang terisi rapat
+    job.outputs = slot.filter((s): s is KeluaranJob => !!s);
+    job.videoAktif = -1;
     job.partAktif = 0;
-    job.progresTotal = 100;
     job.selesaiSemua = true;
   })().catch((e) => {
     job.error = e instanceof Error ? e.message : String(e);
+    job.selesaiSemua = true;
+    for (const v of job.antrean) {
+      if (v.status === "menunggu" || v.status === "proses") v.status = "gagal";
+    }
+    job.adaGagal = true;
   });
 
   return id;

@@ -4,9 +4,10 @@ export {};
 declare global {
   interface Window {
     vdsplitDesktop?: {
+      /** pilih file — video: array banyak file (antrean), bg: array 1 file */
       pilih: (
         jenis: "video" | "bg",
-      ) => Promise<{ path: string; nama: string; ukuran: number } | null>;
+      ) => Promise<Array<{ path: string; nama: string; ukuran: number }>>;
     };
   }
 }
