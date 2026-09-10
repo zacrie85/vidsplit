@@ -10,6 +10,39 @@ const port = 31900 + Math.floor(Math.random() * 400);
 let server;
 let win;
 let logStream;
+let fileLog;
+
+/**
+ * Pilih folder data aplikasi:
+ * - Mode PORTABLE (exe tunggal, tanpa install): electron-builder menyetel env
+ *   PORTABLE_EXECUTABLE_DIR = folder tempat exe berada → data disimpan di
+ *   "VidSplit-Data" di sampingnya, ikut pindah bersama exe (benar-benar portabel).
+ * - Uji tulis sungguhan — bila folder tidak boleh ditulis (mis. ditaruh di
+ *   Program Files / root C:), fallback otomatis ke AppData seperti mode terinstal.
+ */
+function pilihDataDir() {
+  const userData = app.getPath("userData");
+  const portableDir = process.env.PORTABLE_EXECUTABLE_DIR;
+  if (portableDir) {
+    try {
+      const dataDir = path.join(portableDir, "VidSplit-Data");
+      fs.mkdirSync(dataDir, { recursive: true });
+      const probe = path.join(dataDir, ".uji-tulis");
+      fs.writeFileSync(probe, "ok");
+      fs.unlinkSync(probe);
+      return {
+        dataDir,
+        logFile: path.join(dataDir, "server.log"),
+        portable: true,
+      };
+    } catch {
+      /* folder exe tak bisa ditulis → pakai AppData */
+    }
+  }
+  const dataDir = path.join(userData, "data");
+  fs.mkdirSync(dataDir, { recursive: true });
+  return { dataDir, logFile: path.join(userData, "server.log"), portable: false };
+}
 
 function catat(pesan) {
   const baris = `[${new Date().toISOString()}] ${pesan}\n`;
@@ -23,6 +56,8 @@ function catat(pesan) {
 
 function nyalakanServer() {
   const res = process.resourcesPath || path.join(__dirname, "..");
+  const data = pilihDataDir();
+  fileLog = data.logFile;
 
   // Layout standalone bisa berbeda: nested vidsplit/ (monorepo) atau root (CI)
   const kandidat = [
@@ -36,11 +71,9 @@ function nyalakanServer() {
     );
   }
 
-  const dirKerja = path.join(app.getPath("userData"), "data");
-  fs.mkdirSync(dirKerja, { recursive: true });
-  logStream = fs.createWriteStream(path.join(app.getPath("userData"), "server.log"), {
-    flags: "a",
-  });
+  logStream = fs.createWriteStream(fileLog, { flags: "a" });
+  const dirKerja = data.dataDir;
+  catat(`Mode: ${data.portable ? "PORTABLE" : "terinstal"} — folder data: ${dirKerja}`);
 
   const env = {
     ...process.env,
@@ -67,7 +100,7 @@ function nyalakanServer() {
     if (!win) {
       tampilkanGalat(
         `Server internal berhenti (kode ${code}).`,
-        `Log lengkap: ${path.join(app.getPath("userData"), "server.log")}`
+        `Log lengkap: ${fileLog}`
       );
     }
   });
@@ -97,10 +130,7 @@ function tungguServer(coba = 0) {
       if (coba > 300) {
         return reject(
           new Error(
-            `Server internal tidak merespons setelah 60 detik. Log: ${path.join(
-              app.getPath("userData"),
-              "server.log"
-            )}`
+            `Server internal tidak merespons setelah 60 detik. Log: ${fileLog}`
           )
         );
       }
@@ -156,10 +186,7 @@ app.whenReady().then(async () => {
     catat(`GAGAL: ${err.stack || err.message}`);
     tampilkanGalat(
       "gagal menyala",
-      `${err.message}\n\nLog lengkap: ${path.join(
-        app.getPath("userData"),
-        "server.log"
-      )}`
+      `${err.message}\n\nLog lengkap: ${fileLog}`
     );
     app.quit();
   }

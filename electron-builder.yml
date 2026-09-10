@@ -16,7 +16,10 @@ extraResources:
 win:
   target:
     - nsis
+    - portable
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   artifactName: VidSplit-Setup-${version}.${ext}
+portable:
+  artifactName: VidSplit-Portable-${version}.${ext}

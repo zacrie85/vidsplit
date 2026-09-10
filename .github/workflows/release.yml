@@ -1,4 +1,4 @@
-name: Rilis VidSplit (installer Windows)
+name: Rilis VidSplit (installer + portable Windows)
 
 on:
   push:
@@ -32,44 +32,52 @@ jobs:
           NEXT_TELEMETRY_DISABLED: "1"
         run: npm run build
 
-      - name: Paket installer Windows (NSIS)
+      - name: Paket Windows (NSIS installer + Portable)
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-        run: npx electron-builder --win nsis --publish never
+        run: npx electron-builder --win nsis portable --publish never
 
-      - name: Terbitkan release + unggah installer
+      - name: Terbitkan release + unggah installer & portable
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
-          EXE=$(ls release/VidSplit-Setup-*.exe | head -n 1)
-          echo "Installer: $EXE"
+          SETUP=$(ls release/VidSplit-Setup-*.exe | head -n 1)
+          PORTABLE=$(ls release/VidSplit-Portable-*.exe | head -n 1)
+          echo "Installer: $SETUP"
+          echo "Portable:  $PORTABLE"
           CATATAN=$(cat << ISI
-          ## VidSplit $TAG — installer Windows
+          ## VidSplit $TAG — installer + portable Windows
 
           Aplikasi desktop untuk kreator konten:
 
-          - Ubah video horizontal menjadi vertikal 9:16 (blur lembut / potong penuh / warna solid)
+          - Ubah video horizontal menjadi vertikal 9:16 (blur lembut / potong penuh yang bisa digeser / warna solid)
           - Tulisan judul statis + tulisan "Part X" berganti otomatis sesuai durasi set
-          - Split otomatis tepat di batas part (mode presisi atau cepat)
-          - Background PNG/JPG otomatis di awal setiap hasil split
+          - Split otomatis tepat di batas part — render paralel 1-4 part + akselerasi GPU otomatis (NVIDIA/Intel/AMD)
+          - Background PNG/JPG otomatis di awal SETIAP hasil split
           - Semua diproses lokal di PC-mu dengan ffmpeg yang sudah dibundel — tidak ada unggahan ke internet
 
-          ### Cara memasang
+          ### Pilih salah satu versi
 
-          1. Unduh VidSplit-Setup-0.1.0.exe di bawah
-          2. Jalankan installer (boleh pilih folder instalasi sendiri)
-          3. Jika Windows SmartScreen muncul karena installer belum ditandatangani: klik "More info" lalu "Run anyway"
+          - **VidSplit-Setup-$TAG.exe** — versi terinstal: di-install seperti aplikasi biasa, ada shortcut di Start Menu.
+          - **VidSplit-Portable-$TAG.exe** — versi portabel: TANPA install, cukup satu file. Letakkan di mana saja
+            (mis. flashdisk / D:), klik dua kali untuk langsung memakai. Data kerja (hasil split, background)
+            tersimpan otomatis di folder "VidSplit-Data" di samping file exe — ikut pindah bersama file exe.
 
-          Persyaratan: Windows 10/11 64-bit.
+          ### Catatan untuk keduanya
+
+          - Jika Windows SmartScreen muncul karena aplikasi belum ditandatangani: klik "More info" lalu "Run anyway"
+          - Untuk versi portable: jangan letakkan exe di folder yang terkunci tulisannya (mis. C:\Program Files) —
+            taruh di Desktop, Documents, D:, atau flashdisk agar folder data bisa dibuat
+          - Persyaratan: Windows 10/11 64-bit
           ISI
           )
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$EXE" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" "$SETUP" "$PORTABLE" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" "$EXE" \
+            gh release create "$TAG" "$SETUP" "$PORTABLE" \
               --repo "$GITHUB_REPOSITORY" \
               --title "VidSplit $TAG" \
               --notes "$CATATAN"
