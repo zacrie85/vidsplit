@@ -1,8 +1,9 @@
 // VidSplit — manajer job ekspor ANTREAN: video diproses berurutan dari atas ke bawah,
 // di dalam tiap video part dirender paralel (pool 1-4 ffmpeg), progres dipolling API
 import { randomBytes } from "node:crypto";
-import { statSync, unlinkSync } from "node:fs";
+import { readdirSync, statSync, unlinkSync } from "node:fs";
 import path from "node:path";
+import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
 import {
   bangunArgumenPart,
   dirWork,
@@ -21,7 +22,7 @@ export interface KeluaranJob {
   ukuran: number;
 }
 
-export type StatusVideo = "menunggu" | "proses" | "selesai" | "gagal";
+export type StatusVideo = "menunggu" | "proses" | "selesai" | "gagal" | "dibatalkan";
 
 export interface StatusVideoAntrean {
   nama: string;
@@ -48,6 +49,10 @@ export interface InfoJob {
   /** true bila ada video yang gagal (antrean tetap lanjut) */
   adaGagal: boolean;
   selesaiSemua: boolean;
+  /** true bila tombol Batalkan sudah ditekan dan proses sedang dihentikan */
+  batalDiminta: boolean;
+  /** true bila ekspor diakhiri oleh tombol Batalkan — hasil parsial tetap bisa diunduh */
+  dibatalkan: boolean;
   dibuat: number;
   /** encoder yang dipakai, mis. "NVIDIA NVENC (GPU)" / "CPU (libx264)" */
   akselerasi: string;
@@ -63,6 +68,16 @@ export function ambilJob(id: string): InfoJob | undefined {
 
 export function daftarJob(): InfoJob[] {
   return [...jobs.values()].sort((a, b) => b.dibuat - a.dibuat);
+}
+
+/** Batalkan job yang sedang berjalan: pasang flag + bunuh ffmpeg aktif.
+ *  Worker pool berhenti mengambil part baru; hasil parsial tetap bisa diunduh. */
+export function batalkanJob(id: string): boolean {
+  const job = jobs.get(id);
+  if (!job || job.selesaiSemua) return false;
+  job.batalDiminta = true;
+  mintaBatal(id);
+  return true;
 }
 
 export interface ItemEkspor {
@@ -109,6 +124,8 @@ export function mulaiEksporAntrean(
     error: null,
     adaGagal: false,
     selesaiSemua: false,
+    batalDiminta: false,
+    dibatalkan: false,
     dibuat: Date.now(),
     akselerasi: "mendeteksi…",
     paralel,
@@ -161,6 +178,7 @@ export function mulaiEksporAntrean(
 
     /** render SATU part dari video ke-vi */
     const renderSatu = async (vi: number, it: ItemEkspor, n: number) => {
+      if (apakahBatal(id)) throw new Error("DIBATALKAN");
       const p = it.pengaturan;
       const enc = await ambilEnc(p);
       if (!job.akselerasi.includes(enc.nama)) {
@@ -203,7 +221,7 @@ export function mulaiEksporAntrean(
       return jalankanFfmpeg(args, total, (f) => {
         fraksi.set(`${vi}:${n}`, f);
         perbaruiProgres();
-      }, ff.bin)
+      }, ff.bin, (c) => daftarkanProses(id, c))
         .then(() => {
           for (const akhiran of ["judul", "part"]) {
             try {
@@ -231,12 +249,15 @@ export function mulaiEksporAntrean(
       let gagal = false;
       const pekerja = Array.from({ length: Math.min(paralel, nTotal) }, async () => {
         while (true) {
+          if (apakahBatal(id)) return;
           const n = berikut;
           berikut += 1;
           if (n > nTotal || gagal) return;
           try {
             await renderSatu(vi, it, n);
           } catch (e) {
+            // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
+            if (apakahBatal(id)) return;
             // hentikan pengambilan part baru video INI; part berjalan biar selesai
             if (!gagal) {
               gagal = true;
@@ -246,6 +267,10 @@ export function mulaiEksporAntrean(
         }
       });
       await Promise.all(pekerja);
+      if (apakahBatal(id)) {
+        job.antrean[vi].status = "dibatalkan";
+        return;
+      }
       if (gagal) {
         job.antrean[vi].status = "gagal";
         job.adaGagal = true;
@@ -255,14 +280,40 @@ export function mulaiEksporAntrean(
     };
 
     for (let vi = 0; vi < daftar.length; vi++) {
+      if (apakahBatal(id)) break;
       await renderVideo(vi, daftar[vi]);
     }
 
     // bila ada video gagal, tukar urutan slot supaya outputs yang terisi rapat
     job.outputs = slot.filter((s): s is KeluaranJob => !!s);
+
+    if (apakahBatal(id)) {
+      // pembatalan: tandai status, buang file parsial yang tak jadi, jaga hasil utuh
+      for (const v of job.antrean) {
+        if (v.status === "menunggu" || v.status === "proses") v.status = "dibatalkan";
+      }
+      job.error = null;
+      job.dibatalkan = true;
+      try {
+        const utuh = new Set(job.outputs.map((o) => o.file));
+        for (const f of readdirSync(folder)) {
+          if (f.endsWith(".mp4") && !utuh.has(f)) {
+            try {
+              unlinkSync(path.join(folder, f));
+            } catch {
+              /* abaikan */
+            }
+          }
+        }
+      } catch {
+        /* folder mungkin belum ada */
+      }
+    }
+
     job.videoAktif = -1;
     job.partAktif = 0;
     job.selesaiSemua = true;
+    bersihkanBatal(id);
   })().catch((e) => {
     job.error = e instanceof Error ? e.message : String(e);
     job.selesaiSemua = true;
@@ -270,6 +321,7 @@ export function mulaiEksporAntrean(
       if (v.status === "menunggu" || v.status === "proses") v.status = "gagal";
     }
     job.adaGagal = true;
+    bersihkanBatal(id);
   });
 
   return id;

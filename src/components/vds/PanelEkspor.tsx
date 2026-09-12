@@ -5,12 +5,14 @@
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
+  Ban,
   CheckCircle2,
   Cpu,
   Download,
   FileArchive,
   Loader2,
   Rocket,
+  Square,
   Timer,
   XCircle,
   Zap,
@@ -31,6 +33,7 @@ const LABEL_STATUS: Record<string, string> = {
   proses: "merender…",
   selesai: "selesai",
   gagal: "gagal",
+  dibatalkan: "dibatalkan",
 };
 
 export function PanelEkspor({
@@ -45,6 +48,7 @@ export function PanelEkspor({
   const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("presisi");
   const [job, setJob] = useState<InfoJob | null>(null);
   const [mulai, setMulai] = useState(false);
+  const [batalKirim, setBatalKirim] = useState(false);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // polling status job
@@ -55,11 +59,17 @@ export function PanelEkspor({
         timer.current = null;
       }
       if (job?.selesaiSemua) {
-        const gagal = job.antrean.filter((v) => v.status === "gagal").length;
-        if (gagal > 0) {
-          toast.warning(`Ekspor selesai — ${job.antrean.length - gagal} video jadi, ${gagal} gagal`);
+        if (job.dibatalkan) {
+          toast.warning(
+            `Ekspor dibatalkan — ${job.outputs.length} part yang sudah jadi tetap bisa diunduh`,
+          );
         } else {
-          toast.success(`Ekspor selesai — ${job.outputs.length} file siap unduh`);
+          const gagal = job.antrean.filter((v) => v.status === "gagal").length;
+          if (gagal > 0) {
+            toast.warning(`Ekspor selesai — ${job.antrean.length - gagal} video jadi, ${gagal} gagal`);
+          } else {
+            toast.success(`Ekspor selesai — ${job.outputs.length} file siap unduh`);
+          }
         }
       }
       if (job?.error && !job.selesaiSemua) toast.error(`Ekspor gagal: ${job.error}`);
@@ -86,6 +96,7 @@ export function PanelEkspor({
 
   const ekspor = async () => {
     setMulai(true);
+    setBatalKirim(false);
     try {
       const r = await fetch("/api/export", {
         method: "POST",
@@ -126,6 +137,8 @@ export function PanelEkspor({
         error: null,
         adaGagal: false,
         selesaiSemua: false,
+        batalDiminta: false,
+        dibatalkan: false,
         dibuat: Date.now(),
         akselerasi: "mendeteksi…",
         paralel: opsiEkspor.paralel,
@@ -140,6 +153,25 @@ export function PanelEkspor({
 
   const totalProgres = job ? job.progresTotal : 0;
   const berjalan = !!job && !job.selesaiSemua;
+
+  /** tombol Batalkan: minta server membunuh ffmpeg yang sedang merender */
+  const batalkan = async () => {
+    if (!job || job.selesaiSemua || batalKirim) return;
+    setBatalKirim(true);
+    try {
+      const r = await fetch("/api/job", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: job.id, aksi: "batal" }),
+      });
+      const j = (await r.json()) as { ok: boolean; error?: string };
+      if (!j.ok) throw new Error(j.error || "Gagal membatalkan");
+      toast.info("Menghentikan proses… part yang sudah jadi tetap bisa diunduh");
+    } catch (e) {
+      setBatalKirim(false);
+      toast.error(e instanceof Error ? e.message : "Gagal membatalkan");
+    }
+  };
 
   const unduhZip = () => {
     if (!job?.outputs.length) return;
@@ -157,6 +189,7 @@ export function PanelEkspor({
   const ikonStatus = (status: string) => {
     if (status === "selesai") return <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />;
     if (status === "gagal") return <XCircle className="h-4 w-4 shrink-0 text-red-400" />;
+    if (status === "dibatalkan") return <Ban className="h-4 w-4 shrink-0 text-slate-500" />;
     if (status === "proses") return <Loader2 className="h-4 w-4 shrink-0 animate-spin text-amber-400" />;
     return <span className="h-4 w-4 shrink-0 rounded-full border-2 border-slate-600" />;
   };
@@ -248,6 +281,18 @@ export function PanelEkspor({
           : `Mulai ekspor & split (${daftar.length} video berurutan)`}
       </button>
 
+      {berjalan && (
+        <button
+          type="button"
+          onClick={batalkan}
+          disabled={batalKirim}
+          className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/60 bg-red-500/10 py-2.5 text-sm font-semibold text-red-300 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {batalKirim ? <Loader2 className="h-4 w-4 animate-spin" /> : <Square className="h-4 w-4" />}
+          {batalKirim ? "Menghentikan proses…" : "Batalkan proses"}
+        </button>
+      )}
+
       {job && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
@@ -275,7 +320,9 @@ export function PanelEkspor({
                     ? "border-red-500/40 bg-red-500/10 text-red-200"
                     : v.status === "proses"
                       ? "border-amber-400/50 bg-amber-400/10 text-amber-100"
-                      : "border-slate-700/60 bg-slate-800/50 text-slate-300"
+                      : v.status === "dibatalkan"
+                        ? "border-slate-700/60 bg-slate-800/50 text-slate-500"
+                        : "border-slate-700/60 bg-slate-800/50 text-slate-300"
                 }`}
               >
                 {ikonStatus(v.status)}
@@ -298,6 +345,17 @@ export function PanelEkspor({
           )}
           {job.error && (
             <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{job.error}</p>
+          )}
+          {job.batalDiminta && !job.selesaiSemua && (
+            <p className="flex items-center gap-1.5 rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+              <Ban className="h-3 w-3 shrink-0" /> Pembatalan diminta — menghentikan semua part…
+            </p>
+          )}
+          {job.dibatalkan && job.selesaiSemua && (
+            <p className="rounded-lg bg-slate-700/40 px-3 py-2 text-xs text-slate-300">
+              Ekspor dibatalkan. {job.outputs.length} part yang sudah selesai tetap bisa diunduh di
+              bawah.
+            </p>
           )}
           {job.outputs.length > 0 && (
             <div className="space-y-1.5">

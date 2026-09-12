@@ -1,5 +1,5 @@
 // VidSplit — integrasi ffmpeg/ffprobe: cari binary, probe, susun filter graph, eksekusi
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { CodecVideo, GayaTeks, ModeKonversi, PosisiLogo, Pengaturan } from "./types";
@@ -423,10 +423,12 @@ export async function jalankanFfmpeg(
   totalDetik: number,
   onProgres?: (fraksi: number) => void,
   bin?: string,
+  onSpawn?: (child: ChildProcess) => void,
 ): Promise<void> {
   const binFinal = bin || (await pilihFfmpeg()).bin;
   await new Promise<void>((resolve, reject) => {
     const c = spawn(binFinal, args, { windowsHide: true });
+    onSpawn?.(c);
     let stderr = "";
     let terakhirProgres = Date.now();
     const pemeriksa = setInterval(() => {
