@@ -368,7 +368,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.9.0
+            v0.9.1
           </span>
           <TombolGantiPassword />
         </div>
@@ -379,10 +379,12 @@ export default function Halaman() {
         </p>
       </header>
 
-      {/* v0.9.0 — DASBOR 3 KOLOM 25% / 50% / 25% (sesuai gambar referensi):
-          KIRI = antrean (muat 15 video) + menu 1-3 · TENGAH = pratinjau + ekspor ·
-          KANAN = background, watermark, ringkasan, riwayat, bersihkan.
-          Preset cepat DIHAPUS. Semua fitur tidak berubah — hanya tata letak. */}
+      {/* v0.9.1 — DASBOR 3 KOLOM 25% / 50% / 25%:
+          KIRI = antrean (muat 15 video) + menu 1 + Ringkasan + Riwayat ekspor ·
+          TENGAH = pratinjau + ekspor · KANAN = background, watermark, menu 2
+          (Tulisan judul), menu 3 (Tulisan Part otomatis), bersihkan.
+          v0.9.1: posisi Ringkasan DITUKAR dgn menu 2, posisi Riwayat ekspor
+          DITUKAR dgn menu 3 — hanya tata letak, semua fitur tidak berubah. */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]">
         {/* ============ KOLOM KIRI (25%) ============ */}
         <div className="space-y-4">
@@ -502,19 +504,24 @@ export default function Halaman() {
                 srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                 durasiVideo={videoAktif.info.durasi}
               />
-              <PanelJudul
+              <PanelRingkasan
                 pengaturan={videoAktif.pengaturan}
-                onChange={gantiPengaturanAktif}
-                nomorVideo={aktif + 1}
-              />
-              <PanelPart
-                pengaturan={videoAktif.pengaturan}
-                onChange={gantiPengaturanAktif}
-                nomorVideo={aktif + 1}
                 durasiVideo={videoAktif.info.durasi}
+                ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
+                lebarVideo={videoAktif.info.lebar}
+                tinggiVideo={videoAktif.info.tinggi}
+                bgInfo={videoAktif.bgInfo}
+                logoInfo={videoAktif.logoInfo}
+                nomorVideo={aktif + 1}
+                totalVideo={daftar.length}
+                onTerapkanKeSemua={terapkanKeSemua}
               />
             </>
           )}
+
+          {/* v0.9.1 — Riwayat ekspor pindah ke kolom kiri (menukar posisi dgn
+              3. Tulisan Part otomatis); tetap SELALU tampil walau antrean kosong */}
+          <PanelRiwayat />
         </div>
 
         {/* ============ KOLOM TENGAH (50%) ============ */}
@@ -589,23 +596,19 @@ export default function Halaman() {
                 srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                 nomorVideo={aktif + 1}
               />
-              <PanelRingkasan
+              <PanelJudul
                 pengaturan={videoAktif.pengaturan}
-                durasiVideo={videoAktif.info.durasi}
-                ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
-                lebarVideo={videoAktif.info.lebar}
-                tinggiVideo={videoAktif.info.tinggi}
-                bgInfo={videoAktif.bgInfo}
-                logoInfo={videoAktif.logoInfo}
+                onChange={gantiPengaturanAktif}
                 nomorVideo={aktif + 1}
-                totalVideo={daftar.length}
-                onTerapkanKeSemua={terapkanKeSemua}
+              />
+              <PanelPart
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+                durasiVideo={videoAktif.info.durasi}
               />
             </>
           )}
-
-          {/* riwayat ekspor — selalu tampil walau antrean kosong */}
-          <PanelRiwayat />
 
           {daftar.length > 0 && (
             <button
