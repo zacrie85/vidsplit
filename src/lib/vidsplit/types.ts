@@ -84,9 +84,10 @@ export const pengaturanDefault: Pengaturan = {
   warnaLatar: "#111827",
   judul: "Judul Video",
   // v0.8.0 default ukuran font atas permintaan user: judul 40, Part 35
-  gayaJudul: { font: "tebal", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+  // v0.9.2 default font atas permintaan user: Cinzel Decorative (cinzeldec) utk judul & Part
+  gayaJudul: { font: "cinzeldec", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
   kataPart: "Part",
-  gayaPart: { font: "tebal", ukuran: 35, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+  gayaPart: { font: "cinzeldec", ukuran: 35, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
   durasiPart: 20,
   bgId: "",
   durasiIntro: 3,

@@ -83,6 +83,14 @@ export default function Halaman() {
       const mentah = localStorage.getItem(KUNCI_SIMPAN);
       if (mentah) {
         const simpanan = JSON.parse(mentah) as Partial<Pengaturan>;
+        // v0.9.2 — migrasi default font: preferensi tersimpan dari instalasi lama
+        // yang masih memakai font default lama ("tebal") dinaikkan otomatis ke
+        // default baru ("cinzeldec" — Cinzel Decorative); pilihan font lain yang
+        // sengaja dipilih user tidak disentuh
+        if (simpanan.gayaJudul?.font === "tebal")
+          simpanan.gayaJudul = { ...simpanan.gayaJudul, font: "cinzeldec" };
+        if (simpanan.gayaPart?.font === "tebal")
+          simpanan.gayaPart = { ...simpanan.gayaPart, font: "cinzeldec" };
         // sinkron pasca-hidrasi dgn preferensi tersimpan — pola memuat localStorage
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setDasar((p) => ({ ...p, ...simpanan, bgId: "" }));
@@ -368,7 +376,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.9.1
+            v0.9.2
           </span>
           <TombolGantiPassword />
         </div>

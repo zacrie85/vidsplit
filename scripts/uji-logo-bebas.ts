@@ -62,6 +62,9 @@ function bangun(p: Pengaturan, W: number, H: number) {
 console.log("\n════ FITUR 4 — default font judul 40 / Part 35 ════");
 cek("gayaJudul.ukuran default = 40", pengaturanDefault.gayaJudul.ukuran === 40, `ada ${pengaturanDefault.gayaJudul.ukuran}`);
 cek("gayaPart.ukuran default = 35", pengaturanDefault.gayaPart.ukuran === 35, `ada ${pengaturanDefault.gayaPart.ukuran}`);
+// v0.9.2 — default font Cinzel Decorative utk menu 2 & 3 (permintaan user)
+cek("gayaJudul.font default = cinzeldec (Cinzel Decorative)", pengaturanDefault.gayaJudul.font === "cinzeldec", `ada ${pengaturanDefault.gayaJudul.font}`);
+cek("gayaPart.font default = cinzeldec (Cinzel Decorative)", pengaturanDefault.gayaPart.font === "cinzeldec", `ada ${pengaturanDefault.gayaPart.font}`);
 
 console.log("\n════ FITUR 2 — posisi bebas watermark ════");
 cek("default logoX = 81.5 (≈ kanan-bawah lama)", pengaturanDefault.logoX === 81.5, `ada ${pengaturanDefault.logoX}`);
