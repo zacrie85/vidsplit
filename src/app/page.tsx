@@ -21,6 +21,7 @@ import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
 import {
   BATAS_VIDEO,
   formatDurasi,
+  judulDariNama,
   pengaturanDefault,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
@@ -143,11 +144,12 @@ export default function Halaman() {
         ...d,
         {
           info,
-          // pengaturan baru mulai dari preferensi tersimpan, judul dikosongkan agar
-          // tiap video diset manual (nama file jadi petunjuk)
-          pengaturan: pengaturanTersimpan
-            ? { ...pengaturanDefault }
-            : { ...dasar, judul: "" },
+          // pengaturan baru mulai dari preferensi tersimpan; judul diisi OTOMATIS
+          // dari nama file video — user tinggal ganti font bila perlu
+          pengaturan: {
+            ...(pengaturanTersimpan ? { ...pengaturanDefault } : dasar),
+            judul: judulDariNama(nama),
+          },
           bgInfo: null,
           logoInfo: null,
         },
@@ -157,7 +159,16 @@ export default function Halaman() {
       toast.error(`Antrean penuh — maksimal ${BATAS_VIDEO} video. "${nama}" dilewati.`);
       return;
     }
-    toast.success(`"${nama}" masuk antrean — ${formatDurasi(info.durasi)}`);
+    const judulAuto = judulDariNama(nama);
+    const potonganJudul = judulAuto
+      ? judulAuto.length > 28
+        ? judulAuto.slice(0, 28) + "…"
+        : judulAuto
+      : null;
+    toast.success(
+      `"${nama}" masuk antrean — ${formatDurasi(info.durasi)}` +
+        (potonganJudul ? ` · judul otomatis: "${potonganJudul}"` : ""),
+    );
   };
 
   const unggahSatu = async (f: File, sisaKuota: number) => {
@@ -349,7 +360,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.6.0
+            v0.6.1
           </span>
           <TombolGantiPassword />
         </div>

@@ -1,8 +1,8 @@
 {
   "name": "vidsplit",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
-  "description": "VidSplit — ubah video horizontal jadi vertikal 9:16, beri judul + Part otomatis, split per durasi set, intro background di tiap potongan",
+  "description": "VidSplit \u2014 ubah video horizontal jadi vertikal 9:16, beri judul + Part otomatis, split per durasi set, intro background di tiap potongan",
   "author": "zacrie85",
   "main": "electron/main.cjs",
   "scripts": {
@@ -35,5 +35,9 @@
     "tailwindcss": "^4",
     "typescript": "^5"
   },
-  "trustedDependencies": ["electron", "ffmpeg-static", "esbuild"]
+  "trustedDependencies": [
+    "electron",
+    "ffmpeg-static",
+    "esbuild"
+  ]
 }

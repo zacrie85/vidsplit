@@ -185,6 +185,24 @@ export function formatDurasi(det: number): string {
   return j > 0 ? `${j}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
+/** Judul otomatis dari nama file video — "video-kuda_laut.mp4" → "Video Kuda Laut".
+ *  Buang ekstensi & path, ganti pemisah umum jadi spasi, pisah camelCase,
+ *  kapitalisasi tiap kata, potong 80 karakter agar aman di layar. */
+export function judulDariNama(nama: string): string {
+  const dasar = (nama || "").replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "");
+  const bersih = dasar
+    .replace(/[_\-.]+/g, " ")
+    .replace(/([a-zà-ÿ])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!bersih) return "";
+  const kapital = bersih
+    .split(" ")
+    .map((k) => k[0].toUpperCase() + k.slice(1).toLowerCase())
+    .join(" ");
+  return kapital.length > 80 ? kapital.slice(0, 80).trimEnd() + "…" : kapital;
+}
+
 export function slugify(teks: string): string {
   const slug =
     (teks || "")

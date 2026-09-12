@@ -289,7 +289,7 @@ export function PanelAtur({
       {/* B — Judul */}
       <Kartu
         judul="2. Tulisan judul"
-        deskripsi={`Statis di semua potongan video #${nomorVideo} (boleh banyak baris)`}
+        deskripsi={`Terisi otomatis dari nama video saat diimpor — boleh diedit. Statis di semua potongan #${nomorVideo}`}
         ikon={<Type className="h-4 w-4" />}
       >
         <textarea
@@ -297,7 +297,7 @@ export function PanelAtur({
           onChange={(e) => set("judul", e.target.value)}
           rows={2}
           maxLength={300}
-          placeholder="Tulis judul video di sini…"
+          placeholder="Terisi otomatis dari nama video — ubah bila perlu…"
           className="w-full resize-y rounded-lg border border-slate-700 bg-slate-800/70 p-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
         />
         <GayaEditor
