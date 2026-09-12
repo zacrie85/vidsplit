@@ -1,10 +1,6 @@
-// Uji unit v0.6.3 — preset cepat TikTok/Reels/Shorts + matematika jendela pratinjau potong
-// Jalankan: bun scripts/uji-preset.ts
-import {
-  PRESET_CEPAT,
-  pengaturanDefault,
-  type Pengaturan,
-} from "../src/lib/vidsplit/types";
+// Uji unit v0.9.0 — matematika jendela pratinjau potong (preset cepat sudah DIHAPUS
+// dari aplikasi sejak v0.9.0, ujinya ikut disederhanakan menjadi uji-potong)
+// Jalankan: bun scripts/uji-potong.ts
 
 let lolos = 0;
 let total = 0;
@@ -17,44 +13,6 @@ function ok(kondisi: boolean, nama: string, detail?: unknown) {
     console.error(`  ✗ GAGAL: ${nama}`, detail ?? "");
   }
 }
-
-console.log("== PRESET_CEPAT ==");
-ok(PRESET_CEPAT.length === 3, "3 preset (tiktok, reels, shorts)");
-ok(
-  PRESET_CEPAT.map((p) => p.id).join(",") === "tiktok,reels,shorts",
-  "urutan & id preset benar",
-);
-
-for (const pr of PRESET_CEPAT) {
-  ok(typeof pr.nama === "string" && pr.nama.length > 2, `${pr.id}: nama ada`);
-  ok(typeof pr.catatan === "string" && pr.catatan.length > 5, `${pr.id}: catatan ada`);
-  const hasil: Pengaturan = { ...pengaturanDefault, ...pr.ubah };
-  ok(hasil.resolusi === "1080", `${pr.id}: resolusi 1080`);
-  ok(hasil.codec === "h264", `${pr.id}: codec H.264 (paling kompatibel)`);
-  ok(hasil.durasiPart >= 30 && hasil.durasiPart <= 3600, `${pr.id}: durasi part masuk akal`, hasil.durasiPart);
-  ok(hasil.mode === "blur" || hasil.mode === "crop", `${pr.id}: mode valid`, hasil.mode);
-  // hal yang TIDAK boleh disentuh preset
-  ok(
-    hasil.judul === pengaturanDefault.judul &&
-      hasil.gayaJudul.font === pengaturanDefault.gayaJudul.font &&
-      hasil.logoId === pengaturanDefault.logoId &&
-      hasil.bgId === pengaturanDefault.bgId &&
-      hasil.mulaiDetik === pengaturanDefault.mulaiDetik,
-    `${pr.id}: judul/font/logo/bg/trim tidak diubah`,
-  );
-}
-ok(
-  PRESET_CEPAT.find((p) => p.id === "tiktok")?.ubah.durasiPart === 60,
-  "tiktok = part 60 dtk",
-);
-ok(
-  PRESET_CEPAT.find((p) => p.id === "reels")?.ubah.durasiPart === 90,
-  "reels = part 90 dtk",
-);
-ok(
-  PRESET_CEPAT.find((p) => p.id === "shorts")?.ubah.mode === "crop",
-  "shorts = potong penuh",
-);
 
 console.log("== MATEMATIKA JENDELA PRATINJAU POTONG ==");
 // rumus sama dgn PratinjauPotong.tsx — wajib konsisten dgn filter ffmpeg:
@@ -96,4 +54,4 @@ ok(monoton, "jendela selalu bergeser kanan saat posisi naik");
 
 console.log(`\n${lolos}/${total} uji LOLOS`);
 if (lolos !== total) process.exit(1);
-console.log("=== SEMUA UJI PRESET & PRATINJAU LOLOS ===");
+console.log("=== SEMUA UJI PRATINJAU POTONG LOLOS ===");

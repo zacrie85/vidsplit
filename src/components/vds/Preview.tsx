@@ -60,7 +60,12 @@ export function Preview({
   // landscape/square ikut lebih lega
   const modeAsli = pengaturan.mode === "asli" && lebar > 0 && tinggi > 0;
   const rasioBingkai = modeAsli ? `${lebar} / ${tinggi}` : "9 / 16";
-  const lebarMaks = modeAsli && lebar >= tinggi ? "max-w-[1100px]" : "max-w-[840px]";
+  // v0.9.0 — pratinjau tinggal di KOLOM TENGAH layout 3 kolom (50%):
+  // · potret (9:16 / sumber vertikal) dibatasi TINGGI layar (76vh) agar dashboard
+  //   tetap proporsional & Ekspor tak tenggelam — lebar mengikuti rasio;
+  // · lanskap/persegi tetap selebar kolom (lebar-mengatur) seperti sebelumnya.
+  const potret = modeAsli ? tinggi > lebar : true;
+  const kelasBungkusan = potret ? "mx-auto w-fit" : "mx-auto w-full max-w-[1100px]";
 
   const susunTeks = (
     <div
@@ -109,10 +114,14 @@ export function Preview({
 
   return (
     <div>
-      <div className={`mx-auto w-full ${lebarMaks}`} style={{ containerType: "inline-size" }}>
+      <div className={kelasBungkusan}>
         <div
           className="relative overflow-hidden rounded-xl border border-slate-700/70 bg-black shadow-2xl shadow-black/50"
-          style={{ aspectRatio: rasioBingkai }}
+          style={
+            potret
+              ? { containerType: "inline-size", aspectRatio: rasioBingkai, height: "min(76vh, 1500px)" }
+              : { containerType: "inline-size", aspectRatio: rasioBingkai }
+          }
         >
           {pengaturan.mode === "asli" ? (
             <video
@@ -175,10 +184,9 @@ export function Preview({
             pratinjau — tanpa intro bg
           </span>
         </div>
-      </div>
 
-      {/* kontrol */}
-      <div className={`mx-auto mt-3 flex ${lebarMaks} items-center gap-2`}>
+        {/* kontrol */}
+        <div className="mt-3 flex items-center gap-2">
         <button
           type="button"
           onClick={() => lompat(Math.floor(t / pengaturan.durasiPart) * pengaturan.durasiPart - 0.01)}
@@ -221,27 +229,28 @@ export function Preview({
           {bisu ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
       </div>
-      <p className={`mx-auto mt-1 ${lebarMaks} text-center text-[10px] text-slate-500`}>
-        {formatDurasi(t)} / {formatDurasi(durasi)}
-        {modeAsli && <span className="ml-1 text-emerald-300">· rasio asli {lebar}×{tinggi}</span>}
-      </p>
+        <p className="mt-1 text-center text-[10px] text-slate-500">
+          {formatDurasi(t)} / {formatDurasi(durasi)}
+          {modeAsli && <span className="ml-1 text-emerald-300">· rasio asli {lebar}×{tinggi}</span>}
+        </p>
 
-      {/* peta part — klik untuk lompat */}
-      <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-        {Array.from({ length: totalPart }, (_, i) => i + 1).map((n) => (
-          <button
-            key={n}
-            type="button"
-            onClick={() => lompat((n - 1) * pengaturan.durasiPart + 0.01)}
-            className={`rounded-md border px-2 py-1 text-[10px] transition ${
-              n === partKini
-                ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
-                : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-            }`}
-          >
-            {pengaturan.kataPart || "Part"} {n}
-          </button>
-        ))}
+        {/* peta part — klik untuk lompat */}
+        <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+          {Array.from({ length: totalPart }, (_, i) => i + 1).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => lompat((n - 1) * pengaturan.durasiPart + 0.01)}
+              className={`rounded-md border px-2 py-1 text-[10px] transition ${
+                n === partKini
+                  ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
+                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+              }`}
+            >
+              {pengaturan.kataPart || "Part"} {n}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
