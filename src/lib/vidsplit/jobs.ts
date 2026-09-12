@@ -14,6 +14,7 @@ import {
   type PilihanEncoder,
 } from "./ffmpeg";
 import { catatRiwayat } from "./riwayat";
+import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tujuan";
 import { durasiEfektif, hitungPart, rentangPart, slugify, type CodecVideo, type Pengaturan } from "./types";
 
 export interface KeluaranJob {
@@ -59,6 +60,12 @@ export interface InfoJob {
   akselerasi: string;
   /** jumlah proses serentak per video */
   paralel: number;
+  /** v0.6.4 — true saat hasil sedang disalin ke folder tujuan */
+  menyalin?: boolean;
+  /** v0.6.4 — path absolut folder tempat hasil tersalin (bila simpan otomatis aktif) */
+  folderTersimpan?: string | null;
+  /** v0.6.4 — pesan peringatan bila penyalinan sebagian/total gagal */
+  peringatanSalin?: string | null;
 }
 
 const jobs = new Map<string, InfoJob>();
@@ -308,6 +315,29 @@ export function mulaiEksporAntrean(
         }
       } catch {
         /* folder mungkin belum ada */
+      }
+    }
+
+    // v0.6.4 — simpan otomatis: salin hasil ke folder tujuan yang dipilih user
+    // SEBELUM proses dimulai. Hasil tetap tersedia di aplikasi; salinan ini untuk
+    // langsung dipakai di folder pilihan user tanpa mengunduh satu per satu.
+    const setelan = muatSetelanTujuan();
+    if (setelan.otomatis && setelan.folder && job.outputs.length) {
+      job.menyalin = true;
+      try {
+        const hasil = await salinHasilKeTujuan(job, setelan.folder);
+        job.folderTersimpan = hasil.folder;
+        if (hasil.gagal.length) {
+          job.peringatanSalin = `${hasil.gagal.length} dari ${job.outputs.length} file gagal disalin ke folder tujuan — salinan tetap ada di aplikasi`;
+        } else if (setelan.bersihkanKerja) {
+          buangSalinanKerja(job); // hemat ruang: hanya bila SEMUA file terverifikasi tersalin
+        }
+      } catch (e) {
+        job.peringatanSalin = `Gagal menyalin ke folder tujuan: ${
+          e instanceof Error ? e.message : String(e)
+        }`;
+      } finally {
+        job.menyalin = false;
       }
     }
 

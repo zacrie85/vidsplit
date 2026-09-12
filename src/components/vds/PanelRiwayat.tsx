@@ -24,6 +24,7 @@ interface Entri {
   adaGagal: boolean;
   adaFile: boolean;
   ukuranAda: number;
+  folderTersimpan?: string | null;
 }
 
 const KUNCI_ACARA = "vidsplit:riwayat-berubah";
@@ -61,6 +62,18 @@ export function PanelRiwayat() {
       const d = window.vdsplitDesktop;
       if (!d?.bukaFolder) return;
       const r = await d.bukaFolder(`output/${id}`);
+      if (r && !r.ok) toast.error(r.error || "Gagal membuka folder");
+    } catch {
+      toast.error("Gagal membuka folder");
+    }
+  };
+
+  /** v0.6.4 — buka folder tujuan hasil ekspor (path absolut) di Explorer */
+  const bukaFolderTujuan = async (p: string) => {
+    try {
+      const d = window.vdsplitDesktop;
+      if (!d?.bukaFolderAbs) return;
+      const r = await d.bukaFolderAbs(p);
       if (r && !r.ok) toast.error(r.error || "Gagal membuka folder");
     } catch {
       toast.error("Gagal membuka folder");
@@ -106,6 +119,7 @@ export function PanelRiwayat() {
   };
 
   const desktop = typeof window !== "undefined" && !!window.vdsplitDesktop?.bukaFolder;
+  const desktopAbs = typeof window !== "undefined" && !!window.vdsplitDesktop?.bukaFolderAbs;
 
   return (
     <Kartu
@@ -151,6 +165,11 @@ export function PanelRiwayat() {
                       </span>
                     )}
                     {!e.adaFile && <span className="text-amber-400/80">file sudah tiada</span>}
+                    {e.folderTersimpan && (
+                      <span className="inline-flex items-center gap-0.5 text-sky-400/80">
+                        <FolderOpen className="h-2.5 w-2.5" /> tersalin ke folder tujuan
+                      </span>
+                    )}
                   </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
@@ -170,6 +189,16 @@ export function PanelRiwayat() {
                           onClick={() => void bukaFolder(e.id)}
                           title="Buka folder hasil di Explorer"
                           className="rounded-md border border-slate-600 p-1 text-slate-300 hover:border-amber-400 hover:text-amber-300"
+                        >
+                          <FolderOpen className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      {e.folderTersimpan && desktopAbs && (
+                        <button
+                          type="button"
+                          onClick={() => void bukaFolderTujuan(e.folderTersimpan as string)}
+                          title="Buka folder tujuan hasil ekspor di Explorer"
+                          className="rounded-md border border-sky-400/50 p-1 text-sky-300 hover:border-sky-300 hover:text-sky-200"
                         >
                           <FolderOpen className="h-3.5 w-3.5" />
                         </button>
@@ -199,6 +228,7 @@ export function PanelRiwayat() {
                 <p className="mt-1.5 rounded-lg bg-red-500/10 px-2 py-1 text-[10px] text-red-200">
                   Klik tong sampah sekali lagi untuk menghapus {e.outputs.length} file hasil
                   (&quot;{e.antrean.map((v) => v.nama).join(", ")}&quot;) permanen.
+                  {e.folderTersimpan && " Salinan di folder tujuan tidak ikut terhapus."}
                 </p>
               )}
             </li>

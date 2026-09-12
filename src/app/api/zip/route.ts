@@ -27,11 +27,26 @@ export async function GET(req: NextRequest) {
   const paralel = job?.paralel ?? lama?.paralel ?? 1;
   const akselerasi = job?.akselerasi ?? lama?.akselerasi ?? "ffmpeg";
 
-  // file hasil bisa saja sudah dibuang manual — saring yang benar-benar ada
+  // file hasil bisa saja sudah dibuang manual — saring yang benar-benar ada;
+  // v0.6.4: bila salinan kerja dibuang setelah tersalin, ambil dari folder tujuan
   const folderAbs = pathAman(`output/${id}`);
-  const outputs = outputsMentah.filter((o) => existsSync(path.join(folderAbs, o.file)));
+  const folderTersimpan = job?.folderTersimpan ?? lama?.folderTersimpan ?? null;
+  const sumberFile = (file: string): string | null => {
+    const kerja = path.join(folderAbs, file);
+    if (existsSync(kerja)) return kerja;
+    if (folderTersimpan) {
+      const tujuan = path.join(folderTersimpan, file);
+      if (existsSync(tujuan)) return tujuan;
+    }
+    return null;
+  };
+  const outputs = outputsMentah
+    .map((o) => ({ o, abs: sumberFile(o.file) }))
+    .filter((x): x is { o: (typeof outputsMentah)[number]; abs: string } => !!x.abs);
   if (!outputs.length) {
-    return new NextResponse("File hasil sudah tidak ada di folder kerja", { status: 400 });
+    return new NextResponse("File hasil sudah tidak ada di folder kerja maupun folder tujuan", {
+      status: 400,
+    });
   }
 
   // folder per video — nama unik berurutan bila ada nama sumber kembar
@@ -94,9 +109,9 @@ export async function GET(req: NextRequest) {
             ...antrean.map((v) => `- ${mapFolder.get(v.nama)} (${v.selesai}/${v.total} part)`),
           ].join("\n"),
         );
-        for (const o of outputs) {
+        for (const { o, abs } of outputs) {
           const folder = mapFolder.get(o.video) ?? "video";
-          await tambahFile(`${folder}/${o.file}`, path.join(folderAbs, o.file));
+          await tambahFile(`${folder}/${o.file}`, abs);
         }
         zip.end();
       })().catch((e) => alir(e instanceof Error ? e : new Error(String(e))));

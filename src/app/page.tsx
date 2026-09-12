@@ -361,7 +361,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.6.3
+            v0.6.4
           </span>
           <TombolGantiPassword />
         </div>

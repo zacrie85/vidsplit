@@ -199,6 +199,40 @@ ipcMain.handle("vdsplit:buka-folder", async (_e, rel) => {
   }
 });
 
+// v0.6.4 — pilih folder tujuan hasil ekspor lewat dialog Windows asli.
+// Tidak ada input path dari renderer → tidak ada permukaan path injection.
+ipcMain.handle("vdsplit:pilih-folder", async () => {
+  try {
+    const r = await dialog.showOpenDialog(win, {
+      title: "Pilih folder tujuan hasil ekspor",
+      buttonLabel: "Pilih folder ini",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (r.canceled || !r.filePaths.length) return { ok: false, batal: true };
+    return { ok: true, path: r.filePaths[0] };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+// v0.6.4 — buka folder ABSOLUT (folder tujuan hasil ekspor) di Explorer Windows.
+// Berbeda dari vdsplit:buka-folder yang hanya menerima path relatif di folder data.
+ipcMain.handle("vdsplit:buka-folder-abs", async (_e, p) => {
+  try {
+    const t = String(p || "");
+    if (!path.isAbsolute(t) || t.includes("\0")) {
+      return { ok: false, error: "Path tidak sah" };
+    }
+    if (!fs.existsSync(t) || !fs.statSync(t).isDirectory()) {
+      return { ok: false, error: "Folder tidak ditemukan" };
+    }
+    await shell.openPath(t);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
 app.whenReady().then(async () => {
   try {
     nyalakanServer();

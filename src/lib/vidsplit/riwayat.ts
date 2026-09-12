@@ -17,6 +17,8 @@ export interface EntriRiwayat {
   paralel: number;
   dibatalkan: boolean;
   adaGagal: boolean;
+  /** v0.6.4 — path absolut folder tujuan bila hasil ikut tersalin ke sana */
+  folderTersimpan: string | null;
 }
 
 export interface EntriRiwayatCek extends EntriRiwayat {
@@ -45,6 +47,10 @@ function muat(): EntriRiwayat[] {
       cache = mentah.filter(
         (e) => e && typeof e.id === "string" && Array.isArray(e.outputs),
       );
+      // entri lama (pra-v0.6.4) belum punya field ini
+      for (const e of cache) {
+        if (typeof e.folderTersimpan !== "string") e.folderTersimpan = null;
+      }
     }
   } catch {
     /* belum ada / rusak — mulai kosong */
@@ -80,6 +86,7 @@ export function catatRiwayat(job: InfoJob): void {
     paralel: job.paralel,
     dibatalkan: job.dibatalkan,
     adaGagal: job.adaGagal,
+    folderTersimpan: job.folderTersimpan ?? null,
   };
   const daftar = muat().filter((e) => e.id !== entri.id);
   daftar.unshift(entri);
@@ -94,14 +101,22 @@ function cekFile(e: EntriRiwayat): { adaFile: boolean; ukuranAda: number } {
   let adaFile = false;
   let ukuranAda = 0;
   for (const o of e.outputs) {
-    try {
-      const p = path.join(folderOutput(e.id), o.file);
-      if (existsSync(p)) {
-        adaFile = true;
-        ukuranAda += statSync(p).size;
+    // utamakan salinan di folder kerja; bila tiada (mis. dibuang setelah tersalin),
+    // cek salinan di folder tujuan (v0.6.4)
+    const kandidat = [
+      path.join(folderOutput(e.id), o.file),
+      ...(e.folderTersimpan ? [path.join(e.folderTersimpan, o.file)] : []),
+    ];
+    for (const p of kandidat) {
+      try {
+        if (existsSync(p)) {
+          adaFile = true;
+          ukuranAda += statSync(p).size;
+          break;
+        }
+      } catch {
+        /* lewati */
       }
-    } catch {
-      /* lewati */
     }
   }
   return { adaFile, ukuranAda };
@@ -117,7 +132,8 @@ export function ambilRiwayat(id: string): EntriRiwayat | undefined {
   return muat().find((e) => e.id === id);
 }
 
-/** Hapus entri riwayat; bila buangFile=true folder hasilnya ikut dibuang.
+/** Hapus entri riwayat; bila buangFile=true salinan di FOLDER KERJA ikut dibuang.
+ *  Salinan di folder tujuan (folder pilihan user) TIDAK disentuh — aman by design.
  *  Mengembalikan false bila entri tidak ditemukan. */
 export function hapusRiwayat(id: string, buangFile: boolean): boolean {
   const daftar = muat();

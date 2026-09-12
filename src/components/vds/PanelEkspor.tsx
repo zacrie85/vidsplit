@@ -18,8 +18,10 @@ import {
   Zap,
 } from "lucide-react";
 import type { InfoJob } from "@/lib/vidsplit/jobs";
+import type { SetelanTujuan } from "@/lib/vidsplit/tujuan";
 import { durasiEfektif, slugify, type Pengaturan } from "@/lib/vidsplit/types";
 import { BarisSlider, Kartu, fmtUkuran } from "./bits";
+import { PanelTujuan } from "./PanelTujuan";
 
 interface ItemVideo {
   file: string;
@@ -49,6 +51,7 @@ export function PanelEkspor({
   const [job, setJob] = useState<InfoJob | null>(null);
   const [mulai, setMulai] = useState(false);
   const [batalKirim, setBatalKirim] = useState(false);
+  const [setelanTujuan, setSetelanTujuan] = useState<SetelanTujuan | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // polling status job
@@ -77,6 +80,13 @@ export function PanelEkspor({
             toast.success(`Ekspor selesai — ${job.outputs.length} file siap unduh`);
           }
         }
+        // v0.6.4 — kabari hasil penyalinan otomatis ke folder tujuan
+        if (job.folderTersimpan && !job.peringatanSalin) {
+          toast.success("Hasil tersalin ke folder tujuan — tinggal pakai, tanpa unduh ulang");
+        }
+        if (job.peringatanSalin) {
+          toast.warning(job.peringatanSalin);
+        }
       }
       if (job?.error && !job.selesaiSemua) toast.error(`Ekspor gagal: ${job.error}`);
       return;
@@ -101,6 +111,12 @@ export function PanelEkspor({
   }, [job]);
 
   const ekspor = async () => {
+    // v0.6.4 — ingatkan bila simpan otomatis aktif tapi folder tujuan belum dipilih
+    if (setelanTujuan?.otomatis && !setelanTujuan?.folder) {
+      toast.warning(
+        "Simpan otomatis aktif tapi folder tujuan belum dipilih — hasil hanya bisa diunduh dari aplikasi",
+      );
+    }
     setMulai(true);
     setBatalKirim(false);
     try {
@@ -274,6 +290,9 @@ export function PanelEkspor({
           dirender {opsiEkspor.paralel} sekaligus. Video yang gagal dilewati, antrean lanjut.
         </p>
       </div>
+
+      {/* v0.6.4 — folder tujuan hasil ekspor: pilih dulu, hasil otomatis tersalin */}
+      <PanelTujuan job={job} setelan={setelanTujuan} onSetelan={setSetelanTujuan} />
 
       <button
         type="button"
