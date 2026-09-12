@@ -1,4 +1,4 @@
-// POST /api/upload?kind=video|bg&nama=file.mp4 — body raw = isi file (streaming)
+// POST /api/upload?kind=video|bg|logo&nama=file.mp4 — body raw = isi file (streaming)
 import { randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
 import { unlinkSync } from "node:fs";
@@ -10,17 +10,20 @@ import { dirWork } from "@/lib/vidsplit/ffmpeg";
 
 export const runtime = "nodejs";
 
-const BATAS: Record<"video" | "bg", number> = {
+const BATAS: Record<"video" | "bg" | "logo", number> = {
   video: 20 * 1024 * 1024 * 1024, // 20 GB
   bg: 25 * 1024 * 1024, // 25 MB
+  logo: 25 * 1024 * 1024, // 25 MB
 };
 
 export async function POST(req: NextRequest) {
-  const kind = req.nextUrl.searchParams.get("kind") === "bg" ? "bg" : "video";
+  const jenisRaw = req.nextUrl.searchParams.get("kind") || "";
+  const kind: "video" | "bg" | "logo" =
+    jenisRaw === "bg" ? "bg" : jenisRaw === "logo" ? "logo" : "video";
   const namaMentah = req.nextUrl.searchParams.get("nama") || "";
   const nama = (
     namaMentah.replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(-80) ||
-    (kind === "bg" ? "bg.png" : "video.mp4")
+    (kind === "video" ? "video.mp4" : kind === "logo" ? "logo.png" : "bg.png")
   ).replace(/^\.+/, "_");
   const batas = BATAS[kind];
   const dir = dirWork("upload");
@@ -38,9 +41,11 @@ export async function POST(req: NextRequest) {
           ukuran += chunk.length;
           if (ukuran > batas) {
             throw new Error(
-              kind === "bg"
-                ? "Background melebihi batas 25 MB"
-                : "Video melebihi batas 20 GB",
+              kind === "video"
+                ? "Video melebihi batas 20 GB"
+                : kind === "logo"
+                  ? "Logo melebihi batas 25 MB"
+                  : "Background melebihi batas 25 MB",
             );
           }
           yield chunk;

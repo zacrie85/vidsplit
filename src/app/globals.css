@@ -45,3 +45,22 @@ input[type="color"] {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ===== 15 font sinematik bundel (public/fonts, lisensi OFL — lihat LISENSI-FONT.txt) =====
+   Nama keluarga "VDS *" dipakai pratinjau browser lewat FONT_CSS di types.ts;
+   render final ffmpeg tetap memakai berkas TTF yang sama dari assets/fonts. */
+@font-face { font-family: "VDS Bebas Neue"; src: url("/fonts/BebasNeue.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Anton"; src: url("/fonts/Anton.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Cinzel"; src: url("/fonts/Cinzel-Bold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Cinzel Decorative"; src: url("/fonts/CinzelDecorative-Bold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Playfair Display"; src: url("/fonts/PlayfairDisplay-Bold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Marcellus"; src: url("/fonts/Marcellus.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Julius Sans One"; src: url("/fonts/JuliusSansOne.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Oswald"; src: url("/fonts/Oswald-SemiBold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Six Caps"; src: url("/fonts/SixCaps.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Teko"; src: url("/fonts/Teko-Bold.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Alfa Slab One"; src: url("/fonts/AlfaSlabOne.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Abril Fatface"; src: url("/fonts/AbrilFatface.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Black Ops One"; src: url("/fonts/BlackOpsOne.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Creepster"; src: url("/fonts/Creepster.ttf") format("truetype"); font-display: swap; }
+@font-face { font-family: "VDS Monoton"; src: url("/fonts/Monoton.ttf") format("truetype"); font-display: swap; }

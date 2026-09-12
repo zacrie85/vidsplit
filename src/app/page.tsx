@@ -1,7 +1,7 @@
 "use client";
 
-// VidSplit — halaman utama: antrean multi-video (maks 15) → atur tiap video →
-// ekspor & split BERURUTAN dari video teratas sampai terbawah
+// VidSplit — halaman utama: gerbang password → antrean multi-video (maks 15) →
+// atur tiap video → ekspor & split BERURUTAN dari video teratas sampai terbawah
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -16,6 +16,7 @@ import {
 import { PanelAtur } from "@/components/vds/PanelAtur";
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { Preview } from "@/components/vds/Preview";
+import { GerbangLayar, TombolGantiPassword, sudahTerbuka } from "@/components/vds/Gerbang";
 import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
 import {
   BATAS_VIDEO,
@@ -42,6 +43,7 @@ interface VideoKerja {
   info: VideoInfo;
   pengaturan: Pengaturan;
   bgInfo: { nama: string; ukuran: number } | null;
+  logoInfo: { nama: string; ukuran: number } | null;
 }
 
 interface OpsiEkspor {
@@ -50,12 +52,21 @@ interface OpsiEkspor {
 }
 
 export default function Halaman() {
+  // gerbang password — "muat" dulu agar tidak berkedip, lalu terkunci/terbuka
+  const [gerbang, setGerbang] = useState<"muat" | "terkunci" | "terbuka">("muat");
   const [dasar, setDasar] = useState<Pengaturan>(pengaturanDefault);
   const [daftar, setDaftar] = useState<VideoKerja[]>([]);
   const [aktif, setAktif] = useState(0);
   const [sibukVideo, setSibukVideo] = useState(false);
   const [sibukBg, setSibukBg] = useState(false);
+  const [sibukLogo, setSibukLogo] = useState(false);
   const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({ paralel: 2, pakaiGpu: true });
+
+  // status gerbang dibaca dari sessionStorage (satu kali per sesi browser)
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setGerbang(sudahTerbuka() ? "terbuka" : "terkunci");
+  }, []);
 
   // muat preferensi tersimpan (pengaturan dasar video baru + opsi ekspor)
   useEffect(() => {
@@ -138,6 +149,7 @@ export default function Halaman() {
             ? { ...pengaturanDefault }
             : { ...dasar, judul: "" },
           bgInfo: null,
+          logoInfo: null,
         },
       ];
     });
@@ -232,6 +244,50 @@ export default function Halaman() {
     setDaftar((d) => d.map((v, i) => (i === aktif ? { ...v, bgInfo: null } : v)));
   };
 
+  const unggahLogo = async (f: File) => {
+    if (!videoAktif) return;
+    setSibukLogo(true);
+    try {
+      if (typeof window !== "undefined" && window.vdsplitDesktop) {
+        const dipilih = await window.vdsplitDesktop.pilih("logo");
+        if (!dipilih.length) return;
+        const lg = dipilih[0];
+        perbaruiAktif((p) => ({ ...p, logoId: lg.path }));
+        setDaftar((d) =>
+          d.map((v, i) =>
+            i === aktif ? { ...v, logoInfo: { nama: lg.nama, ukuran: lg.ukuran } } : v,
+          ),
+        );
+        toast.success(`Logo "${lg.nama}" dipasang ke video #${aktif + 1}`);
+        return;
+      }
+      const r = await fetch(`/api/upload?kind=logo&nama=${encodeURIComponent(f.name)}`, {
+        method: "POST",
+        body: f,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; ukuran?: number; error?: string };
+      if (!j.ok || !j.file) throw new Error(j.error || "Unggah logo gagal");
+      perbaruiAktif((p) => ({ ...p, logoId: j.file as string }));
+      setDaftar((d) =>
+        d.map((v, i) =>
+          i === aktif ? { ...v, logoInfo: { nama: f.name, ukuran: j.ukuran || f.size } } : v,
+        ),
+      );
+      toast.success(`Logo "${f.name}" dipasang ke video #${aktif + 1}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal pasang logo");
+    } finally {
+      setSibukLogo(false);
+    }
+  };
+
+  const hapusLogo = () => {
+    if (!videoAktif) return;
+    perbaruiAktif((p) => ({ ...p, logoId: "" }));
+    setDaftar((d) => d.map((v, i) => (i === aktif ? { ...v, logoInfo: null } : v)));
+  };
+
   /** ubah pengaturan video yang sedang dipilih */
   const perbaruiAktif = (ubah: (p: Pengaturan) => Pengaturan) => {
     setDaftar((d) =>
@@ -273,6 +329,14 @@ export default function Halaman() {
     0,
   );
 
+  // gerbang: selama sesi belum dibuka, aplikasi tidak dirender sama sekali
+  if (gerbang === "muat") {
+    return <div className="min-h-screen" />;
+  }
+  if (gerbang === "terkunci") {
+    return <GerbangLayar onBuka={() => setGerbang("terbuka")} />;
+  }
+
   return (
     <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 sm:px-6">
       {/* kepala */}
@@ -285,8 +349,9 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.5.0
+            v0.6.0
           </span>
+          <TombolGantiPassword />
         </div>
         <p className="mt-2 max-w-xl text-sm text-slate-400">
           Antrean video (maks {BATAS_VIDEO}) → atur tiap video sendiri → ekspor & split
@@ -306,9 +371,9 @@ export default function Halaman() {
           >
             {daftar.length === 0 ? (
               <JatuhBerkas
-                terima="video/*"
+                terima="video/*,.ts"
                 onFile={unggahVideo}
-                hint={`MP4, MOV, MKV, AVI, WebM — maks ${BATAS_VIDEO} video, maks 20 GB per video`}
+                hint={`MP4, MOV, MKV, AVI, WebM, TS — maks ${BATAS_VIDEO} video, maks 20 GB per video`}
                 sibuk={sibukVideo}
                 multiple
               />
@@ -348,6 +413,7 @@ export default function Halaman() {
                             part
                             {v.pengaturan.judul ? ` · "${v.pengaturan.judul.slice(0, 24)}"` : ""}
                             {v.bgInfo ? " · dgn background" : ""}
+                            {v.logoInfo ? " · dgn logo" : ""}
                           </span>
                         </span>
                       </button>
@@ -384,7 +450,7 @@ export default function Halaman() {
                 </ul>
                 {daftar.length < BATAS_VIDEO && (
                   <JatuhBerkas
-                    terima="video/*"
+                    terima="video/*,.ts"
                     onFile={unggahVideo}
                     hint={`Tambah lagi — sisa ${BATAS_VIDEO - daftar.length} slot`}
                     sibuk={sibukVideo}
@@ -408,6 +474,10 @@ export default function Halaman() {
               onBgFile={unggahBg}
               onHapusBg={hapusBg}
               bgSibuk={sibukBg}
+              logoInfo={videoAktif.logoInfo}
+              onLogoFile={unggahLogo}
+              onHapusLogo={hapusLogo}
+              logoSibuk={sibukLogo}
               durasiVideo={videoAktif.info.durasi}
               ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
               nomorVideo={aktif + 1}

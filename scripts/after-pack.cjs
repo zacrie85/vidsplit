@@ -50,6 +50,8 @@ exports.default = async function afterPack(context) {
     path.join(resDir, "ffmpeg.exe"),
     path.join(resDir, "ffprobe.exe"),
     path.join(resDir, "fonts", "DejaVuSans-Bold.ttf"),
+    path.join(resDir, "fonts", "BebasNeue.ttf"),
+    path.join(resDir, "fonts", "Monoton.ttf"),
   ];
   const kurang = wajib.filter((p) => !fs.existsSync(p));
   if (kurang.length > 0) {

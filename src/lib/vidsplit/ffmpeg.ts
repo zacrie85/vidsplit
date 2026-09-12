@@ -2,7 +2,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { GayaTeks, ModeKonversi, Pengaturan } from "./types";
+import type { CodecVideo, GayaTeks, ModeKonversi, PosisiLogo, Pengaturan } from "./types";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
   ? path.resolve(process.env.VIDSPLIT_WORK)
@@ -143,17 +143,40 @@ const NAMA_FONT: Record<GayaTeks["font"], string[]> = {
   tebal: ["DejaVuSans-Bold.ttf", "arialbd.ttf"],
   bersih: ["DejaVuSans.ttf", "arial.ttf"],
   klasik: ["DejaVuSerif-Bold.ttf", "timesbd.ttf"],
+  // 15 font sinematik (dibundel di assets/fonts, lisensi OFL) — fallback ke font sistem
+  bebas: ["BebasNeue.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  anton: ["Anton.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  cinzel: ["Cinzel-Bold.ttf", "DejaVuSerif-Bold.ttf", "timesbd.ttf"],
+  cinzeldec: ["CinzelDecorative-Bold.ttf", "DejaVuSerif-Bold.ttf", "timesbd.ttf"],
+  playfair: ["PlayfairDisplay-Bold.ttf", "DejaVuSerif-Bold.ttf", "timesbd.ttf"],
+  marcellus: ["Marcellus.ttf", "DejaVuSerif-Bold.ttf", "timesbd.ttf"],
+  julius: ["JuliusSansOne.ttf", "DejaVuSans.ttf", "arial.ttf"],
+  oswald: ["Oswald-SemiBold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  sixcaps: ["SixCaps.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  teko: ["Teko-Bold.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  alfaslab: ["AlfaSlabOne.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  abril: ["AbrilFatface.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  blackops: ["BlackOpsOne.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  creepster: ["Creepster.ttf", "DejaVuSans-Bold.ttf", "arialbd.ttf"],
+  monoton: ["Monoton.ttf", "DejaVuSans.ttf", "arial.ttf"],
 };
 
-function fontfile(gaya: GayaTeks): string {
-  const dirs = [
+/** Folder kandidat berisi TTF bundel — dipakai drawtext & route /api/font */
+export function dirFontKandidat(): string[] {
+  return [
     process.env.VIDSPLIT_FONTS,
     path.join(process.cwd(), "assets", "fonts"),
     path.join(process.cwd(), "..", "assets", "fonts"),
     path.join(process.cwd(), "..", "..", "assets", "fonts"),
+  ].filter(Boolean) as string[];
+}
+
+function fontfile(gaya: GayaTeks): string {
+  const dirs = [
+    ...dirFontKandidat(),
     "/usr/share/fonts/truetype/dejavu",
     "C:\\Windows\\Fonts",
-  ].filter(Boolean) as string[];
+  ];
   for (const d of dirs) {
     for (const n of NAMA_FONT[gaya.font]) {
       const p = path.join(d, n);
@@ -216,9 +239,14 @@ function rantaiTeks(p: Pengaturan, W: number, H: number, fileJudul: string, file
     yP = yJ + tJ + gap;
   }
 
-  const ff = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
   const bagian: string[] = [];
-  const opsiDasar = (fontsize: number, warna: string, outline: GayaTeks, y: number) => {
+  const opsiDasar = (
+    fontsize: number,
+    warna: string,
+    outline: GayaTeks,
+    y: number,
+    ff: string,
+  ) => {
     let s = `fontsize=${fontsize.toFixed(1)}:fontcolor=${warnaFf(warna)}`;
     if (outline.outlineLebar > 0) {
       s += `:borderw=${Math.max(1, Math.round(outline.outlineLebar * skala))}:bordercolor=${warnaFf(outline.outlineWarna)}`;
@@ -229,13 +257,15 @@ function rantaiTeks(p: Pengaturan, W: number, H: number, fileJudul: string, file
   };
 
   if (p.judul.trim()) {
+    const ffJ = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
     bagian.push(
-      `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
+      `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
     );
   }
   if ((p.kataPart || "").trim()) {
+    const ffP = fontfile(p.gayaPart) || fontfile(p.gayaJudul);
     bagian.push(
-      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP)}`,
+      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP)}`,
     );
   }
   if (!bagian.length) return `[cc]null[vout]`;
@@ -245,6 +275,8 @@ function rantaiTeks(p: Pengaturan, W: number, H: number, fileJudul: string, file
 export interface ArgPart {
   src: string;
   bg: string | null;
+  /** logo watermark (path absolut) atau null */
+  logo: string | null;
   pengaturan: Pengaturan;
   /** nomor part (untuk nama file tmp) */
   n: number;
@@ -268,6 +300,7 @@ export interface ArgPart {
 export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number } {
   const p = a.pengaturan;
   const pakaiBg = !!a.bg && existsSync(a.bg);
+  const pakaiLogo = !!a.logo && existsSync(a.logo);
   // TANPA bg: total = durasi video saja (bukan + durasiIntro — kalau tidak,
   // track audio/hening ikut memanjang dan hasil split punya ekor diam ±3 dtk)
   const total = pakaiBg ? p.durasiIntro + a.durasi : a.durasi;
@@ -280,8 +313,13 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const fileJudul = path.join(a.dirTmp, `${a.tag}-judul.txt`);
   const filePart = path.join(a.dirTmp, `${a.tag}-part.txt`);
 
+  // URUTAN INPUT PENTING (indeks filter graph): 0=src, 1=bg?, lalu anullsrc,
+  // lalu logo PALING AKHIR — sehingga idxLogo = pakaiBg ? 3 : 2 selalu benar
+  // dan referensi audio [2:a] / -map 2:a tidak pernah bergeser oleh logo.
   const inputs: string[] = ["-ss", a.mulai.toFixed(3), "-i", a.src];
   if (pakaiBg) inputs.push("-loop", "1", "-t", p.durasiIntro.toFixed(3), "-i", a.bg as string);
+  const idxLogo = pakaiLogo ? (pakaiBg ? 3 : 2) : -1;
+  const inputLogo: string[] = pakaiLogo ? ["-loop", "1", "-i", a.logo as string] : [];
 
   // audio: hening selama intro + audio sumber ter-trim
   const inputAudio: string[] = [];
@@ -305,7 +343,8 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     filterAudio.push(`[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[aout]`);
     mapAudio = ["-map", "[aout]"];
   } else {
-    mapAudio = ["-map", "2:a"];
+    // tanpa bg & tanpa audio: input 0 = src, input 1 = anullsrc
+    mapAudio = ["-map", "1:a"];
   }
 
   // video: intro bg (opsional) + video utama → concat → teks
@@ -322,7 +361,26 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     );
   }
   const rantaiTeksStr = rantaiTeks(p, W, H, fileJudul, filePart);
-  filterVideo.push(rantaiTeksStr);
+  if (pakaiLogo) {
+    // rantai teks menghasilkan [vtx] lalu logo di-overlay → [vout]
+    filterVideo.push(rantaiTeksStr.replace("[vout]", "[vtx]"));
+    const lebarWm = Math.max(
+      24,
+      Math.round((W * Math.min(40, Math.max(5, p.ukuranLogo || 15))) / 100),
+    );
+    const mx = Math.round(W * 0.035);
+    const my = Math.round(H * 0.03);
+    const posisi: Record<PosisiLogo, string> = {
+      "kiri-atas": `x=${mx}:y=${my}`,
+      "kanan-atas": `x=W-w-${mx}:y=${my}`,
+      "kiri-bawah": `x=${mx}:y=H-h-${my}`,
+      "kanan-bawah": `x=W-w-${mx}:y=H-h-${my}`,
+    };
+    filterVideo.push(`[${idxLogo}:v]scale=${lebarWm}:-1[wmf]`);
+    filterVideo.push(`[vtx][wmf]overlay=${posisi[p.posisiLogo] ?? posisi["kanan-bawah"]}[vout]`);
+  } else {
+    filterVideo.push(rantaiTeksStr);
+  }
 
   const filter = [...filterVideo, ...filterAudio].join(";");
   const args = [
@@ -330,6 +388,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     "-hide_banner",
     ...inputs,
     ...inputAudio,
+    ...inputLogo,
     "-filter_complex",
     filter,
     "-map",
@@ -419,32 +478,53 @@ export interface PilihanEncoder {
   codecArgs: string[];
 }
 
-/** argumen codec CPU dari preset/crf mode ekspor */
-export function codecCpu(preset: string, crf: number): string[] {
-  return ["-c:v", "libx264", "-preset", preset, "-crf", String(crf)];
+/** argumen codec CPU dari preset/crf/mode ekspor */
+export function codecCpu(preset: string, crf: number, codec: CodecVideo = "h264"): string[] {
+  return codec === "h265"
+    ? ["-c:v", "libx265", "-preset", preset, "-crf", String(crf), "-tag:v", "hvc1"]
+    : ["-c:v", "libx264", "-preset", preset, "-crf", String(crf)];
 }
 
-const KANDIDAT_GPU: Array<{
+const KANDIDAT_GPU: Record<CodecVideo, Array<{
   encoder: string;
   nama: string;
   codecArgs: (crf: number) => string[];
-}> = [
-  {
-    encoder: "h264_nvenc",
-    nama: "NVIDIA NVENC (GPU)",
-    codecArgs: (crf) => ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0"],
-  },
-  {
-    encoder: "h264_qsv",
-    nama: "Intel Quick Sync (GPU)",
-    codecArgs: (crf) => ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", String(crf)],
-  },
-  {
-    encoder: "h264_amf",
-    nama: "AMD AMF (GPU)",
-    codecArgs: (crf) => ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf)],
-  },
-];
+}>> = {
+  h264: [
+    {
+      encoder: "h264_nvenc",
+      nama: "NVIDIA NVENC H.264 (GPU)",
+      codecArgs: (crf) => ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0"],
+    },
+    {
+      encoder: "h264_qsv",
+      nama: "Intel Quick Sync H.264 (GPU)",
+      codecArgs: (crf) => ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", String(crf)],
+    },
+    {
+      encoder: "h264_amf",
+      nama: "AMD AMF H.264 (GPU)",
+      codecArgs: (crf) => ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf)],
+    },
+  ],
+  h265: [
+    {
+      encoder: "hevc_nvenc",
+      nama: "NVIDIA NVENC H.265 (GPU)",
+      codecArgs: (crf) => ["-c:v", "hevc_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0", "-tag:v", "hvc1"],
+    },
+    {
+      encoder: "hevc_qsv",
+      nama: "Intel Quick Sync H.265 (GPU)",
+      codecArgs: (crf) => ["-c:v", "hevc_qsv", "-preset", "faster", "-global_quality", String(crf), "-tag:v", "hvc1"],
+    },
+    {
+      encoder: "hevc_amf",
+      nama: "AMD AMF H.265 (GPU)",
+      codecArgs: (crf) => ["-c:v", "hevc_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf), "-tag:v", "hvc1"],
+    },
+  ],
+};
 
 let cacheUjiGpu: Map<string, boolean> | null = null;
 
@@ -482,15 +562,20 @@ export async function pilihEncoder(
   preset: string,
   crf: number,
   bin: string,
+  codec: CodecVideo = "h264",
 ): Promise<PilihanEncoder> {
   if (pakaiGpu) {
-    for (const k of KANDIDAT_GPU) {
+    for (const k of KANDIDAT_GPU[codec]) {
       if (await ujiEncoder(k.encoder, bin)) {
         return { nama: k.nama, gpu: true, codecArgs: k.codecArgs(crf) };
       }
     }
   }
-  return { nama: "CPU (libx264)", gpu: false, codecArgs: codecCpu(preset, crf) };
+  return {
+    nama: codec === "h265" ? "CPU (libx265)" : "CPU (libx264)",
+    gpu: false,
+    codecArgs: codecCpu(preset, crf, codec),
+  };
 }
 
 /* ---------- pemilihan ffmpeg terbaik (harus dukung drawtext bila ada) ---------- */

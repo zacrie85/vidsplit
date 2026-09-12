@@ -3,7 +3,7 @@
 // VidSplit — pratinjau live: video 9:16 + overlay judul & Part berganti otomatis
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
-import { formatDurasi, type Pengaturan } from "@/lib/vidsplit/types";
+import { formatDurasi, FONT_CSS, type Pengaturan } from "@/lib/vidsplit/types";
 
 export function Preview({
   srcUrl,
@@ -67,6 +67,7 @@ export function Preview({
           style={
             {
               fontSize: ukuranJudul,
+              fontFamily: FONT_CSS[pengaturan.gayaJudul.font],
               color: pengaturan.gayaJudul.warna,
               "--stroke-w": `${(pengaturan.gayaJudul.outlineLebar / 1080) * 100}cqw`,
               "--stroke-color": pengaturan.gayaJudul.outlineWarna,
@@ -82,6 +83,7 @@ export function Preview({
           style={
             {
               fontSize: ukuranPart,
+              fontFamily: FONT_CSS[pengaturan.gayaPart.font],
               color: pengaturan.gayaPart.warna,
               "--stroke-w": `${(pengaturan.gayaPart.outlineLebar / 1080) * 100}cqw`,
               "--stroke-color": pengaturan.gayaPart.outlineWarna,

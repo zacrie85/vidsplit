@@ -10,8 +10,9 @@ import {
   pilihEncoder,
   pilihFfmpeg,
   type InfoVideo,
+  type PilihanEncoder,
 } from "./ffmpeg";
-import { durasiEfektif, hitungPart, rentangPart, slugify, type Pengaturan } from "./types";
+import { durasiEfektif, hitungPart, rentangPart, slugify, type CodecVideo, type Pengaturan } from "./types";
 
 export interface KeluaranJob {
   /** nama video asal (nama file sumber) */
@@ -69,6 +70,8 @@ export interface ItemEkspor {
   nama: string;
   srcAbs: string;
   bgAbs: string | null;
+  /** logo watermark (path absolut) atau null */
+  logoAbs: string | null;
   pengaturan: Pengaturan;
   info: InfoVideo;
 }
@@ -123,12 +126,21 @@ export function mulaiEksporAntrean(
         `ffmpeg yang terpilih (${ff.bin}) tidak mendukung filter drawtext (libfreetype), padahal ada tulisan judul/Part. Pasang ffmpeg lengkap atau arahkan VIDSPLIT_FFMPEG ke ffmpeg yang punya libfreetype.`,
       );
     }
-    // encoder dipilih sekali dari video pertama (paralel/GPU memang global)
-    const p0 = daftar[0].pengaturan;
     const preset = modeEkspor === "cepat" ? "ultrafast" : "medium";
     const crf = modeEkspor === "cepat" ? 23 : 20;
-    const enc = await pilihEncoder(p0.pakaiGpu !== false, preset, crf, ff.bin);
-    job.akselerasi = enc.nama;
+    // encoder per codec (H.264/H.265): hasil uji GPU di-cache per codec, jadi murah
+    // dipanggil ulang — video dengan codec berbeda tetap memakai encoder masing-masing
+    const cacheEnc = new Map<CodecVideo, PilihanEncoder>();
+    const ambilEnc = async (p: Pengaturan): Promise<PilihanEncoder> => {
+      const codec: CodecVideo = p.codec === "h265" ? "h265" : "h264";
+      let e = cacheEnc.get(codec);
+      if (!e) {
+        e = await pilihEncoder(p.pakaiGpu !== false, preset, crf, ff.bin, codec);
+        cacheEnc.set(codec, e);
+      }
+      return e;
+    };
+    job.akselerasi = (await ambilEnc(daftar[0].pengaturan)).nama;
 
     const slot: (KeluaranJob | null)[] = Array.from({ length: totalPartSemua }, () => null);
     let pengisi = 0; // index slot berikutnya (urut: video berurutan, part paralel dalam video)
@@ -148,8 +160,12 @@ export function mulaiEksporAntrean(
     };
 
     /** render SATU part dari video ke-vi */
-    const renderSatu = (vi: number, it: ItemEkspor, n: number) => {
+    const renderSatu = async (vi: number, it: ItemEkspor, n: number) => {
       const p = it.pengaturan;
+      const enc = await ambilEnc(p);
+      if (!job.akselerasi.includes(enc.nama)) {
+        job.akselerasi = `${job.akselerasi} + ${enc.nama}`;
+      }
       const [mulai, durasi] = rentangPart(
         n,
         it.info.durasi,
@@ -167,6 +183,7 @@ export function mulaiEksporAntrean(
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
         bg: it.bgAbs,
+        logo: it.logoAbs,
         pengaturan: p,
         n,
         mulai,

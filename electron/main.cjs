@@ -159,11 +159,11 @@ async function buatJendela() {
 
 ipcMain.handle("vdsplit:pilih", async (_e, jenis) => {
   const opsi =
-    jenis === "bg"
+    jenis === "bg" || jenis === "logo"
       ? { filters: [{ name: "Gambar", extensions: ["png", "jpg", "jpeg", "webp"] }] }
       : {
           filters: [
-            { name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v"] },
+            { name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v", "ts"] },
             { name: "Semua file", extensions: ["*"] },
           ],
           properties: ["openFile", "multiSelections"], // antrean: boleh pilih banyak video

@@ -6,7 +6,14 @@ import { existsSync } from "node:fs";
 import { NextRequest, NextResponse } from "next/server";
 import { pathAman, probe } from "@/lib/vidsplit/ffmpeg";
 import { mulaiEksporAntrean, type ItemEkspor } from "@/lib/vidsplit/jobs";
-import { BATAS_VIDEO, durasiEfektif, pengaturanDefault, type Pengaturan } from "@/lib/vidsplit/types";
+import {
+  BATAS_VIDEO,
+  durasiEfektif,
+  INFO_FONT,
+  pengaturanDefault,
+  type NamaFont,
+  type Pengaturan,
+} from "@/lib/vidsplit/types";
 
 export const runtime = "nodejs";
 
@@ -33,6 +40,16 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.posisiPotong = clamp(p.posisiPotong, 0, 100, 50);
   p.mulaiDetik = clamp(p.mulaiDetik, 0, 86400, 0);
   p.akhirDetik = clamp(p.akhirDetik, 0, 86400, 0);
+  p.codec = p.codec === "h265" ? "h265" : "h264";
+  p.posisiLogo = ["kiri-atas", "kanan-atas", "kiri-bawah", "kanan-bawah"].includes(p.posisiLogo)
+    ? p.posisiLogo
+    : "kanan-bawah";
+  p.ukuranLogo = clamp(p.ukuranLogo, 5, 40, 15);
+  p.logoId = typeof p.logoId === "string" ? p.logoId.slice(0, 300) : "";
+  // font harus id yang dikenal — kalau tidak, pakai "tebal" (aman dari simpanan lama)
+  const daftarFont = Object.keys(INFO_FONT) as NamaFont[];
+  if (!daftarFont.includes(p.gayaJudul?.font)) p.gayaJudul = { ...p.gayaJudul, font: "tebal" };
+  if (!daftarFont.includes(p.gayaPart?.font)) p.gayaPart = { ...p.gayaPart, font: "tebal" };
   p.prosesParalel = clamp(p.prosesParalel, 1, 4, 2);
   p.pakaiGpu = p.pakaiGpu !== false;
   return p;
@@ -43,16 +60,23 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       file?: string;
       bg?: string;
+      logo?: string;
       pengaturan?: Partial<Pengaturan>;
       modeEkspor?: string;
-      daftar?: Array<{ file?: string; nama?: string; bg?: string; pengaturan?: Partial<Pengaturan> }>;
+      daftar?: Array<{
+        file?: string;
+        nama?: string;
+        bg?: string;
+        logo?: string;
+        pengaturan?: Partial<Pengaturan>;
+      }>;
     };
 
     // kompatibilitas lama: satu video → daftar 1 item
     const mentah =
       Array.isArray(body.daftar) && body.daftar.length
         ? body.daftar
-        : [{ file: body.file, bg: body.bg, pengaturan: body.pengaturan }];
+        : [{ file: body.file, bg: body.bg, logo: body.logo, pengaturan: body.pengaturan }];
 
     if (!mentah.length) throw new Error("Daftar video kosong");
     if (mentah.length > BATAS_VIDEO) {
@@ -84,6 +108,24 @@ export async function POST(req: NextRequest) {
             );
           }
           bgAbs = cand;
+        }
+      }
+
+      // logo watermark — validasi sama seperti background
+      let logoAbs: string | null = null;
+      const logo = mentah[i].logo;
+      if (logo) {
+        const cand = pathAman(logo);
+        if (existsSync(cand)) {
+          try {
+            const infoLogo = await probe(cand);
+            if (!(infoLogo.lebar > 0)) throw new Error("tanpa dimensi");
+          } catch {
+            throw new Error(
+              `${label}: logo tidak bisa dibaca (pastikan PNG/JPG/WebP yang valid)`,
+            );
+          }
+          logoAbs = cand;
         }
       }
 
@@ -119,6 +161,7 @@ export async function POST(req: NextRequest) {
             .slice(0, 80) || "video",
         srcAbs,
         bgAbs,
+        logoAbs,
         pengaturan: pgh,
         info,
       });

@@ -96,6 +96,7 @@ export function PanelEkspor({
             file: v.file,
             nama: v.nama,
             bg: v.pengaturan.bgId || undefined,
+            logo: v.pengaturan.logoId || undefined,
             pengaturan: v.pengaturan,
           })),
           modeEkspor,
@@ -162,7 +163,7 @@ export function PanelEkspor({
 
   return (
     <Kartu
-      judul="5. Ekspor & split antrean"
+      judul="6. Ekspor & split antrean"
       deskripsi="Semua video dirender berurutan dari atas ke bawah"
       ikon={<Rocket className="h-4 w-4" />}
     >

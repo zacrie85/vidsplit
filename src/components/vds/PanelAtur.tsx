@@ -1,6 +1,7 @@
 "use client";
 
-// VidSplit — panel pengaturan: mode konversi, rentang waktu, judul, Part, background, ringkasan
+// VidSplit — panel pengaturan: mode konversi, format hasil, rentang waktu, judul, Part,
+// background intro, watermark/logo, ringkasan
 import { useState } from "react";
 import {
   Copy,
@@ -11,22 +12,33 @@ import {
   Palette,
   Scan,
   Scissors,
+  Stamp,
   Type,
 } from "lucide-react";
 import {
   durasiEfektif,
   hitungPart,
   formatDurasi,
+  FONT_CSS,
+  FONT_DASAR,
+  INFO_FONT,
+  labelPosisiLogo,
   labelPosisiPotong,
   uraiWaktu,
+  type CodecVideo,
   type GayaTeks,
   type ModeKonversi,
   type NamaFont,
+  type PosisiLogo,
   type PosisiTeks,
   type Pengaturan,
   type Resolusi,
 } from "@/lib/vidsplit/types";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
+
+const FONT_SINEMATIK = (Object.keys(INFO_FONT) as NamaFont[]).filter(
+  (f) => !FONT_DASAR.includes(f),
+);
 
 function GayaEditor({
   gaya,
@@ -41,15 +53,33 @@ function GayaEditor({
     <div className="mt-3 space-y-3 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
       <div>
         <p className="mb-1 text-xs text-slate-400">Font</p>
-        <ChipPilihan<NamaFont>
-          pilihan={[
-            { v: "tebal", label: "Tebal" },
-            { v: "bersih", label: "Bersih" },
-            { v: "klasik", label: "Klasik" },
-          ]}
-          nilai={gaya.font}
-          onChange={(v) => onChange({ ...gaya, font: v })}
-        />
+        <select
+          value={gaya.font}
+          onChange={(e) => onChange({ ...gaya, font: e.target.value as NamaFont })}
+          className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+        >
+          <optgroup label="Bawaan">
+            {FONT_DASAR.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
+                {INFO_FONT[f]}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Sinematik — ala film box office">
+            {FONT_SINEMATIK.map((f) => (
+              <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
+                {INFO_FONT[f]}
+              </option>
+            ))}
+          </optgroup>
+        </select>
+        <p
+          className="mt-1.5 truncate rounded-lg border border-slate-700/50 bg-slate-900/70 px-3 py-2 text-center text-xl leading-snug text-slate-100"
+          style={{ fontFamily: FONT_CSS[gaya.font] }}
+          title="Pratinjau font — render final memakai berkas font yang sama"
+        >
+          Avenger 12: The Last Part
+        </p>
       </div>
       <BarisSlider
         label="Ukuran"
@@ -123,6 +153,10 @@ export function PanelAtur({
   onBgFile,
   onHapusBg,
   bgSibuk,
+  logoInfo,
+  onLogoFile,
+  onHapusLogo,
+  logoSibuk,
   durasiVideo,
   ukuranVideo,
   nomorVideo,
@@ -135,6 +169,10 @@ export function PanelAtur({
   onBgFile: (f: File) => void;
   onHapusBg: () => void;
   bgSibuk: boolean;
+  logoInfo: { nama: string; ukuran: number } | null;
+  onLogoFile: (f: File) => void;
+  onHapusLogo: () => void;
+  logoSibuk: boolean;
   durasiVideo: number;
   ukuranVideo: string;
   /** nomor video yang sedang diedit (1-based) */
@@ -201,6 +239,22 @@ export function PanelAtur({
             nilai={pengaturan.resolusi}
             onChange={(v) => set("resolusi", v)}
           />
+        </div>
+        <div className="mt-3 border-t border-slate-700/50 pt-3">
+          <p className="mb-1 text-xs text-slate-400">Format video hasil</p>
+          <ChipPilihan<CodecVideo>
+            pilihan={[
+              { v: "h264", label: "H.264", hint: "paling kompatibel" },
+              { v: "h265", label: "H.265 (HEVC)", hint: "file jauh lebih kecil" },
+            ]}
+            nilai={pengaturan.codec}
+            onChange={(v) => set("codec", v)}
+          />
+          <p className="mt-1.5 text-[11px] text-slate-500">
+            H.265 menghasilkan berkas ±30–50% lebih kecil di kualitas setara — cocok untuk
+            menghemat penyimpanan &amp; unggahan. Dengan GPU encoder-nya sama kencangnya;
+            tanpa GPU, H.265 dirender sedikit lebih lama oleh CPU.
+          </p>
         </div>
         <div className="mt-3 border-t border-slate-700/50 pt-3">
           <div className="flex items-baseline justify-between">
@@ -376,7 +430,70 @@ export function PanelAtur({
         )}
       </Kartu>
 
-      {/* E — Ringkasan */}
+      {/* E — Watermark / logo */}
+      <Kartu
+        judul="5. Watermark / logo (opsional)"
+        deskripsi={`Gambar logo menempel di SETIAP potongan video #${nomorVideo} — pilih posisi & ukuran`}
+        ikon={<Stamp className="h-4 w-4" />}
+      >
+        {logoInfo ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/60 bg-slate-800/50 p-3">
+            <div className="flex items-center gap-3 overflow-hidden">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/file?p=${encodeURIComponent(pengaturan.logoId)}`}
+                alt="pratinjau logo"
+                className="h-12 w-12 rounded-lg border border-slate-600 object-contain"
+              />
+              <div className="min-w-0">
+                <p className="truncate text-sm text-slate-200">{logoInfo.nama}</p>
+                <p className="text-[11px] text-slate-500">{fmtUkuran(logoInfo.ukuran)}</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onHapusLogo}
+              className="rounded-lg border border-red-500/40 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
+            >
+              Hapus
+            </button>
+          </div>
+        ) : (
+          <JatuhBerkas
+            terima="image/png,image/jpeg,image/webp"
+            onFile={onLogoFile}
+            hint="PNG transparan paling cocok untuk watermark — maks 25 MB"
+            sibuk={logoSibuk}
+          />
+        )}
+        {logoInfo && (
+          <div className="mt-3 space-y-3">
+            <div>
+              <p className="mb-1 text-xs text-slate-400">Posisi logo</p>
+              <ChipPilihan<PosisiLogo>
+                pilihan={([
+                  "kiri-atas",
+                  "kanan-atas",
+                  "kiri-bawah",
+                  "kanan-bawah",
+                ] as PosisiLogo[]).map((v) => ({ v, label: labelPosisiLogo(v) }))}
+                nilai={pengaturan.posisiLogo}
+                onChange={(v) => set("posisiLogo", v)}
+              />
+            </div>
+            <BarisSlider
+              label="Ukuran logo (lebar terhadap frame)"
+              nilai={pengaturan.ukuranLogo}
+              min={5}
+              max={40}
+              onChange={(n) => set("ukuranLogo", n)}
+              fmt={(n) => `${n}%`}
+            />
+          </div>
+        )}
+      </Kartu>
+
+      {/* F — Ringkasan */}
       <Kartu judul="Ringkasan" ikon={<Film className="h-4 w-4" />}>
         <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
           <dt className="text-slate-500">Video sumber</dt>
@@ -396,6 +513,16 @@ export function PanelAtur({
               : pengaturan.mode === "crop"
                 ? `Potong penuh · ${labelPosisiPotong(pengaturan.posisiPotong)}`
                 : "Warna solid"}
+          </dd>
+          <dt className="text-slate-500">Format hasil</dt>
+          <dd className="text-right text-slate-200">
+            {pengaturan.codec === "h265" ? "H.265 (file kecil)" : "H.264 (kompatibel)"}
+          </dd>
+          <dt className="text-slate-500">Watermark</dt>
+          <dd className="text-right text-slate-200">
+            {logoInfo
+              ? `${labelPosisiLogo(pengaturan.posisiLogo)} · ${pengaturan.ukuranLogo}%`
+              : "tanpa logo"}
           </dd>
           <dt className="text-slate-500">Hasil split</dt>
           <dd className="text-right text-slate-200">

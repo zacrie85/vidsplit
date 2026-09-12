@@ -2,8 +2,30 @@
 
 export type ModeKonversi = "blur" | "crop" | "warna";
 export type Resolusi = "1080" | "720";
-export type NamaFont = "tebal" | "bersih" | "klasik";
+export type CodecVideo = "h264" | "h265";
+export type PosisiLogo = "kiri-atas" | "kanan-atas" | "kiri-bawah" | "kanan-bawah";
 export type PosisiTeks = "atas" | "tengah" | "bawah";
+
+/** 3 font dasar + 15 font sinematik (berkas TTF dibundel di assets/fonts) */
+export type NamaFont =
+  | "tebal"
+  | "bersih"
+  | "klasik"
+  | "bebas"
+  | "anton"
+  | "cinzel"
+  | "cinzeldec"
+  | "playfair"
+  | "marcellus"
+  | "julius"
+  | "oswald"
+  | "sixcaps"
+  | "teko"
+  | "alfaslab"
+  | "abril"
+  | "blackops"
+  | "creepster"
+  | "monoton";
 
 /** Batas jumlah video dalam satu antrean ekspor */
 export const BATAS_VIDEO = 15;
@@ -38,6 +60,14 @@ export interface Pengaturan {
   mulaiDetik: number;
   /** detik akhir rentang video yang diproses (0 = sampai habis) */
   akhirDetik: number;
+  /** codec video hasil — h265 menghasilkan file jauh lebih kecil */
+  codec: CodecVideo;
+  /** path relatif logo watermark di work/upload ("" = tanpa logo) */
+  logoId: string;
+  /** sudut penempatan logo */
+  posisiLogo: PosisiLogo;
+  /** lebar logo dalam % lebar frame (5–40) */
+  ukuranLogo: number;
   /** jumlah part dirender serentak (1–4) */
   prosesParalel: number;
   /** pakai akselerasi GPU (NVENC/QSV/AMF) bila tersedia */
@@ -59,14 +89,33 @@ export const pengaturanDefault: Pengaturan = {
   posisiPotong: 50,
   mulaiDetik: 0,
   akhirDetik: 0,
+  codec: "h264",
+  logoId: "",
+  posisiLogo: "kanan-bawah",
+  ukuranLogo: 15,
   prosesParalel: 2,
   pakaiGpu: true,
 };
 
 export const INFO_FONT: Record<NamaFont, string> = {
-  tebal: "Tebal (sans)",
-  bersih: "Bersih (sans)",
-  klasik: "Klasik (serif)",
+  tebal: "Tebal (bawaan)",
+  bersih: "Bersih (bawaan)",
+  klasik: "Klasik (bawaan)",
+  bebas: "Bebas Neue — blokbuster",
+  anton: "Anton — impak tebal",
+  cinzel: "Cinzel — epik Romawi",
+  cinzeldec: "Cinzel Decorative — fantasi",
+  playfair: "Playfair Display — drama",
+  marcellus: "Marcellus — klasik film",
+  julius: "Julius Sans One — minimal",
+  oswald: "Oswald — dokumenter",
+  sixcaps: "Six Caps — tinggi padat",
+  teko: "Teko — modern sporty",
+  alfaslab: "Alfa Slab One — poster retro",
+  abril: "Abril Fatface — poster tebal",
+  blackops: "Black Ops One — aksi/militer",
+  creepster: "Creepster — horor",
+  monoton: "Monoton — retro neon",
 };
 
 /** Jumlah part minimal 1 — dibulatkan ke atas */
@@ -96,6 +145,17 @@ export function rentangPart(
   const mulai = mulaiDetik + (n - 1) * durasiPart;
   const durasi = Math.min(durasiPart, Math.max(0.5, efektif - (n - 1) * durasiPart));
   return [mulai, durasi];
+}
+
+/** Label ramah utk posisi logo */
+export function labelPosisiLogo(p: PosisiLogo): string {
+  const map: Record<PosisiLogo, string> = {
+    "kiri-atas": "Kiri atas",
+    "kanan-atas": "Kanan atas",
+    "kiri-bawah": "Kiri bawah",
+    "kanan-bawah": "Kanan bawah",
+  };
+  return map[p];
 }
 
 /** Uraikan teks waktu jadi detik — terima "90", "1:30", "1:02:03" — -1 bila tak valid */
@@ -135,3 +195,30 @@ export function slugify(teks: string): string {
       .slice(0, 40);
   return slug || "vidsplit";
 }
+
+/** Font-family CSS utk pratinjau browser (cocokkan dgn @font-face di globals.css;
+ *  nama "VDS *" = font sinematik bundel di /fonts). Render final tetap pakai TTF
+ *  lewat drawtext fontfile — peta ini hanya agar pratinjau mirip hasil akhir. */
+export const FONT_CSS: Record<NamaFont, string> = {
+  tebal: "'DejaVu Sans', Arial, sans-serif",
+  bersih: "'DejaVu Sans', Arial, sans-serif",
+  klasik: "'DejaVu Serif', 'Times New Roman', serif",
+  bebas: "'VDS Bebas Neue', Impact, sans-serif",
+  anton: "'VDS Anton', Impact, sans-serif",
+  cinzel: "'VDS Cinzel', 'Times New Roman', serif",
+  cinzeldec: "'VDS Cinzel Decorative', 'Times New Roman', serif",
+  playfair: "'VDS Playfair Display', Georgia, serif",
+  marcellus: "'VDS Marcellus', Georgia, serif",
+  julius: "'VDS Julius Sans One', sans-serif",
+  oswald: "'VDS Oswald', 'Arial Narrow', sans-serif",
+  sixcaps: "'VDS Six Caps', Impact, sans-serif",
+  teko: "'VDS Teko', 'Arial Narrow', sans-serif",
+  alfaslab: "'VDS Alfa Slab One', Rockwell, serif",
+  abril: "'VDS Abril Fatface', Georgia, serif",
+  blackops: "'VDS Black Ops One', Impact, sans-serif",
+  creepster: "'VDS Creepster', Impact, sans-serif",
+  monoton: "'VDS Monoton', Impact, sans-serif",
+};
+
+/** Id font dasar (bukan sinematik) — untuk pengelompokan daftar pilihan */
+export const FONT_DASAR: NamaFont[] = ["tebal", "bersih", "klasik"];

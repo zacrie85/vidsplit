@@ -1,0 +1,35 @@
+LISENSI FONT SINEMATIK
+======================
+
+15 font di folder ini (selain DejaVu*) berasal dari repo resmi Google Fonts
+(github.com/google/fonts) dan dilisensikan di bawah SIL Open Font License 1.1
+(OFL.txt) — bebas dipakai komersial, boleh dibundel dalam aplikasi.
+
+Diunduh oleh scripts/unduh-font-sinematik.py (idempoten).
+
+| # | File                      | Keluarga          | Sumber (ofl/…)       | Lisensi |
+|---|---------------------------|-------------------|----------------------|---------|
+| 1 | BebasNeue.ttf             | Bebas Neue        | bebasneue            | OFL 1.1 |
+| 2 | Anton.ttf                 | Anton             | anton                | OFL 1.1 |
+| 3 | Cinzel-Bold.ttf           | Cinzel (wght 700) | cinzel               | OFL 1.1 |
+| 4 | CinzelDecorative-Bold.ttf | Cinzel Decorative | cinzeldecorative     | OFL 1.1 |
+| 5 | PlayfairDisplay-Bold.ttf  | Playfair (wght 700)| playfairdisplay     | OFL 1.1 |
+| 6 | Marcellus.ttf             | Marcellus         | marcellus            | OFL 1.1 |
+| 7 | JuliusSansOne.ttf         | Julius Sans One   | juliussansone        | OFL 1.1 |
+| 8 | Oswald-SemiBold.ttf       | Oswald (wght 600) | oswald               | OFL 1.1 |
+| 9 | SixCaps.ttf               | Six Caps          | sixcaps              | OFL 1.1 |
+|10 | Teko-Bold.ttf             | Teko (wght 700)   | teko                 | OFL 1.1 |
+|11 | AlfaSlabOne.ttf           | Alfa Slab One     | alfaslabone          | OFL 1.1 |
+|12 | AbrilFatface.ttf          | Abril Fatface     | abrilfatface         | OFL 1.1 |
+|13 | BlackOpsOne.ttf           | Black Ops One     | blackopsone          | OFL 1.1 |
+|14 | Creepster.ttf             | Creepster         | creepster            | OFL 1.1 |
+|15 | Monoton.ttf               | Monoton           | monoton              | OFL 1.1 |
+
+Font variabel (Cinzel, Playfair Display, Oswald, Teko) dipatok ke bobot tetap
+menggunakan fontTools.varLib.instancer sehingga aman dirender ffmpeg drawtext.
+
+Teks lisensi lengkap tiap keluarga:
+https://github.com/google/fonts/tree/main/ofl/<keluarga> (berkas OFL.txt)
+
+DejaVu fonts (DejaVuSans.ttf, DejaVuSans-Bold.ttf, DejaVuSerif-Bold.ttf)
+berlisensi Bitstream Vera / DejaVu (lisensi bebas redistibusi).
