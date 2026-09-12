@@ -3,6 +3,7 @@
 // VidSplit — panel pengaturan: mode konversi, format hasil, rentang waktu, judul, Part,
 // background intro, watermark/logo, ringkasan
 import { useState } from "react";
+import { toast } from "sonner";
 import {
   Copy,
   Crop,
@@ -14,6 +15,7 @@ import {
   Scissors,
   Stamp,
   Type,
+  Zap,
 } from "lucide-react";
 import {
   durasiEfektif,
@@ -24,6 +26,7 @@ import {
   INFO_FONT,
   labelPosisiLogo,
   labelPosisiPotong,
+  PRESET_CEPAT,
   uraiWaktu,
   type CodecVideo,
   type GayaTeks,
@@ -35,6 +38,7 @@ import {
   type Resolusi,
 } from "@/lib/vidsplit/types";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
+import { PratinjauPotong } from "./PratinjauPotong";
 
 const FONT_SINEMATIK = (Object.keys(INFO_FONT) as NamaFont[]).filter(
   (f) => !FONT_DASAR.includes(f),
@@ -159,6 +163,9 @@ export function PanelAtur({
   logoSibuk,
   durasiVideo,
   ukuranVideo,
+  lebarVideo,
+  tinggiVideo,
+  srcUrl,
   nomorVideo,
   totalVideo,
   onTerapkanKeSemua,
@@ -175,6 +182,11 @@ export function PanelAtur({
   logoSibuk: boolean;
   durasiVideo: number;
   ukuranVideo: string;
+  /** lebar & tinggi sumber video (px) — untuk pratinjau potong yang akurat */
+  lebarVideo: number;
+  tinggiVideo: number;
+  /** URL untuk menampilkan frame video (pratinjau potong) */
+  srcUrl: string;
   /** nomor video yang sedang diedit (1-based) */
   nomorVideo: number;
   totalVideo: number;
@@ -189,6 +201,36 @@ export function PanelAtur({
 
   return (
     <div className="space-y-4">
+      {/* 0 — Preset cepat satu klik */}
+      <Kartu
+        judul="Preset cepat"
+        deskripsi={`Satu klik mengisi rekomendasi platform untuk video #${nomorVideo}`}
+        ikon={<Zap className="h-4 w-4" />}
+      >
+        <div className="grid grid-cols-3 gap-2">
+          {PRESET_CEPAT.map((pr) => (
+            <button
+              key={pr.id}
+              type="button"
+              onClick={() => {
+                onChange({ ...pengaturan, ...pr.ubah });
+                toast.success(`Preset ${pr.nama} diterapkan — ${pr.catatan}`);
+              }}
+              className="rounded-xl border border-slate-700 bg-slate-800/60 p-2.5 text-left transition hover:border-amber-400/70 hover:bg-amber-400/5"
+            >
+              <span className="block text-sm font-semibold text-slate-100">{pr.nama}</span>
+              <span className="mt-0.5 block text-[10px] leading-snug text-slate-400">
+                {pr.catatan}
+              </span>
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-[11px] text-slate-500">
+          Yang diubah: cara konversi, durasi part, resolusi 1080p, codec H.264. Judul, font,
+          logo, background, dan rentang trim TIDAK diubah — tetap milikmu.
+        </p>
+      </Kartu>
+
       {/* A — Mode konversi & resolusi */}
       <Kartu
         judul="1. Cara ubah ke vertikal"
@@ -214,10 +256,13 @@ export function PanelAtur({
               onChange={(n) => set("posisiPotong", n)}
               fmt={(n) => labelPosisiPotong(n)}
             />
-            <p className="mt-1 text-[11px] text-slate-400">
-              Geser ke kiri / kanan untuk memilih bagian video horizontal yang ikut ke frame
-              9:16 — lihat hasilnya di pratinjau.
-            </p>
+            <PratinjauPotong
+              srcUrl={srcUrl}
+              lebar={lebarVideo}
+              tinggi={tinggiVideo}
+              posisi={pengaturan.posisiPotong}
+              onChange={(n) => set("posisiPotong", n)}
+            />
           </div>
         )}
         {pengaturan.mode === "warna" && (

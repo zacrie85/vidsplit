@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { PanelAtur } from "@/components/vds/PanelAtur";
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
+import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import { Preview } from "@/components/vds/Preview";
 import { GerbangLayar, TombolGantiPassword, sudahTerbuka } from "@/components/vds/Gerbang";
 import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
@@ -360,7 +361,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.6.2
+            v0.6.3
           </span>
           <TombolGantiPassword />
         </div>
@@ -491,6 +492,9 @@ export default function Halaman() {
               logoSibuk={sibukLogo}
               durasiVideo={videoAktif.info.durasi}
               ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
+              lebarVideo={videoAktif.info.lebar}
+              tinggiVideo={videoAktif.info.tinggi}
+              srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
               nomorVideo={aktif + 1}
               totalVideo={daftar.length}
               onTerapkanKeSemua={terapkanKeSemua}
@@ -539,6 +543,11 @@ export default function Halaman() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* riwayat ekspor — selalu tampil walau antrean kosong */}
+      <div className="mt-4">
+        <PanelRiwayat />
       </div>
 
       <footer className="mt-12 text-center text-[11px] text-slate-600">

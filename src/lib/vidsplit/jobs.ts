@@ -13,6 +13,7 @@ import {
   type InfoVideo,
   type PilihanEncoder,
 } from "./ffmpeg";
+import { catatRiwayat } from "./riwayat";
 import { durasiEfektif, hitungPart, rentangPart, slugify, type CodecVideo, type Pengaturan } from "./types";
 
 export interface KeluaranJob {
@@ -313,6 +314,7 @@ export function mulaiEksporAntrean(
     job.videoAktif = -1;
     job.partAktif = 0;
     job.selesaiSemua = true;
+    catatRiwayat(job); // hasil tetap bisa diunduh ulang dari panel Riwayat
     bersihkanBatal(id);
   })().catch((e) => {
     job.error = e instanceof Error ? e.message : String(e);
@@ -321,6 +323,7 @@ export function mulaiEksporAntrean(
       if (v.status === "menunggu" || v.status === "proses") v.status = "gagal";
     }
     job.adaGagal = true;
+    catatRiwayat(job); // part yang sempat jadi sebelum gagal tetap tercatat
     bersihkanBatal(id);
   });
 

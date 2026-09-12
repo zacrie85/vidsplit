@@ -59,6 +59,12 @@ export function PanelEkspor({
         timer.current = null;
       }
       if (job?.selesaiSemua) {
+        // beri tahu panel Riwayat agar menyegarkan daftarnya
+        try {
+          window.dispatchEvent(new Event("vidsplit:riwayat-berubah"));
+        } catch {
+          /* abaikan */
+        }
         if (job.dibatalkan) {
           toast.warning(
             `Ekspor dibatalkan — ${job.outputs.length} part yang sudah jadi tetap bisa diunduh`,

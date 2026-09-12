@@ -123,6 +123,42 @@ export function hitungPart(durasiVideo: number, durasiPart: number): number {
   return Math.max(1, Math.ceil(durasiVideo / Math.max(1, durasiPart)));
 }
 
+/* ---------- preset cepat satu klik ---------- */
+
+export type IdPreset = "tiktok" | "reels" | "shorts";
+
+export interface PresetCepat {
+  id: IdPreset;
+  nama: string;
+  /** penjelasan singkat yang tampil di tombol & toast */
+  catatan: string;
+  /** bagian Pengaturan yang diubah saat preset diterapkan */
+  ubah: Partial<Pengaturan>;
+}
+
+/** Rekomendasi per platform — H.264 (paling kompatibel) + 1080p untuk semuanya.
+ *  Judul/font/logo/background TIDAK disentuh agar pilihan user tetap. */
+export const PRESET_CEPAT: PresetCepat[] = [
+  {
+    id: "tiktok",
+    nama: "TikTok",
+    catatan: "Part 60 dtk · blur lembut · H.264",
+    ubah: { mode: "blur", durasiPart: 60, resolusi: "1080", codec: "h264" },
+  },
+  {
+    id: "reels",
+    nama: "Reels",
+    catatan: "Part 90 dtk · blur lembut · H.264",
+    ubah: { mode: "blur", durasiPart: 90, resolusi: "1080", codec: "h264" },
+  },
+  {
+    id: "shorts",
+    nama: "Shorts",
+    catatan: "Part 60 dtk · potong penuh · H.264",
+    ubah: { mode: "crop", durasiPart: 60, resolusi: "1080", codec: "h264" },
+  },
+];
+
 /** Durasi rentang yang benar-benar diproses, dengan pembatasan aman (min 0.5 dtk).
  *  akhirDetik 0 berarti sampai habis; nilai di luar video otomatis diclip. */
 export function durasiEfektif(durasiVideo: number, mulaiDetik: number, akhirDetik: number): number {

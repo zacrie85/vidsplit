@@ -1,6 +1,6 @@
 // VidSplit — proses utama Electron: nyalakan server Next standalone lalu buka jendela
 // v0.1.1: deteksi server.js adaptif, dialog error saat gagal, log ke file, aman di Windows
-const { app, BrowserWindow, dialog, ipcMain } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -11,6 +11,7 @@ let server;
 let win;
 let logStream;
 let fileLog;
+let dirKerjaGlobal = null; // folder data aktif — dipakai IPC buka-folder
 
 /**
  * Pilih folder data aplikasi:
@@ -73,6 +74,7 @@ function nyalakanServer() {
 
   logStream = fs.createWriteStream(fileLog, { flags: "a" });
   const dirKerja = data.dataDir;
+  dirKerjaGlobal = dirKerja;
   catat(`Mode: ${data.portable ? "PORTABLE" : "terinstal"} — folder data: ${dirKerja}`);
 
   const env = {
@@ -177,6 +179,24 @@ ipcMain.handle("vdsplit:pilih", async (_e, jenis) => {
     } catch {}
     return { path: p, nama: path.basename(p), ukuran };
   });
+});
+
+// Buka folder hasil ekspor (di dalam folder data) di Explorer Windows.
+// Renderer hanya mengirim path RELATIF — proses utama yang menggabungkan dgn folder data.
+ipcMain.handle("vdsplit:buka-folder", async (_e, rel) => {
+  try {
+    if (!dirKerjaGlobal) return { ok: false, error: "Folder kerja belum siap" };
+    const r = String(rel || "").replace(/\\/g, "/");
+    if (!r || r.includes("..") || path.isAbsolute(r) || r.startsWith("/")) {
+      return { ok: false, error: "Path tidak sah" };
+    }
+    const target = path.join(dirKerjaGlobal, r);
+    fs.mkdirSync(target, { recursive: true });
+    await shell.openPath(target);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 });
 
 app.whenReady().then(async () => {

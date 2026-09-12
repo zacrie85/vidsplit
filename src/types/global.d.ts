@@ -8,6 +8,8 @@ declare global {
       pilih: (
         jenis: "video" | "bg" | "logo",
       ) => Promise<Array<{ path: string; nama: string; ukuran: number }>>;
+      /** buka folder hasil ekspor di Explorer (hanya mode desktop) */
+      bukaFolder?: (rel: string) => Promise<{ ok: boolean; error?: string }>;
     };
   }
 }
