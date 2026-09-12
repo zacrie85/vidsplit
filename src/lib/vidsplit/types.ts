@@ -1,6 +1,7 @@
 // VidSplit — tipe data & pengaturan aplikasi
 
-export type ModeKonversi = "blur" | "crop" | "warna";
+/** "asli" = video original — tanpa konversi, rasio/ukuran tetap seperti sumber */
+export type ModeKonversi = "blur" | "crop" | "warna" | "asli";
 export type Resolusi = "1080" | "720";
 export type CodecVideo = "h264" | "h265";
 export type PosisiLogo = "kiri-atas" | "kanan-atas" | "kiri-bawah" | "kanan-bawah";
@@ -192,6 +193,17 @@ export function labelPosisiLogo(p: PosisiLogo): string {
     "kanan-bawah": "Kanan bawah",
   };
   return map[p];
+}
+
+/** Label ramah utk mode konversi (dipakai ringkasan & panel lain) */
+export function labelMode(m: ModeKonversi): string {
+  const map: Record<ModeKonversi, string> = {
+    blur: "Blur lembut",
+    crop: "Potong penuh",
+    warna: "Warna solid",
+    asli: "Video original",
+  };
+  return map[m];
 }
 
 /** Uraikan teks waktu jadi detik — terima "90", "1:30", "1:02:03" — -1 bila tak valid */

@@ -25,7 +25,7 @@ function clamp(n: number, min: number, max: number, fallback: number): number {
 
 function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   const p: Pengaturan = { ...pengaturanDefault, ...(raw || {}) };
-  p.mode = ["blur", "crop", "warna"].includes(p.mode) ? p.mode : "blur";
+  p.mode = ["blur", "crop", "warna", "asli"].includes(p.mode) ? p.mode : "blur";
   p.resolusi = p.resolusi === "720" ? "720" : "1080";
   p.posisiTeks = ["atas", "tengah", "bawah"].includes(p.posisiTeks) ? p.posisiTeks : "atas";
   p.durasiPart = clamp(p.durasiPart, 5, 3600, 20);

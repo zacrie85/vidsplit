@@ -197,6 +197,13 @@ function rantaiUtama(
   posisiPotong = 50,
 ): string {
   const ekor = `fps=${fps},trim=duration=${durasi.toFixed(3)},setpts=PTS-STARTPTS,setsar=1`;
+  if (mode === "asli") {
+    // v0.7.0 video original: TANPA konversi rasio — frame tetap seukuran sumber.
+    // W/H = dimensi sumber yang sudah digenapkan (dari jobs.ts); scale ke ukuran
+    // yang sama tidak mengubah apa pun, hanya mengamankan sumber berdimensi ganjil
+    // agar tetap valid utk yuv420p (libx264 menolak lebar/tinggi ganjil).
+    return `[0:v]scale=${W}:${H},${ekor}[mv]`;
+  }
   if (mode === "crop") {
     // posisiPotong 0=kiri, 50=tengah, 100=kanan — geser jendela potong secara horizontal
     const pp = Math.min(100, Math.max(0, posisiPotong));
@@ -216,7 +223,10 @@ function rantaiUtama(
 
 /** Dua drawtext (judul + Part) di atas hasil concat → [vout] */
 function rantaiTeks(p: Pengaturan, W: number, H: number, fileJudul: string, filePart: string): string {
-  const skala = W / 1080;
+  // skala berdasar SISI TERPENDEK: identik dgn perilaku lama utk vertikal 1080/720
+  // (min(1080,1920)=1080, min(720,1280)=720), dan memberi ukuran proporsional saat
+  // mode "asli" memakai dimensi landscape/square/4K dari video sumber.
+  const skala = Math.min(W, H) / 1080;
   const uJ = Math.max(12, p.gayaJudul.ukuran * skala);
   const uP = Math.max(10, p.gayaPart.ukuran * skala);
   const barisJ = Math.max(1, (p.judul || "").split("\n").length);

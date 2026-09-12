@@ -199,8 +199,20 @@ export function mulaiEksporAntrean(
         p.mulaiDetik,
         p.akhirDetik,
       );
-      const W = p.resolusi === "720" ? 720 : 1080;
-      const H = p.resolusi === "720" ? 1280 : 1920;
+      // v0.7.0 mode "asli": pertahankan ukuran ASLI video — hanya digenapkan agar
+      // valid utk yuv420p (libx264 menolak dimensi ganjil); mode lain tetap 9:16
+      const W =
+        p.mode === "asli"
+          ? Math.max(2, it.info.lebar - (it.info.lebar % 2))
+          : p.resolusi === "720"
+            ? 720
+            : 1080;
+      const H =
+        p.mode === "asli"
+          ? Math.max(2, it.info.tinggi - (it.info.tinggi % 2))
+          : p.resolusi === "720"
+            ? 1280
+            : 1920;
       const fps = Math.min(60, Math.max(15, Math.round(it.info.fps)));
       const slug = slugify(p.judul);
       const nama = `${slug}-part-${String(n).padStart(2, "0")}.mp4`;

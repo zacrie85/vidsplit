@@ -10,6 +10,7 @@ import {
   Droplets,
   Film,
   Image as ImageIcon,
+  MonitorPlay,
   Palette,
   Scan,
   Scissors,
@@ -234,7 +235,7 @@ export function PanelAtur({
       {/* A — Mode konversi & resolusi */}
       <Kartu
         judul="1. Cara ubah ke vertikal"
-        deskripsi="Bagaimana frame 9:16 diisi dari video horizontal-mu"
+        deskripsi="3 pilihan mengubah ke 9:16 — atau pilih Video original untuk rasio tetap seperti aslinya"
         ikon={<Scan className="h-4 w-4" />}
       >
         <ChipPilihan<ModeKonversi>
@@ -242,10 +243,19 @@ export function PanelAtur({
             { v: "blur", label: "Blur lembut", hint: "isi di tengah, latar blur" },
             { v: "crop", label: "Potong penuh", hint: "zoom sampai penuh" },
             { v: "warna", label: "Warna solid", hint: "pilih warna samping" },
+            { v: "asli", label: "Video original", hint: "tanpa ubah rasio" },
           ]}
           nilai={pengaturan.mode}
           onChange={(v) => set("mode", v)}
         />
+        {pengaturan.mode === "asli" && (
+          <p className="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-200">
+            Video original aktif — video TIDAK diubah sama sekali: rasio &amp; resolusi tetap
+            persis seperti saat diimpor ({lebarVideo > 0 ? `${lebarVideo} × ${tinggiVideo}` : "mengikuti sumber"} px).
+            16:9 tetap melebar horizontal, 9:16 tetap vertikal. Yang tetap berjalan: split per
+            durasi, tulisan judul/Part, background intro, watermark, dan pilihan codec.
+          </p>
+        )}
         {pengaturan.mode === "crop" && (
           <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
             <BarisSlider
@@ -276,14 +286,26 @@ export function PanelAtur({
         )}
         <div className="mt-3 border-t border-slate-700/50 pt-3">
           <p className="mb-1 text-xs text-slate-400">Resolusi hasil</p>
-          <ChipPilihan<Resolusi>
-            pilihan={[
-              { v: "1080", label: "1080 × 1920", hint: "kualitas penuh" },
-              { v: "720", label: "720 × 1280", hint: "render lebih cepat" },
-            ]}
-            nilai={pengaturan.resolusi}
-            onChange={(v) => set("resolusi", v)}
-          />
+          {pengaturan.mode === "asli" ? (
+            <p className="rounded-lg bg-slate-800/70 px-3 py-2 text-xs text-slate-300">
+              Mengikuti resolusi asli video
+              {lebarVideo > 0 ? (
+                <> — hasil nanti <b className="text-amber-300">{lebarVideo - (lebarVideo % 2)} × {tinggiVideo - (tinggiVideo % 2)}</b> px (tanpa di-rescale)</>
+              ) : (
+                " — tanpa di-rescale"
+              )}
+              .
+            </p>
+          ) : (
+            <ChipPilihan<Resolusi>
+              pilihan={[
+                { v: "1080", label: "1080 × 1920", hint: "kualitas penuh" },
+                { v: "720", label: "720 × 1280", hint: "render lebih cepat" },
+              ]}
+              nilai={pengaturan.resolusi}
+              onChange={(v) => set("resolusi", v)}
+            />
+          )}
         </div>
         <div className="mt-3 border-t border-slate-700/50 pt-3">
           <p className="mb-1 text-xs text-slate-400">Format video hasil</p>
@@ -557,7 +579,9 @@ export function PanelAtur({
               ? "Blur lembut"
               : pengaturan.mode === "crop"
                 ? `Potong penuh · ${labelPosisiPotong(pengaturan.posisiPotong)}`
-                : "Warna solid"}
+                : pengaturan.mode === "warna"
+                  ? "Warna solid"
+                  : `Video original · ${lebarVideo > 0 ? `${lebarVideo}×${tinggiVideo}` : "rasio asli"}`}
           </dd>
           <dt className="text-slate-500">Format hasil</dt>
           <dd className="text-right text-slate-200">
@@ -585,8 +609,10 @@ export function PanelAtur({
             <Droplets className="h-3 w-3" />
           ) : pengaturan.mode === "crop" ? (
             <Crop className="h-3 w-3" />
-          ) : (
+          ) : pengaturan.mode === "warna" ? (
             <Palette className="h-3 w-3" />
+          ) : (
+            <MonitorPlay className="h-3 w-3" />
           )}
           Audio asli dipertahankan; intro diisi hening agar tetap sinkron.
         </p>

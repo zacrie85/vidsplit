@@ -361,7 +361,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.6.4
+            v0.7.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -513,6 +513,8 @@ export default function Halaman() {
                 srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                 pengaturan={videoAktif.pengaturan}
                 durasi={videoAktif.info.durasi}
+                lebar={videoAktif.info.lebar}
+                tinggi={videoAktif.info.tinggi}
                 totalPart={Math.max(
                   1,
                   Math.ceil(

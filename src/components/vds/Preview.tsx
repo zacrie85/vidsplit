@@ -10,11 +10,16 @@ export function Preview({
   pengaturan,
   durasi,
   totalPart,
+  lebar = 0,
+  tinggi = 0,
 }: {
   srcUrl: string;
   pengaturan: Pengaturan;
   durasi: number;
   totalPart: number;
+  /** dimensi sumber — dipakai mode "asli" agar pratinjau ikut rasio aslinya */
+  lebar?: number;
+  tinggi?: number;
 }) {
   const refV = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
@@ -50,6 +55,10 @@ export function Preview({
   const ukuranJudul = `${(pengaturan.gayaJudul.ukuran / 1080) * 100}cqw`;
   const ukuranPart = `${(pengaturan.gayaPart.ukuran / 1080) * 100}cqw`;
   const posisi = pengaturan.posisiTeks;
+  // mode "asli": bingkai pratinjau mengikuti rasio sumber, bukan 9:16
+  const modeAsli = pengaturan.mode === "asli" && lebar > 0 && tinggi > 0;
+  const rasioBingkai = modeAsli ? `${lebar} / ${tinggi}` : "9 / 16";
+  const lebarMaks = modeAsli && lebar >= tinggi ? "max-w-[400px]" : "max-w-[280px]";
 
   const susunTeks = (
     <div
@@ -98,12 +107,23 @@ export function Preview({
 
   return (
     <div>
-      <div className="mx-auto w-full max-w-[280px]" style={{ containerType: "inline-size" }}>
+      <div className={`mx-auto w-full ${lebarMaks}`} style={{ containerType: "inline-size" }}>
         <div
           className="relative overflow-hidden rounded-xl border border-slate-700/70 bg-black shadow-2xl shadow-black/50"
-          style={{ aspectRatio: "9 / 16" }}
+          style={{ aspectRatio: rasioBingkai }}
         >
-          {pengaturan.mode === "blur" ? (
+          {pengaturan.mode === "asli" ? (
+            <video
+              ref={refV}
+              src={srcUrl}
+              className="absolute inset-0 h-full w-full object-contain"
+              muted={bisu}
+              onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+              onPlay={() => setJeda(false)}
+              onPause={() => setJeda(true)}
+              playsInline
+            />
+          ) : pengaturan.mode === "blur" ? (
             <>
               <video
                 src={srcUrl}
@@ -156,7 +176,7 @@ export function Preview({
       </div>
 
       {/* kontrol */}
-      <div className="mx-auto mt-3 flex max-w-[280px] items-center gap-2">
+      <div className={`mx-auto mt-3 flex ${lebarMaks} items-center gap-2`}>
         <button
           type="button"
           onClick={() => lompat(Math.floor(t / pengaturan.durasiPart) * pengaturan.durasiPart - 0.01)}
@@ -199,8 +219,9 @@ export function Preview({
           {bisu ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
       </div>
-      <p className="mx-auto mt-1 max-w-[280px] text-center text-[10px] text-slate-500">
+      <p className={`mx-auto mt-1 ${lebarMaks} text-center text-[10px] text-slate-500`}>
         {formatDurasi(t)} / {formatDurasi(durasi)}
+        {modeAsli && <span className="ml-1 text-emerald-300">· rasio asli {lebar}×{tinggi}</span>}
       </p>
 
       {/* peta part — klik untuk lompat */}
