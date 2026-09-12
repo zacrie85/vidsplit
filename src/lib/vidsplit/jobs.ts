@@ -167,8 +167,14 @@ export function mulaiEksporAntrean(
     };
     job.akselerasi = (await ambilEnc(daftar[0].pengaturan)).nama;
 
-    const slot: (KeluaranJob | null)[] = Array.from({ length: totalPartSemua }, () => null);
-    let pengisi = 0; // index slot berikutnya (urut: video berurutan, part paralel dalam video)
+    // v0.8.0 — outputs diisi LANGSUNG saat tiap part selesai (bukan menunggu SEMUA
+    // video tuntas): slot menyimpan urutan antrean, segarkanOutput() menyalin isi slot
+    // ke job.outputs sehingga UI bisa menampilkan & mengunduh hasil sedini mungkin.
+    const slot: (KeluaranJob | null)[] = [];
+    let pengisi = 0;
+    const segarkanOutput = () => {
+      job.outputs = slot.filter((s): s is KeluaranJob => !!s);
+    };
     const fraksi = new Map<string, number>(); // "vi:part" → 0..1
 
     const perbaruiProgres = () => {
@@ -252,6 +258,7 @@ export function mulaiEksporAntrean(
           }
           slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
           job.antrean[vi].selesai += 1;
+          segarkanOutput(); // v0.8.0 — part baru selesai → langsung tampak di UI
         })
         .finally(() => {
           fraksi.delete(`${vi}:${n}`);
@@ -304,8 +311,8 @@ export function mulaiEksporAntrean(
       await renderVideo(vi, daftar[vi]);
     }
 
-    // bila ada video gagal, tukar urutan slot supaya outputs yang terisi rapat
-    job.outputs = slot.filter((s): s is KeluaranJob => !!s);
+    // rapikan urutan akhir — slot menjaga posisi meski ada video yang gagal di tengah
+    segarkanOutput();
 
     if (apakahBatal(id)) {
       // pembatalan: tandai status, buang file parsial yang tak jadi, jaga hasil utuh

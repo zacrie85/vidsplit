@@ -65,8 +65,12 @@ export interface Pengaturan {
   codec: CodecVideo;
   /** path relatif logo watermark di work/upload ("" = tanpa logo) */
   logoId: string;
-  /** sudut penempatan logo */
+  /** sudut penempatan logo — preset cepat (v0.8.0: posisi sebenarnya di logoX/logoY) */
   posisiLogo: PosisiLogo;
+  /** v0.8.0 posisi BEBAS logo — persen dari frame, titik KIRI-ATAS logo (0–100) */
+  logoX: number;
+  /** v0.8.0 posisi BEBAS logo — persen tinggi frame, titik KIRI-ATAS logo (0–100) */
+  logoY: number;
   /** lebar logo dalam % lebar frame (5–40) */
   ukuranLogo: number;
   /** jumlah part dirender serentak (1–4) */
@@ -79,9 +83,10 @@ export const pengaturanDefault: Pengaturan = {
   mode: "blur",
   warnaLatar: "#111827",
   judul: "Judul Video",
-  gayaJudul: { font: "tebal", ukuran: 64, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+  // v0.8.0 default ukuran font atas permintaan user: judul 40, Part 35
+  gayaJudul: { font: "tebal", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
   kataPart: "Part",
-  gayaPart: { font: "tebal", ukuran: 48, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+  gayaPart: { font: "tebal", ukuran: 35, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
   durasiPart: 20,
   bgId: "",
   durasiIntro: 3,
@@ -93,6 +98,9 @@ export const pengaturanDefault: Pengaturan = {
   codec: "h264",
   logoId: "",
   posisiLogo: "kanan-bawah",
+  // v0.8.0 posisi bebas logo — default ≈ kanan-bawah lama (kiri-atas logo)
+  logoX: 81.5,
+  logoY: 88.5,
   ukuranLogo: 15,
   prosesParalel: 2,
   pakaiGpu: true,
@@ -194,6 +202,15 @@ export function labelPosisiLogo(p: PosisiLogo): string {
   };
   return map[p];
 }
+
+/** v0.8.0 — preset cepat posisi logo: chip sudut mengisi logoX/logoY (persen frame,
+ *  titik kiri-atas logo). Angka margin ≈ perilaku lama (3.5% dari lebar, 3% dari tinggi). */
+export const POSISI_LOGO_PRESET: Record<PosisiLogo, { x: number; y: number }> = {
+  "kiri-atas": { x: 3.5, y: 3 },
+  "kanan-atas": { x: 81.5, y: 3 },
+  "kiri-bawah": { x: 3.5, y: 88.5 },
+  "kanan-bawah": { x: 81.5, y: 88.5 },
+};
 
 /** Label ramah utk mode konversi (dipakai ringkasan & panel lain) */
 export function labelMode(m: ModeKonversi): string {

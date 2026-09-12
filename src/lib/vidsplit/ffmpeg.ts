@@ -2,7 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { CodecVideo, GayaTeks, ModeKonversi, PosisiLogo, Pengaturan } from "./types";
+import type { CodecVideo, GayaTeks, ModeKonversi, Pengaturan } from "./types";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
   ? path.resolve(process.env.VIDSPLIT_WORK)
@@ -378,16 +378,15 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
       24,
       Math.round((W * Math.min(40, Math.max(5, p.ukuranLogo || 15))) / 100),
     );
-    const mx = Math.round(W * 0.035);
-    const my = Math.round(H * 0.03);
-    const posisi: Record<PosisiLogo, string> = {
-      "kiri-atas": `x=${mx}:y=${my}`,
-      "kanan-atas": `x=W-w-${mx}:y=${my}`,
-      "kiri-bawah": `x=${mx}:y=H-h-${my}`,
-      "kanan-bawah": `x=W-w-${mx}:y=H-h-${my}`,
-    };
     filterVideo.push(`[${idxLogo}:v]scale=${lebarWm}:-1[wmf]`);
-    filterVideo.push(`[vtx][wmf]overlay=${posisi[p.posisiLogo] ?? posisi["kanan-bawah"]}[vout]`);
+    // v0.8.0 posisi BEBAS logo: titik kiri-atas logo = (logoX%, logoY%) dari frame.
+    // Ekspresi min/max menjaga logo tetap di dalam frame walau rasio gambarnya tinggi
+    // (posisi disimpan dalam % sehingga konsisten utk 9:16, 720p, maupun mode asli).
+    const lx = Math.min(100, Math.max(0, Number.isFinite(p.logoX) ? p.logoX : 81.5));
+    const ly = Math.min(100, Math.max(0, Number.isFinite(p.logoY) ? p.logoY : 88.5));
+    filterVideo.push(
+      `[vtx][wmf]overlay=x='min(max(0,W*${lx}/100),W-w)':y='min(max(0,H*${ly}/100),H-h)'[vout]`,
+    );
   } else {
     filterVideo.push(rantaiTeksStr);
   }

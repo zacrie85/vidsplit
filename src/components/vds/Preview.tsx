@@ -56,9 +56,11 @@ export function Preview({
   const ukuranPart = `${(pengaturan.gayaPart.ukuran / 1080) * 100}cqw`;
   const posisi = pengaturan.posisiTeks;
   // mode "asli": bingkai pratinjau mengikuti rasio sumber, bukan 9:16
+  // v0.8.0 — pratinjau 3× lebih lebar (280→840) + tinggi proporsional ke bawah;
+  // landscape/square ikut lebih lega
   const modeAsli = pengaturan.mode === "asli" && lebar > 0 && tinggi > 0;
   const rasioBingkai = modeAsli ? `${lebar} / ${tinggi}` : "9 / 16";
-  const lebarMaks = modeAsli && lebar >= tinggi ? "max-w-[400px]" : "max-w-[280px]";
+  const lebarMaks = modeAsli && lebar >= tinggi ? "max-w-[1100px]" : "max-w-[840px]";
 
   const susunTeks = (
     <div

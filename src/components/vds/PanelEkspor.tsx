@@ -195,17 +195,26 @@ export function PanelEkspor({
     }
   };
 
-  const unduhZip = () => {
+  /** unduh ZIP (server-side streaming) — seluruh antrean atau satu video saja (v0.8.0) */
+  const unduhZip = (video?: string) => {
     if (!job?.outputs.length) return;
     // ZIP dirakit DI SERVER secara streaming — memori browser tidak terbebani
     // (fix "Array buffer allocation failed" saat unduh semua video)
     const a = document.createElement("a");
-    a.href = `/api/zip?id=${job.id}`;
-    a.download = `vidsplit-antrean-${job.antrean.length}video.zip`;
+    a.href = video
+      ? `/api/zip?id=${job.id}&video=${encodeURIComponent(video)}`
+      : `/api/zip?id=${job.id}`;
+    a.download = video
+      ? `vidsplit-${video.replace(/\.[^.]+$/, "")}.zip`
+      : `vidsplit-antrean-${job.antrean.length}video.zip`;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    toast.info("ZIP mulai diunduh — dirakit di server, tinggal tunggu selesai");
+    toast.info(
+      video
+        ? `ZIP "${video}" mulai diunduh — berisi part video itu yang sudah selesai`
+        : "ZIP mulai diunduh — dirakit di server, tinggal tunggu selesai",
+    );
   };
 
   const ikonStatus = (status: string) => {
@@ -354,6 +363,17 @@ export function PanelEkspor({
                 <span className="min-w-0 flex-1 truncate">
                   {i + 1}. {v.nama}
                 </span>
+                {/* v0.8.0 — video selesai → langsung bisa diunduh ZIP-nya tanpa nunggu antrean tuntas */}
+                {v.status === "selesai" && (
+                  <button
+                    type="button"
+                    onClick={() => unduhZip(v.nama)}
+                    title={`Unduh ZIP ${v.selesai} part video ini`}
+                    className="flex shrink-0 items-center gap-1 rounded-md border border-sky-400/50 px-1.5 py-0.5 text-[10px] text-sky-300 hover:bg-sky-400/10"
+                  >
+                    <FileArchive className="h-3 w-3" /> ZIP
+                  </button>
+                )}
                 <span className="shrink-0 text-[10px] opacity-80">
                   {v.status === "proses"
                     ? `${v.selesai}/${v.total} part`
@@ -385,14 +405,20 @@ export function PanelEkspor({
           {job.outputs.length > 0 && (
             <div className="space-y-1.5">
               <div className="flex items-center justify-between pt-1">
-                <p className="text-xs text-slate-400">Hasil ({job.outputs.length})</p>
-                {job.selesaiSemua && job.outputs.length > 1 && (
+                <p className="text-xs text-slate-400">
+                  Hasil ({job.outputs.length})
+                  {!job.selesaiSemua && (
+                    <span className="ml-1 text-[10px] text-emerald-300">· muncul otomatis begitu part selesai</span>
+                  )}
+                </p>
+                {job.outputs.length > 1 && (
                   <button
                     type="button"
-                    onClick={unduhZip}
+                    onClick={() => unduhZip()}
                     className="flex items-center gap-1.5 rounded-lg border border-sky-400/50 px-2.5 py-1.5 text-xs text-sky-300 hover:bg-sky-400/10"
                   >
-                    <FileArchive className="h-3.5 w-3.5" /> Unduh semua (ZIP per video)
+                    <FileArchive className="h-3.5 w-3.5" />{" "}
+                    {job.selesaiSemua ? "Unduh semua (ZIP per video)" : "Unduh hasil sejauh ini (ZIP)"}
                   </button>
                 )}
               </div>

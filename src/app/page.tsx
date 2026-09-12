@@ -361,7 +361,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.7.0
+            v0.8.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -371,6 +371,32 @@ export default function Halaman() {
           + background intro.
         </p>
       </header>
+
+      {/* v0.8.0 — PRATINJAU LIVE BESAR: pindah ke baris penuh di atas (3× lebih lebar,
+          tinggi proporsional ke bawah) agar detail judul/Part/watermark gampang dilihat */}
+      {videoAktif && (
+        <div className="mt-4">
+          <Kartu
+            judul="Pratinjau live"
+            deskripsi={`Video #${aktif + 1} — ${videoAktif.info.nama}`}
+            ikon={<MonitorPlay className="h-4 w-4" />}
+          >
+            <Preview
+              srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
+              pengaturan={videoAktif.pengaturan}
+              durasi={videoAktif.info.durasi}
+              lebar={videoAktif.info.lebar}
+              tinggi={videoAktif.info.tinggi}
+              totalPart={Math.max(
+                1,
+                Math.ceil(
+                  videoAktif.info.durasi / Math.max(1, videoAktif.pengaturan.durasiPart),
+                ),
+              )}
+            />
+          </Kartu>
+        </div>
+      )}
 
       {/* alur */}
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -504,25 +530,6 @@ export default function Halaman() {
 
         {videoAktif && (
           <div className="space-y-4 lg:sticky lg:top-6 lg:self-start">
-            <Kartu
-              judul="Pratinjau live"
-              deskripsi={`Video #${aktif + 1} — ${videoAktif.info.nama}`}
-              ikon={<MonitorPlay className="h-4 w-4" />}
-            >
-              <Preview
-                srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
-                pengaturan={videoAktif.pengaturan}
-                durasi={videoAktif.info.durasi}
-                lebar={videoAktif.info.lebar}
-                tinggi={videoAktif.info.tinggi}
-                totalPart={Math.max(
-                  1,
-                  Math.ceil(
-                    videoAktif.info.durasi / Math.max(1, videoAktif.pengaturan.durasiPart),
-                  ),
-                )}
-              />
-            </Kartu>
             <PanelEkspor
               daftar={daftar.map((v) => ({
                 file: v.info.file,

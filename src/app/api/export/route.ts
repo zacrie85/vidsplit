@@ -45,6 +45,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
     ? p.posisiLogo
     : "kanan-bawah";
   p.ukuranLogo = clamp(p.ukuranLogo, 5, 40, 15);
+  // v0.8.0 posisi bebas logo (persen frame, titik kiri-atas)
+  p.logoX = clamp(p.logoX, 0, 100, 81.5);
+  p.logoY = clamp(p.logoY, 0, 100, 88.5);
   p.logoId = typeof p.logoId === "string" ? p.logoId.slice(0, 300) : "";
   // font harus id yang dikenal — kalau tidak, pakai "tebal" (aman dari simpanan lama)
   const daftarFont = Object.keys(INFO_FONT) as NamaFont[];

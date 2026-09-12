@@ -27,6 +27,7 @@ import {
   INFO_FONT,
   labelPosisiLogo,
   labelPosisiPotong,
+  POSISI_LOGO_PRESET,
   PRESET_CEPAT,
   uraiWaktu,
   type CodecVideo,
@@ -40,6 +41,7 @@ import {
 } from "@/lib/vidsplit/types";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
+import { PratinjauLogo } from "./PratinjauLogo";
 
 const FONT_SINEMATIK = (Object.keys(INFO_FONT) as NamaFont[]).filter(
   (f) => !FONT_DASAR.includes(f),
@@ -536,7 +538,7 @@ export function PanelAtur({
         {logoInfo && (
           <div className="mt-3 space-y-3">
             <div>
-              <p className="mb-1 text-xs text-slate-400">Posisi logo</p>
+              <p className="mb-1 text-xs text-slate-400">Posisi cepat (pojok)</p>
               <ChipPilihan<PosisiLogo>
                 pilihan={([
                   "kiri-atas",
@@ -545,9 +547,29 @@ export function PanelAtur({
                   "kanan-bawah",
                 ] as PosisiLogo[]).map((v) => ({ v, label: labelPosisiLogo(v) }))}
                 nilai={pengaturan.posisiLogo}
-                onChange={(v) => set("posisiLogo", v)}
+                onChange={(v) => {
+                  // v0.8.0 — chip pojok = preset cepat: isi langsung logoX/logoY
+                  const pre = POSISI_LOGO_PRESET[v];
+                  onChange({ ...pengaturan, posisiLogo: v, logoX: pre.x, logoY: pre.y });
+                }}
               />
             </div>
+            {/* v0.8.0 — pratinjau interaktif: seret logo utk posisi bebas, tarik titik utk ubas ukuran */}
+            <PratinjauLogo
+              srcUrl={srcUrl}
+              logoUrl={`/api/file?p=${encodeURIComponent(pengaturan.logoId)}`}
+              lebar={lebarVideo}
+              tinggi={tinggiVideo}
+              logoX={pengaturan.logoX}
+              logoY={pengaturan.logoY}
+              ukuran={pengaturan.ukuranLogo}
+              mode={pengaturan.mode}
+              warnaLatar={pengaturan.warnaLatar}
+              onPosisi={(x, y) =>
+                onChange({ ...pengaturan, logoX: x, logoY: y })
+              }
+              onUkuran={(n) => set("ukuranLogo", n)}
+            />
             <BarisSlider
               label="Ukuran logo (lebar terhadap frame)"
               nilai={pengaturan.ukuranLogo}
@@ -590,7 +612,7 @@ export function PanelAtur({
           <dt className="text-slate-500">Watermark</dt>
           <dd className="text-right text-slate-200">
             {logoInfo
-              ? `${labelPosisiLogo(pengaturan.posisiLogo)} · ${pengaturan.ukuranLogo}%`
+              ? `${pengaturan.logoX.toFixed(0)}%,${pengaturan.logoY.toFixed(0)}% · ${pengaturan.ukuranLogo}%`
               : "tanpa logo"}
           </dd>
           <dt className="text-slate-500">Hasil split</dt>

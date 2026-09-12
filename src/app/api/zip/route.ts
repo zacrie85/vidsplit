@@ -16,6 +16,9 @@ export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get("id") || "";
+  // v0.8.0 — param opsional &video=<nama sumber>: ZIP HANYA video itu — dipakai tombol
+  // "ZIP" per baris video di panel ekspor, jadi hasil bisa diunduh sebelum antrean tuntas
+  const videoParam = (req.nextUrl.searchParams.get("video") || "").slice(0, 300);
   const job = ambilJob(id);
   // job lama tidak lagi ada di memori → coba riwayat ekspor (persisten di disk)
   const lama = job ? null : ambilRiwayat(id);
@@ -41,12 +44,16 @@ export async function GET(req: NextRequest) {
     return null;
   };
   const outputs = outputsMentah
+    .filter((o) => !videoParam || o.video === videoParam) // v0.8.0 — saring per video
     .map((o) => ({ o, abs: sumberFile(o.file) }))
     .filter((x): x is { o: (typeof outputsMentah)[number]; abs: string } => !!x.abs);
   if (!outputs.length) {
-    return new NextResponse("File hasil sudah tidak ada di folder kerja maupun folder tujuan", {
-      status: 400,
-    });
+    return new NextResponse(
+      videoParam
+        ? "Video ini belum punya hasil selesai — tunggu rendernya selesai dulu"
+        : "File hasil sudah tidak ada di folder kerja maupun folder tujuan",
+      { status: 400 },
+    );
   }
 
   // folder per video — nama unik berurutan bila ada nama sumber kembar
@@ -54,7 +61,9 @@ export async function GET(req: NextRequest) {
   antrean.forEach((v, i) => {
     mapFolder.set(v.nama, `${String(i + 1).padStart(2, "0")}-${slugify(v.nama)}`);
   });
-  const namaZip = `vidsplit-antrean-${antrean.length}video.zip`;
+  const namaZip = videoParam
+    ? `vidsplit-${slugify(videoParam) || "video"}.zip`
+    : `vidsplit-antrean-${antrean.length}video.zip`;
 
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -102,11 +111,13 @@ export async function GET(req: NextRequest) {
           "BACA-SAYA.txt",
           [
             "VidSplit — hasil split antrean",
-            `Video: ${antrean.length}, diproses berurutan dari atas`,
+            videoParam ? `Video terpilih: ${videoParam}` : `Video: ${antrean.length}, diproses berurutan dari atas`,
             `Paralel: ${paralel} part serentak · Encoder: ${akselerasi}`,
             "",
             "Isi (folder per video):",
-            ...antrean.map((v) => `- ${mapFolder.get(v.nama)} (${v.selesai}/${v.total} part)`),
+            ...antrean
+              .filter((v) => !videoParam || v.nama === videoParam)
+              .map((v) => `- ${mapFolder.get(v.nama)} (${v.selesai}/${v.total} part)`),
           ].join("\n"),
         );
         for (const { o, abs } of outputs) {
