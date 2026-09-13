@@ -1,10 +1,10 @@
 "use client";
 
-// VidSplit v0.11.0 — STUDIO MUSIK: panel kolom KANAN
-// 2. Pengubah genre (17 genre, mode LAPISAN / TRANSFORMASI PENUH) · 3. Tempo (0.5×/1×/1.5×)
+// VidSplit v0.12.0 — STUDIO MUSIK: panel kolom KANAN
+// 2. Pengubah genre (17 genre, mode LAPISAN / MUSIK BARU DARI CHORD) · 3. Tempo (0.5×/1×/1.5×)
 // 4. Vokal & karaoke · 5. Visual musik (15 gaya + kustom)
 import { BarisSlider, ChipPilihan, Kartu, PilihWarna } from "@/components/vds/bits";
-import { Mic, Palette, SlidersHorizontal, Timer } from "lucide-react";
+import { Mic, Palette, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import {
   DAFTAR_GENRE, INFO_GENRE, RESEP_GENRE, VISUAL_MUSIK,
   type GenreMusik, type IdVisual, type KaraokeMode, type ModeTransformasi, type OpsiVisual,
@@ -19,7 +19,9 @@ export interface AturMusik {
   kecepatan: number;
   grooveLevel: number;
   melodiLevel: number;
+  melodiAsliLevel: number;
   vokalLevel: number;
+  variasi: number;
   visual: IdVisual;
   resolusi: "720" | "1080";
   vis: OpsiVisual;
@@ -31,9 +33,11 @@ export const aturMusikDefault: AturMusik = {
   karaoke: "asli",
   mode: "penuh",
   kecepatan: 1,
-  grooveLevel: 70,
-  melodiLevel: 55,
-  vokalLevel: 100,
+  grooveLevel: 75,
+  melodiLevel: 65,
+  melodiAsliLevel: 0,
+  vokalLevel: 0,
+  variasi: 0,
   visual: "cqt-klasik",
   resolusi: "720",
   vis: {
@@ -61,22 +65,24 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
   return (
     <Kartu
       judul="2. Pengubah genre musik"
-      deskripsi="17 genre — pilih cara mengubah: lapisan di atas lagu, atau transformasi penuh"
+      deskripsi="17 genre — pilih cara mengubah: musik baru dari chord, atau lapisan di atas lagu"
       ikon={<SlidersHorizontal className="h-4 w-4" />}
     >
       <ChipPilihan<ModeTransformasi>
         nilai={atur.mode}
         onChange={(v) => ubah({ mode: v })}
         pilihan={[
-          { v: "penuh", label: "Transformasi penuh", hint: "Instrumen diganti total" },
+          { v: "penuh", label: "Musik baru dari chord", hint: "Musik diciptakan ulang total" },
           { v: "lapisan", label: "Lapisan", hint: "Lagu asli + lapisan genre" },
         ]}
       />
       {atur.mode === "penuh" ? (
         <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2 text-[11px] leading-relaxed text-amber-200/90">
-          <b>Transformasi penuh</b> — lagu asli dianalisis (BPM, chord, melodi), lalu
-          seluruh iringannya DIRENDER ULANG dgn alat musik genre pilihan. Vokal & melodi
-          asli tetap dipertahankan sebagai pegangan.
+          <b>Musik baru dari chord</b> — chord lagu asli diekstrak sebagai referensi, lalu
+          musik yang BENAR-BENAR BARU diciptakan dgn alat musik khas genre: pilih
+          <b> Dangdut</b> → kendang ganda, seruling, tabla & sitar rasa India; pilih genre
+          lain → dominasi berubah total. Vokal asli mati secara bawaan — hasil murni
+          musik baru yang mengikuti lagu asli.
         </p>
       ) : (
         <p className="mt-2 rounded-lg border border-slate-700/60 bg-slate-800/40 p-2 text-[11px] leading-relaxed text-slate-400">
@@ -119,7 +125,7 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
           {atur.mode === "penuh" ? (
             <>
               <BarisSlider
-                label="Iringan genre (drum, bass, akor)"
+                label="Iringan genre (drum, bass, akor, perkusi)"
                 nilai={atur.grooveLevel}
                 min={0}
                 max={100}
@@ -128,7 +134,7 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
                 onChange={(n) => ubah({ grooveLevel: n })}
               />
               <BarisSlider
-                label="Melodi asli (alat lead khas genre)"
+                label="Melodi baru — diciptakan dari chord"
                 nilai={atur.melodiLevel}
                 min={0}
                 max={100}
@@ -136,18 +142,54 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
                 fmt={(n) => (n === 0 ? "Mati" : `${n}%`)}
                 onChange={(n) => ubah({ melodiLevel: n })}
               />
-              <BarisSlider
-                label="Vokal asli (0% = instrumental)"
-                nilai={atur.vokalLevel}
-                min={0}
-                max={100}
-                step={5}
-                fmt={(n) => (n === 0 ? "Instrumental" : `${n}%`)}
-                onChange={(n) => ubah({ vokalLevel: n })}
-              />
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <BarisSlider
+                    label={`Variasi melodi (pola #${atur.variasi + 1} dari 8)`}
+                    nilai={atur.variasi}
+                    min={0}
+                    max={7}
+                    step={1}
+                    fmt={(n) => `#${n + 1}`}
+                    onChange={(n) => ubah({ variasi: n })}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => ubah({ variasi: (atur.variasi + 1) % 8 })}
+                  className="mb-0.5 inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-400/50 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-400/20"
+                  title="Ganti pola melodi baru dgn variasi lain"
+                >
+                  <Sparkles className="h-3.5 w-3.5" /> Variasikan
+                </button>
+              </div>
+              <div className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-2">
+                <p className="text-[11px] font-medium text-slate-400">Lanjutan (opsional)</p>
+                <div className="mt-1.5 space-y-2">
+                  <BarisSlider
+                    label="Melodi asli sebagai pegangan"
+                    nilai={atur.melodiAsliLevel}
+                    min={0}
+                    max={100}
+                    step={5}
+                    fmt={(n) => (n === 0 ? "Mati (disarankan)" : `${n}%`)}
+                    onChange={(n) => ubah({ melodiAsliLevel: n })}
+                  />
+                  <BarisSlider
+                    label="Vokal asli (0% = musik baru murni)"
+                    nilai={atur.vokalLevel}
+                    min={0}
+                    max={100}
+                    step={5}
+                    fmt={(n) => (n === 0 ? "Tanpa vokal" : `${n}%`)}
+                    onChange={(n) => ubah({ vokalLevel: n })}
+                  />
+                </div>
+              </div>
               <p className="text-[11px] leading-relaxed text-slate-500">
-                {INFO_GENRE[atur.genre].deskripsi}. Semua iringan dirender ulang mengikuti
-                chord & BPM lagu asli — vokal 0% = langsung jadi lagu instrumental.
+                {INFO_GENRE[atur.genre].deskripsi}. Musik baru diciptakan mengikuti chord
+                & tempo lagu asli, tanpa audio asli ikut — coba tombol <b>Variasikan</b>
+                {" "}utk pola melodi berbeda.
               </p>
             </>
           ) : (
@@ -206,13 +248,14 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
     return (
       <Kartu
         judul="4. Vokal & karaoke"
-        deskripsi="Dalam mode transformasi penuh, vokal dikendalikan lewat slider"
+        deskripsi="Dalam mode musik baru dari chord, vokal dikendalikan lewat slider"
         ikon={<Mic className="h-4 w-4" />}
       >
         <p className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-2.5 text-[11px] leading-relaxed text-slate-400">
           Slider <b className="text-amber-200">“Vokal asli”</b> di menu 2 yang mengatur vokal:
-          <b> 0% = instrumental karaoke</b> (iringan genre saja),
-          <b> 100% = vokal utuh</b> diiring band genre pilihan.
+          <b> 0% (bawaan) = musik baru murni tanpa suara asli</b> — ideal utk instrumental
+          genre; naikkan bila ingin menyanyi sendiri di atas musik baru dgn vokal asli
+          sbg panduan.
         </p>
       </Kartu>
     );

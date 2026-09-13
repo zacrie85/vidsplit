@@ -1,5 +1,5 @@
-// VidSplit v0.11.0 — manajer job STUDIO MUSIK: proses audio (mode lapisan ATAU
-// transformasi penuh v0.11 + tempo 0.5×/1×/1.5×) → render video visualizer (15 gaya,
+// VidSplit v0.12.0 — manajer job STUDIO MUSIK: proses audio (mode lapisan ATAU
+// MUSIK BARU DARI CHORD v0.12 + tempo 0.5×/1×/1.5×) → render video visualizer (15 gaya,
 // ffmpeg filter graf) → berkas chord/lirik (di-skala mengikuti tempo) → salin otomatis
 // ke folder tujuan → catat ke riwayat ekspor yang sudah ada.
 // Dukungan batal memakai registry batal.ts yang sama dgn ekspor video.
@@ -116,12 +116,17 @@ async function prosesAudio(
   let layerAbs: string | null = null;
   if (adaLayer) {
     if (o.mode === "penuh") {
-      // ==== TRANSFORMASI PENUH: iringan baru disintesis dari hasil analisis ====
+      // ==== MUSIK BARU DARI CHORD: seluruh musik disintesis dari hasil analisis ====
       const an = await analisisMusik(o.file, ff.bin);
       const iringWav = buatIringanWav(
         { bpm: an.bpm, fase: an.fase, durasi: info.durasi, chord: an.chord, melodi: an.melodi },
         o.genre === "asli" ? "pop" : o.genre,
-        { groove: o.grooveLevel / 100, melodi: o.melodiLevel / 100 },
+        {
+          groove: o.grooveLevel / 100,
+          melodi: o.melodiLevel / 100,          // melodi BARU dari chord
+          melodiAsli: o.melodiAsliLevel / 100,  // pegangan (bawaan 0)
+          variasi: o.variasi,                   // tombol "Variasikan melodi"
+        },
       );
       layerAbs = path.join(dirWork("tmp"), `iringan-${ktx.jobId}.wav`);
       writeFileSync(layerAbs, iringWav);
@@ -242,7 +247,7 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     if (!o.audioSudahProses || !wavRel) {
       job.tahap = "audio";
       job.pesan = o.mode === "penuh"
-        ? "Menganalisis & menyusun iringan baru (transformasi penuh)…"
+        ? "Menganalisis chord & menciptakan musik baru (musik baru dari chord)…"
         : "Memproses audio (genre, karaoke, layer instrumen)…";
       const folderProses = dirWork(`musik/${id}`);
       const hasil = await prosesAudio(clampStudio(o), folderProses, ktx);

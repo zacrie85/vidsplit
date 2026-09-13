@@ -1,6 +1,6 @@
 "use client";
 
-// VidSplit v0.11.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
+// VidSplit v0.12.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
 // Kolom KIRI  = 1. Impor musik + info lagu (BPM/kunci/chord + BPM & durasi HASIL) + gelombang
 // Kolom TENGAH= Pratinjau audio & visual + 6. Lirik & chord + 7. Ekspor (MP4/MP3/chord/lirik)
 // Kolom KANAN= 2. Genre (lapisan/penuh) · 3. Tempo · 4. Karaoke · 5. Visual (di StudioMusikKanan.tsx)
@@ -158,7 +158,8 @@ export function StudioMusik() {
         bpm: lagu.bpm, fase: lagu.fase,
         mode: atur.mode, kecepatan: atur.kecepatan,
         grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
-        vokalLevel: atur.vokalLevel,
+        melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
+        variasi: atur.variasi,
       }),
     })
       .then((r) => r.json())
@@ -254,7 +255,8 @@ export function StudioMusik() {
         bpm: lagu.bpm, fase: lagu.fase,
         mode: atur.mode, kecepatan: atur.kecepatan,
         grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
-        vokalLevel: atur.vokalLevel,
+        melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
+        variasi: atur.variasi,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,
@@ -326,7 +328,7 @@ export function StudioMusik() {
                 {(faktorWaktu !== 1 || atur.mode === "penuh") && (
                   <p className="mt-1 text-[11px] text-cyan-300/90">
                     Hasil ≈ <b>{bpmHasil} BPM</b> · {fmtMenit(durasiHasil)}
-                    {atur.mode === "penuh" && atur.genre !== "asli" ? " · iringan diganti total" : ""}
+                    {atur.mode === "penuh" && atur.genre !== "asli" ? " · musik baru dari chord" : ""}
                     {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
                   </p>
                 )}

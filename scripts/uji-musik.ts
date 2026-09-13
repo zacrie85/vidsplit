@@ -1,5 +1,6 @@
-// Uji unit v0.11.0 — STUDIO MUSIK: resep genre, filter audio (lapisan & penuh), 15 visual,
-// ASS/LRC/chord-sheet, layer WAV, iringan transformasi penuh, ekstraksi melodi, tempo.
+// Uji unit v0.12.0 — STUDIO MUSIK: resep genre, filter audio (lapisan & penuh), 15 visual,
+// ASS/LRC/chord-sheet, layer WAV, MUSIK BARU DARI CHORD (buatMelodiBaru 17 genre),
+// instrumen baru (sitar/brass/tabla/shaker), ekstraksi melodi, tempo.
 // Jalankan: bun scripts/uji-musik.ts
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
@@ -8,8 +9,8 @@ import {
   DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord, skalaLirik,
   type GenreMusik, type PolaLayer, type SegmenChord,
 } from "../src/lib/vidsplit/musik";
-import { buatLayerWav } from "../src/lib/vidsplit/musikLayer";
-import { buatIringanWav, IRING_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
+import { buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
+import { buatIringanWav, buatMelodiBaru, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
 import { ekstrakMelodi } from "../src/lib/vidsplit/musikAnalisis";
 
 let lulus = 0;
@@ -165,10 +166,10 @@ cek(gi.adaLayer && !gi.graf.includes("[voc") && gi.graf.includes("[1:a]volume=")
 const gv = bangunFilterAudio({ ...dasar, mode: "penuh", genre: "rock", grooveLevel: 0, vokalLevel: 80 });
 cek(!gv.adaLayer && gv.graf.includes("[voc0]"), "penuh groove 0% → vokal saja tanpa input 1");
 
-console.log("== 12. v0.11.0 — IRING_GENRE 17 gaya lengkap ==");
+console.log("== 12. v0.12.0 — IRING_GENRE 17 gaya lengkap + perkusi/dekorasi ==");
 const GAYA_BASS = ["delapan", "rootlima", "jalan", "reggae", "pump", "dangdut", "sub", "funk"];
 const GAYA_COMP = ["skank", "strum", "pad", "swing", "punch", "arpeggio", "funk16", "hentak"];
-const INS_NADA = ["bass", "sub", "piano", "orgel", "flute", "saw", "pluk", "saron", "bell"];
+const INS_NADA = ["bass", "sub", "piano", "orgel", "flute", "saw", "pluk", "saron", "bell", "sitar", "brass"];
 for (const g of DAFTAR_GENRE) {
   const ir = IRING_GENRE[g];
   cek(!!ir && POLA.includes(ir.drum) && GAYA_BASS.includes(ir.bass) && GAYA_COMP.includes(ir.comp)
@@ -176,6 +177,11 @@ for (const g of DAFTAR_GENRE) {
     && ir.swing >= 0 && ir.swing <= 0.33 && ir.gDrum > 0 && ir.gBass > 0 && ir.gComp > 0 && ir.gLead > 0,
     `iringan "${g}" lengkap & valid`);
 }
+cek(IRING_GENRE.dangdut.perkusi === "tabla" && IRING_GENRE.dangdut.dekorasi === "sitar",
+  "dangdut: perkusi tabla + dekorasi sitar (rasa India)");
+cek(IRING_GENRE.ska.lead === "brass" && IRING_GENRE.funk.lead === "brass", "ska & funk lead tembaga (brass)");
+cek(DAFTAR_GENRE.every((g) => MELODI_GENRE[g]?.ritme?.length > 0 && MELODI_GENRE[g]?.tangga?.length >= 5),
+  "MELODI_GENRE 17 gaya punya ritme & tangga");
 
 console.log("== 13. v0.11.0 — parseChord ==");
 cek(parseChord("C")?.root === 0 && !parseChord("C")?.minor, "C mayor");
@@ -230,6 +236,106 @@ const liSk2 = skalaLirik([{ mulai: 2, teks: "satu" }], 0.5);
 cek(liSk2[0].mulai === 4, "lirik tempo 0.5× → waktu dikali 2");
 const chSk = skalaChord([{ mulai: 4, durasi: 2, chord: "C" }], 1.5);
 cek(chSk[0].mulai === Math.round((4 / 1.5) * 1000) / 1000 && chSk[0].durasi === Math.round((2 / 1.5) * 1000) / 1000, "chord ikut diskala");
+
+console.log("== 17. v0.12.0 — buatMelodiBaru (musik baru dari chord) ==");
+// chord C tunggal 8 dtk — semua nada harus milik tangga/nada akor khas genre
+const ktxC = { bpm: 120, fase: 0, durasi: 8, chord: [{ mulai: 0, durasi: 8, chord: "C" }] as SegmenChord[] };
+const mDut = buatMelodiBaru(ktxC, "dangdut", 0);
+const mDut2 = buatMelodiBaru(ktxC, "dangdut", 0);
+cek(mDut.length > 20, `melodi dangdut diciptakan (${mDut.length} nada)`);
+cek(JSON.stringify(mDut) === JSON.stringify(mDut2), "deterministik — variasi sama = melodi identik");
+const mDutV = buatMelodiBaru(ktxC, "dangdut", 1);
+cek(JSON.stringify(mDut) !== JSON.stringify(mDutV), "variasi 1 → pola melodi berbeda");
+// batas waktu & frekuensi & gain masuk akal utk SEMUA genre
+let batasOk = true;
+for (const g of DAFTAR_GENRE) {
+  for (const n of buatMelodiBaru(ktxC, g, 3)) {
+    if (n.t < 0 || n.t > 8.2 || n.d <= 0 || n.d > 8 || n.f < 130 || n.f > 1975 || n.g <= 0 || n.g > 1) {
+      batasOk = false; console.error(`    pelanggaran @${g}: ${JSON.stringify(n)}`); break;
+    }
+  }
+}
+cek(batasOk, "17 genre: waktu/durasi/frekuensi/gain semua dalam batas");
+// nada kuat harus nada CHORD (akar/ters/kvint/oktaf) — bukan melodi asli
+const pcDalam = (f: number, base: number) => {
+  const pc = Math.round(12 * Math.log2(f / base)) % 12;
+  return ((pc % 12) + 12) % 12;
+};
+let chordOk = true;
+for (const g of DAFTAR_GENRE) {
+  const base = 261.626 * Math.pow(2, MELODI_GENRE[g].okt);
+  const izinkan = new Set([...MELODI_GENRE[g].tangga, 0, 4, 7, 12, 19].map((s) => ((s % 12) + 12) % 12));
+  for (const n of buatMelodiBaru(ktxC, g, 2)) {
+    if (n.d === 0.06) continue; // ornamen grace-note sengaja meluncur −2 semitone — dikecualikan
+    if (!izinkan.has(pcDalam(n.f, base))) { chordOk = false; console.error(`    nada di luar tangga @${g}: ${n.f}`); break; }
+  }
+}
+cek(chordOk, "nada melodi selalu dari tangga nada/nada akor (mengikuti chord)");
+// ornamen grace-note khas dangdut hadir; lofi (tanpa ornamen) tidak
+cek(mDut.some((n) => n.d === 0.06), "dangdut: ada ornamen grace-note 60 ms");
+cek(!buatMelodiBaru(ktxC, "lofi", 0).some((n) => n.d === 0.06), "lofi: tanpa ornamen");
+// densitas: punk (8 slot/bar) lebih rapat dari reggae (4 slot/bar)
+const mPunk = buatMelodiBaru(ktxC, "punk", 0);
+const mReggae = buatMelodiBaru(ktxC, "reggae", 0);
+cek(mPunk.length > mReggae.length * 1.4, `punk lebih rapat (${mPunk.length}) dari reggae (${mReggae.length})`);
+// chord berbeda → akar melodi berpindah (mengikuti progresi)
+const ktxPro = { bpm: 120, fase: 0, durasi: 8, chord: [
+  { mulai: 0, durasi: 4, chord: "C" }, { mulai: 4, durasi: 4, chord: "Ab" },
+] as SegmenChord[] };
+const mPro = buatMelodiBaru(ktxPro, "pop", 0);
+const nadaPertama = mPro.filter((n) => n.t < 3.9)[0];
+const nadaAb = mPro.filter((n) => n.t >= 4 && n.t < 4.6)[0];
+cek(!!nadaPertama && !!nadaAb && pcDalam(nadaAb.f, 523.25) !== pcDalam(nadaPertama.f, 523.25),
+  "ganti chord → akar melodi berpindah mengikuti progresi");
+
+console.log("== 18. v0.12.0 — instrumen baru: sitar, brass, tabla, shaker ==");
+for (const [nama, buf] of [
+  ["sitar", nadaIns("sitar", 440, 0.5, 0.8)], ["brass", nadaIns("brass", 349.2, 0.5, 0.8)],
+  ["tabla dha", sampel("tabla", 0.8, 95)], ["tabla tin", sampel("tabla", 0.6, 520)],
+  ["shaker", sampel("shaker", 0.4, 0)],
+] as const) {
+  const finite = buf.length > 0 && Array.from(buf.slice(0, 1000)).every((v) => Number.isFinite(v));
+  cek(finite, `instrumen "${nama}" — ${buf.length} sampel, semua finite`);
+}
+
+console.log("== 19. v0.12.0 — clampStudio: bawaan musik baru murni ==");
+const cl19 = clampStudio({ file: "x" });
+cek(cl19.vokalLevel === 0, "bawaan vokalLevel = 0 (audio asli tidak ikut)");
+cek(cl19.melodiAsliLevel === 0, "bawaan melodiAsliLevel = 0 (bukan melodi asli)");
+cek(cl19.melodiLevel === 65, "bawaan melodiLevel = 65 (melodi baru dari chord)");
+cek(cl19.variasi === 0, "bawaan variasi = 0");
+const clVar = clampStudio({ file: "x", variasi: -7 });
+cek(clVar.variasi === 0, "variasi negatif → 0");
+const clVar2 = clampStudio({ file: "x", variasi: 9999 });
+cek(clVar2.variasi === 999, "variasi raksasa → 999");
+
+console.log("== 20. v0.12.0 — graf penuh: audio asli TIDAK masuk (vokal bawaan 0) ==");
+const gBaru = bangunFilterAudio({ ...dasar, mode: "penuh", genre: "dangdut", grooveLevel: 75, vokalLevel: 0 });
+cek(gBaru.adaLayer && !gBaru.graf.includes("[base]") && !gBaru.graf.includes("[voc"),
+  "penuh vokal 0% → sumber audio TIDAK ada di graf (musik baru murni)");
+cek(gBaru.graf.includes("[1:a]volume="), "penuh vokal 0% → hanya input 1 (musik baru)");
+const gVok = bangunFilterAudio({ ...dasar, mode: "penuh", genre: "dangdut", grooveLevel: 75, vokalLevel: 60 });
+cek(gVok.graf.includes("[base]") && gVok.graf.includes("highpass=f=160"), "penuh vokal >0 → sumber ikut via DSP tengah");
+
+console.log("== 21. v0.12.0 — buatIringanWav memakai melodi baru (tanpa melodi asli) ==");
+// KTX tanpa melodi asli pun — musik baru tetap kaya (dulu: tanpa melodi asli = hening melodi)
+const wTanpaMelodi = buatIringanWav({ bpm: 120, fase: 0, durasi: 8, chord: chordUji }, "dangdut", { groove: 0.75, melodi: 0.65 });
+const ekspektasi8 = 44 + Math.ceil((8 + 1.2) * 44100) * 2 * 2;
+cek(wTanpaMelodi.slice(0, 4).toString("ascii") === "RIFF" && Math.abs(wTanpaMelodi.length - ekspektasi8) < 4,
+  "iringan dangdut tanpa melodi asli → WAV valid (melodi baru diciptakan)");
+// variasi 0 vs 1 → audio berbeda (melodi benar-benar berganti)
+const wV0 = buatIringanWav({ bpm: 120, fase: 0, durasi: 8, chord: chordUji }, "dangdut", { groove: 0.75, melodi: 0.65, variasi: 0 });
+const wV1 = buatIringanWav({ bpm: 120, fase: 0, durasi: 8, chord: chordUji }, "dangdut", { groove: 0.75, melodi: 0.65, variasi: 1 });
+let bedaVar = false;
+for (let i = 200000; i < 500000; i++) if (wV0[i] !== wV1[i]) { bedaVar = true; break; }
+cek(bedaVar, "variasi berbeda → audio musik baru berbeda");
+// melodi asli sbg pegangan opsional masih bekerja
+const wPegangan = buatIringanWav(
+  { bpm: 120, fase: 0, durasi: 8, chord: chordUji, melodi: melodiUji }, "pop",
+  { groove: 0.75, melodi: 0.65, melodiAsli: 0.8 },
+);
+cek(wPegangan.slice(0, 4).toString("ascii") === "RIFF" && Math.abs(wPegangan.length - ekspektasi8) < 4,
+  "melodi asli sbg pegangan (opsional) → WAV valid");
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

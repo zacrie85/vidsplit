@@ -1,9 +1,9 @@
-// VidSplit v0.11.0 — STUDIO MUSIK: tipe data, resep genre (17), resep visual (15),
+// VidSplit v0.12.0 — STUDIO MUSIK: tipe data, resep genre (17), resep visual (15),
 // pembangun filter audio ffmpeg, subtitle ASS (judul + chord + lirik), LRC & chord sheet.
-// Baru v0.11.0: MODE TRANSFORMASI PENUH (instrumen lama diganti total iringan genre
-// tersintesis dari hasil analisis chord/BPM/melodi) + KECEPATAN TEMPO 0.5×/1×/1.5×
-// (atempo nyata di rantai ffmpeg — juga memperbaiki tempo resep genre yang dulu
-// hanya mengubah durasi tanpa melar audio). Semua 100% ffmpeg + JS murni.
+// v0.11.0: MODE TRANSFORMASI PENUH + KECEPATAN TEMPO 0.5×/1×/1.5× (atempo nyata).
+// v0.12.0 "MUSIK BARU DARI CHORD": mode penuh kini MURNI musik baru — audio asli tidak
+// ikut (vokal bawaan 0%), melodi DICPTAKAN dari chord dgn gaya khas genre (variasi bisa
+// diganti), melodi asli jadi opsi pegangan bawaan mati. Semua 100% ffmpeg + JS murni.
 import type { NamaFont } from "./types";
 
 // ============ TIPE DASAR ============
@@ -18,12 +18,12 @@ export type GenreMusik =
  *  | vokal (tonjolkan vokal, kurangi instrumen) — metode DSP tengah/samping stereo. */
 export type KaraokeMode = "asli" | "karaoke" | "vokal";
 
-/** v0.11.0 — cara pengubah genre bekerja:
+/** v0.12.0 — cara pengubah genre bekerja:
  *  - "lapisan": lagu asli utuh + efek karakter genre + lapisan instrumen di atasnya (v0.10).
- *  - "penuh"  : TRANSFORMASI PENUH — iringan asli ditinggalkan, seluruh iringan baru
- *                (drum/bass/akor/melodi) disintesis mengikuti hasil analisis lagu asli
- *                (BPM, fasa beat, progresi chord, jalur melodi) dgn instrumen khas genre;
- *                vokal asli tetap bisa diikutkan (DSP kanal tengah). */
+ *  - "penuh"  : MUSIK BARU DARI CHORD — audio asli TIDAK ikut (vokal bawaan 0%); chord,
+ *                BPM & fasa lagu asli dijadikan REFERENSI lalu seluruh musik baru
+ *                (drum/bass/akor/melodi/perkusi) diciptakan khas genre pilihan;
+ *                vokal asli opsional (DSP kanal tengah) bila ingin dinyanyikan. */
 export type ModeTransformasi = "lapisan" | "penuh";
 
 /** pilihan kecepatan tempo — 0.5 = perlambat 2× lebih lama, 1.5 = percepat ⅓ lebih cepat */
@@ -60,8 +60,8 @@ export const INFO_GENRE: Record<GenreMusik, { label: string; deskripsi: string }
   jazz: { label: "Jazz", deskripsi: "Hangat lembut, ruang reverb, dinamika longgar" },
   blues: { label: "Blues", deskripsi: "Hangat raung, tremolo halus, tempo santai" },
   reggae: { label: "Reggae", deskripsi: "Bass tebal, echo dingin, pukulan off-beat" },
-  ska: { label: "Ska", deskripsi: "Cerah cepat, stab off-beat khas upstroke" },
-  dangdut: { label: "Dangdut", deskripsi: "Kendang ganda + bass tegas, terang menggiring" },
+  ska: { label: "Ska", deskripsi: "Tembaga cerah, stab off-beat khas upstroke" },
+  dangdut: { label: "Dangdut", deskripsi: "Kendang ganda, seruling, tabla-sitar rasa India" },
   edm: { label: "EDM", deskripsi: "Kick 4/4 menghantam, tinggi berkilau, tekanan besar" },
   hiphop: { label: "Hip-Hop", deskripsi: "Tempo turun, boom-bap berat, hangat lo-fi" },
   funk: { label: "Funk", deskripsi: "Punch rapat, mid melengket, groove kencang" },
@@ -195,12 +195,16 @@ export interface OpsiStudioMusik {
   mode: ModeTransformasi;
   /** v0.11.0 — kecepatan tempo hasil: 0.5 | 1 | 1.5 */
   kecepatan: number;
-  /** v0.11.0 (mode penuh) 0–100 intensitas iringan genre (drum+bass+akor) */
+  /** (mode penuh) 0–100 intensitas iringan genre (drum+bass+akor) */
   grooveLevel: number;
-  /** v0.11.0 (mode penuh) 0–100 melodi asli dimainkan ulang dgn alat lead khas genre */
+  /** (mode penuh) 0–100 level MELODI BARU diciptakan dari chord — gaya khas genre */
   melodiLevel: number;
-  /** v0.11.0 (mode penuh) 0–100 vokal asli ikut diaduk (0 = instrumental) */
+  /** v0.12.0 (mode penuh) 0–100 melodi ASLI sbg pegangan — bawaan 0 (mati) */
+  melodiAsliLevel: number;
+  /** (mode penuh) 0–100 vokal asli ikut diaduk — bawaan 0 = murni musik baru */
   vokalLevel: number;
+  /** v0.12.0 — angka variasi melodi baru (tombol "Variasikan melodi") */
+  variasi: number;
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -217,8 +221,10 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
     mode: o.mode === "penuh" ? "penuh" : "lapisan",
     kecepatan: (PILIHAN_KECEPATAN as readonly number[]).includes(kec) ? kec : 1,
     grooveLevel: Math.min(100, Math.max(0, Math.round(Number(o.grooveLevel ?? 70)))),
-    melodiLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiLevel ?? 55)))),
-    vokalLevel: Math.min(100, Math.max(0, Math.round(Number(o.vokalLevel ?? 100)))),
+    melodiLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiLevel ?? 65)))),
+    melodiAsliLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiAsliLevel ?? 0)))),
+    vokalLevel: Math.min(100, Math.max(0, Math.round(Number(o.vokalLevel ?? 0)))),
+    variasi: Math.min(999, Math.max(0, Math.round(Number(o.variasi ?? 0)))),
   };
 }
 
@@ -272,8 +278,9 @@ export function bangunFilterAudio(o: OpsiStudioMusik): {
   const baris: string[] = [];
   const rantai = resep ? resep.rantai.join(",") : "anull";
   // input 0 hanya dimasukkan ke graf bila benar-benar dipakai (lapisan selalu;
-  // penuh hanya bila vokal ikut atau iringan mati) — output graf tak boleh menggantung
-  const pakaiSumber = !penuh || (o.vokalLevel ?? 100) > 0 || (o.grooveLevel ?? 0) <= 0;
+  // penuh hanya bila vokal ikut atau iringan mati) — output graf tak boleh menggantung.
+  // v0.12.0: bawaan vokal 0 → audio asli TIDAK masuk graf sama sekali (musik baru murni).
+  const pakaiSumber = !penuh || (o.vokalLevel ?? 0) > 0 || (o.grooveLevel ?? 0) <= 0;
   if (pakaiSumber) {
     baris.push("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[base]");
   }
@@ -311,14 +318,15 @@ export function bangunFilterAudio(o: OpsiStudioMusik): {
       baris.push("[g]volume=1.9[mix]");
     }
   } else {
-    // ========== MODE PENUH v0.11.0 — iringan genre menggantikan instrumen asli ==========
-    // vokal asli diambil lewat DSP kanal tengah (band 160–6500 Hz);
-    // iringan asli TIDAK dipakai — seluruh iringan baru dari input 1 (disintesis
-    // mengikuti chord/BPM/melodi hasil analisis — lihat musikTransformasi.ts).
-    const vokalOn = (o.vokalLevel ?? 100) > 0;
+    // ========== MODE PENUH v0.12.0 — MUSIK BARU DARI CHORD ==========
+    // Audio asli TIDAK dipakai (vokal bawaan 0%). Bila vokalLevel > 0, vokal asli
+    // diambil lewat DSP kanal tengah (band 160–6500 Hz) utk dinyanyikan di atas
+    // musik baru. Seluruh musik baru dari input 1 (disintesis musikTransformasi.ts:
+    // drum+bass+akor+melodi buatan dari chord+perkusi+dekorasi khas genre).
+    const vokalOn = (o.vokalLevel ?? 0) > 0;
     adaLayer = (o.grooveLevel ?? 0) > 0;
     adaVokal = vokalOn;
-    const gVokal = ((o.vokalLevel ?? 100) / 100) * 1.55;
+    const gVokal = ((o.vokalLevel ?? 0) / 100) * 1.55;
     const gIring = ((o.grooveLevel ?? 70) / 100) * 1.9;
     if (vokalOn && adaLayer) {
       baris.push(

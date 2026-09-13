@@ -1,14 +1,19 @@
-// VidSplit v0.11.0 — MESIN TRANSFORMASI GENRE PENUH.
-// Inilah jawaban atas "musik asli masih belum berubah, hanya ditambah layer":
-// di mode PENUH, iringan asli DITINGGALKAN SEPENUHNYA. Seluruh iringan baru
-// disintesis di sini dari hasil ANALISIS lagu asli sebagai referensi:
-//   • DRUM   : pola ritme khas genre mengikuti BPM & fase beat asli
-//   • BASS   : garis bass mengikuti AKAR CHORD hasil deteksi chromagram
-//   • AKOR   : komping/pad/arpeggio mengikuti progresi chord asli
-//   • MELODI : jalur melodi utama lagu asli (ekstraksi pitch) dimainkan ulang
-//              oleh alat lead khas genre (flute dangdut, saron gamelan, saw rock, dst.)
-// Hasil = lagu yang "sama" (melodi, chord, tempo, struktur) tetapi SELURUH
-// instrumennya diganti karakter genre pilihan — 100% offline, JS murni.
+// VidSplit v0.12.0 — MESIN TRANSFORMASI GENRE PENUH + PENCIPTA MUSIK BARU DARI CHORD.
+// Jawaban atas "hasilnya masih didominasi musik asli": di mode PENUH, audio asli
+// TIDAK IKUT SAMA SEKALI (vokal mati secara bawaan). Yang dipakai hanya HASIL
+// ANALISIS-nya sebagai referensi komposisi:
+//   • CHORD  : progresi hasil chromagram → acuan akar/tangga nada
+//   • BPM+fasa: kisi ketukan → semua instrumen sejajar tempo asli
+//   • STRUKTUR: panjang & urutan segmen chord → kerangka lagu baru
+// Lalu musik BARU DICIPTAKAN sepenuhnya:
+//   • DRUM   : pola khas genre + perkusi ekstra (tabla utk dangdut) + fill tiap 8 bar
+//   • BASS   : garis bass gaya genre mengikuti akar chord
+//   • AKOR   : komping/pad/arpeggio mengikuti progresi
+//   • MELODI : BUATAN BARU — diciptakan dari nada-nada chord dgn gaya khas genre
+//              (ritme, tangga nada, ornamen, register — MELODI_GENRE) + tombol variasi
+//   • DEKORASI: sitar khas India utk dangdut, dst.
+// Hasil = musik benar-benar baru khas genre yang "mengikuti" lagu asli via chord-nya —
+// 100% offline, JS murni, tanpa dependensi.
 import type { GenreMusik, PolaLayer, SegmenChord } from "./musik";
 import { LAJU, nadaIns, polaBar, sampel, tulisKeBufor, wavDariFloat, type InsNada, type Instrumen } from "./musikLayer";
 import type { CatatanMelodi } from "./musikAnalisis";
@@ -45,7 +50,7 @@ export interface IringGenre {
   comp: GayaComp;
   /** alat komping (akor) */
   compIns: InsNada;
-  /** alat lead pemain melodi asli */
+  /** alat lead pemain MELODI BARU (buatMelodiBaru) */
   lead: InsNada;
   /** 0–0.33 keterlambatan off-beat (feel swing/jazz) */
   swing: number;
@@ -55,6 +60,10 @@ export interface IringGenre {
   gBass: number;
   gComp: number;
   gLead: number;
+  /** v0.12.0 — perkusi tambahan khas genre */
+  perkusi?: "tabla" | "shaker";
+  /** v0.12.0 — alat dekorasi melodi (hiasan khas, mis. sitar utk dangdut) */
+  dekorasi?: InsNada;
 }
 
 export const IRING_GENRE: Record<GenreMusik, IringGenre> = {
@@ -65,12 +74,12 @@ export const IRING_GENRE: Record<GenreMusik, IringGenre> = {
   jazz:      { drum: "slap",    bass: "jalan",    comp: "swing",    compIns: "piano", lead: "orgel",  swing: 0.26, oktBass: 0,  gDrum: 0.5,  gBass: 0.5,  gComp: 0.34, gLead: 0.4 },
   blues:     { drum: "slap",    bass: "jalan",    comp: "swing",    compIns: "piano", lead: "orgel",  swing: 0.3,  oktBass: 0,  gDrum: 0.52, gBass: 0.52, gComp: 0.36, gLead: 0.42 },
   reggae:    { drum: "onedrop", bass: "reggae",   comp: "skank",    compIns: "pluk",  lead: "orgel",  swing: 0.06, oktBass: 0,  gDrum: 0.6,  gBass: 0.66, gComp: 0.4,  gLead: 0.36 },
-  ska:       { drum: "skank",   bass: "jalan",    comp: "skank",    compIns: "pluk",  lead: "orgel",  swing: 0.12, oktBass: 0,  gDrum: 0.62, gBass: 0.55, gComp: 0.46, gLead: 0.4 },
-  dangdut:   { drum: "dangdut", bass: "dangdut",  comp: "hentak",   compIns: "orgel", lead: "flute",  swing: 0.04, oktBass: 0,  gDrum: 0.66, gBass: 0.6,  gComp: 0.36, gLead: 0.5 },
-  edm:       { drum: "disco",   bass: "pump",     comp: "pad",      compIns: "saw",   lead: "saw",    swing: 0,    oktBass: -1, gDrum: 0.72, gBass: 0.68, gComp: 0.34, gLead: 0.44 },
+  ska:       { drum: "skank",   bass: "jalan",    comp: "skank",    compIns: "pluk",  lead: "brass",  swing: 0.12, oktBass: 0,  gDrum: 0.62, gBass: 0.55, gComp: 0.46, gLead: 0.44, perkusi: "shaker" },
+  dangdut:   { drum: "dangdut", bass: "dangdut",  comp: "hentak",   compIns: "orgel", lead: "flute",  swing: 0.04, oktBass: 0,  gDrum: 0.66, gBass: 0.6,  gComp: 0.36, gLead: 0.5,  perkusi: "tabla", dekorasi: "sitar" },
+  edm:       { drum: "disco",   bass: "pump",     comp: "pad",      compIns: "saw",   lead: "saw",    swing: 0,    oktBass: -1, gDrum: 0.72, gBass: 0.68, gComp: 0.34, gLead: 0.44, perkusi: "shaker" },
   hiphop:    { drum: "boombap", bass: "sub",      comp: "pad",      compIns: "piano", lead: "piano",  swing: 0.16, oktBass: 0,  gDrum: 0.66, gBass: 0.7,  gComp: 0.3,  gLead: 0.36 },
-  funk:      { drum: "pop",     bass: "funk",     comp: "funk16",   compIns: "pluk",  lead: "pluk",   swing: 0.14, oktBass: 0,  gDrum: 0.62, gBass: 0.66, gComp: 0.42, gLead: 0.46 },
-  disco:     { drum: "disco",   bass: "pump",     comp: "arpeggio", compIns: "piano", lead: "bell",   swing: 0,    oktBass: 0,  gDrum: 0.66, gBass: 0.62, gComp: 0.4,  gLead: 0.44 },
+  funk:      { drum: "pop",     bass: "funk",     comp: "funk16",   compIns: "pluk",  lead: "brass",  swing: 0.14, oktBass: 0,  gDrum: 0.62, gBass: 0.66, gComp: 0.42, gLead: 0.46 },
+  disco:     { drum: "disco",   bass: "pump",     comp: "arpeggio", compIns: "piano", lead: "bell",   swing: 0,    oktBass: 0,  gDrum: 0.66, gBass: 0.62, gComp: 0.4,  gLead: 0.44, perkusi: "shaker" },
   keroncong: { drum: "slap",    bass: "rootlima", comp: "strum",    compIns: "pluk",  lead: "flute",  swing: 0.05, oktBass: 0,  gDrum: 0.42, gBass: 0.5,  gComp: 0.44, gLead: 0.46 },
   country:   { drum: "slap",    bass: "rootlima", comp: "strum",    compIns: "pluk",  lead: "pluk",   swing: 0.1,  oktBass: 0,  gDrum: 0.5,  gBass: 0.52, gComp: 0.44, gLead: 0.44 },
   lofi:      { drum: "vinyl",   bass: "sub",      comp: "pad",      compIns: "piano", lead: "piano",  swing: 0.18, oktBass: 0,  gDrum: 0.5,  gBass: 0.6,  gComp: 0.3,  gLead: 0.34 },
@@ -91,6 +100,147 @@ export function parseChord(nama: string): { root: number; minor: boolean } | nul
   return { root: SEMITONE[m[1]], minor: m[2] === "m" };
 }
 
+// ============ v0.12.0 — GAYA MELODI PER GENRE (pencipta musik baru) ============
+
+export interface GayaMelodi {
+  /** geser oktaf register lead (1 = sekitar C5, cocok seruling/tembaga) */
+  okt: number;
+  /** tangga nada — semitone dari AKAR CHORD (nadanya berpindah mengikuti chord) */
+  tangga: number[];
+  /** pola ritme 1 bar: [posisi ketuk, panjang ketuk] — dikombinasikan dgn motif 4 bar */
+  ritme: [number, number][];
+  /** ornamen grace-note khas (dangdut/blues/keroncong) */
+  ornamen: boolean;
+  /** 0..1 — kecenderungan lompatan nada (0 = melata selangkah, 1 = liar) */
+  lompat: number;
+}
+
+export const MELODI_GENRE: Record<GenreMusik, GayaMelodi> = {
+  pop:       { okt: 1, tangga: [0, 2, 4, 7, 9],      ritme: [[0, 1], [1, 0.5], [2, 1], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.25 },
+  rock:      { okt: 1, tangga: [0, 3, 5, 7, 10],     ritme: [[0, 0.5], [1, 0.5], [2, 0.5], [2.5, 0.5], [3, 1]], ornamen: false, lompat: 0.35 },
+  punk:      { okt: 1, tangga: [0, 3, 5, 7, 10],     ritme: [[0, 0.5], [0.5, 0.5], [1, 0.5], [1.5, 0.5], [2, 0.5], [2.5, 0.5], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.3 },
+  metal:     { okt: 0, tangga: [0, 2, 3, 5, 7, 8, 10], ritme: [[0, 0.5], [0.5, 0.5], [1, 0.5], [2, 0.5], [2.5, 0.5], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.3 },
+  jazz:      { okt: 1, tangga: [0, 2, 4, 5, 7, 9, 11], ritme: [[0, 0.5], [1, 0.5], [1.5, 0.5], [2, 0.5], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.5 },
+  blues:     { okt: 1, tangga: [0, 3, 5, 6, 7, 10],  ritme: [[0, 0.75], [1, 0.25], [1.5, 0.5], [2, 0.75], [3, 0.5], [3.5, 0.5]], ornamen: true, lompat: 0.4 },
+  reggae:    { okt: 1, tangga: [0, 3, 5, 7, 10],     ritme: [[0.5, 0.5], [1.5, 0.5], [2.75, 0.25], [3.5, 0.75]], ornamen: false, lompat: 0.3 },
+  ska:       { okt: 1, tangga: [0, 2, 4, 7, 9],      ritme: [[0, 0.25], [0.5, 0.25], [1, 0.5], [1.5, 0.5], [2, 0.25], [2.5, 0.25], [3, 0.25], [3.5, 0.5]], ornamen: false, lompat: 0.45 },
+  dangdut:   { okt: 1, tangga: [0, 2, 4, 7, 9],      ritme: [[0, 0.5], [0.5, 0.25], [0.75, 0.25], [1, 0.5], [1.5, 0.5], [2, 0.5], [2.5, 0.25], [2.75, 0.25], [3, 0.5], [3.5, 0.5]], ornamen: true, lompat: 0.35 },
+  edm:       { okt: 1, tangga: [0, 3, 5, 7, 10],     ritme: [[0, 0.25], [0.25, 0.25], [0.5, 0.25], [0.75, 0.25], [2, 0.25], [2.25, 0.25], [2.5, 0.25], [2.75, 0.25]], ornamen: false, lompat: 0.4 },
+  hiphop:    { okt: 0, tangga: [0, 3, 5, 7, 10],     ritme: [[0, 0.75], [1.5, 0.5], [2, 0.5], [3.25, 0.25], [3.5, 0.5]], ornamen: false, lompat: 0.4 },
+  funk:      { okt: 1, tangga: [0, 3, 5, 7, 10],     ritme: [[0, 0.25], [0.375, 0.25], [0.75, 0.25], [1.5, 0.25], [2, 0.25], [2.375, 0.25], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.45 },
+  disco:     { okt: 1, tangga: [0, 2, 4, 7, 9],      ritme: [[0, 0.5], [1, 0.5], [1.5, 0.5], [2, 0.5], [2.5, 0.5], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.5 },
+  keroncong: { okt: 1, tangga: [0, 2, 4, 5, 7, 9, 11], ritme: [[0, 0.5], [1, 1], [2, 0.5], [3, 1]], ornamen: true, lompat: 0.3 },
+  country:   { okt: 1, tangga: [0, 2, 4, 7, 9],      ritme: [[0, 0.5], [0.5, 0.5], [1, 0.5], [2, 0.5], [2.5, 0.5], [3, 0.5], [3.5, 0.5]], ornamen: false, lompat: 0.35 },
+  lofi:      { okt: 0, tangga: [0, 3, 5, 7, 10],     ritme: [[0, 1], [2, 1], [3, 1]], ornamen: false, lompat: 0.25 },
+  gamelan:   { okt: 0, tangga: [0, 2, 5, 7, 9],      ritme: [[0, 1], [1, 1], [2, 1], [3, 1]], ornamen: false, lompat: 0.2 },
+};
+
+// PRNG deterministik (mulberry32) — melodi sama utk lagu sama, berganti dgn "variasi"
+function mulberry32(benih: number): () => number {
+  let a = benih >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashString(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+
+const bulat = (n: number, k = 3) => Math.round(n * 10 ** k) / 10 ** k;
+
+/**
+ * CIPTAKAN MELODI BARU dari progresi chord lagu asli (v0.12.0).
+ * Bukan menyalin melodi asli — nada diambil dari nada-nada CHORD (akar/ters/kvint/oktaf)
+ * + tangga nada khas genre, dijalin motif 4 ketuk yang berulang-berubah, ritme khas
+ * genre, ornamen grace-note, dan register lead. Deterministik: lagu sama + variasi
+ * sama = melodi sama; tombol "Variasikan" mengganti benih → melodi baru.
+ */
+export function buatMelodiBaru(a: KtxIring, genre: GenreMusik, variasi = 0): CatatanMelodi[] {
+  const gaya = MELODI_GENRE[genre];
+  const iring = IRING_GENRE[genre];
+  const bpm = Math.min(220, Math.max(50, a.bpm || 120));
+  const spb = 60 / bpm;
+  const durasi = Math.max(1, a.durasi);
+  const rng = mulberry32(hashString(
+    `${a.bpm}|${a.fase}|${a.durasi}|${a.chord.map((c) => c.chord).join(",")}|${genre}|v${variasi}`,
+  ));
+  const base = FREQ_C4 * Math.pow(2, gaya.okt);
+  const tPos = (bar: number, pos: number): number => {
+    const fraksi = pos - Math.floor(pos);
+    const off = Math.abs(fraksi - 0.5) < 1e-6;
+    return (bar * 4 + pos) * spb + (a.fase || 0) + (off ? iring.swing * 0.5 * spb : 0);
+  };
+  const chordPada = (t: number): { root: number; minor: boolean } => {
+    const seg =
+      a.chord.find((c) => t >= c.mulai - 0.02 && t < c.mulai + c.durasi) ||
+      a.chord[a.chord.length - 1];
+    return parseChord(seg?.chord || "C") || { root: 0, minor: false };
+  };
+  // nada akor utk derajat 0..4: akar, ters, kvint, oktaf, oktaf+kvint
+  const nadaDerajat = (minor: boolean, deg: number): number =>
+    (minor ? [0, 3, 7, 12, 19] : [0, 4, 7, 12, 19])[Math.max(0, Math.min(4, deg))];
+
+  const nBar = Math.ceil(durasi / (spb * 4)) + 1;
+  const catatan: CatatanMelodi[] = [];
+  let nadaPrev = 0; // semitone offset dari akar chord saat ini
+
+  for (let bar = 0; bar < nBar; bar++) {
+    const tBar = bar * 4 * spb + (a.fase || 0);
+    if (tBar > durasi + 0.2) break;
+    const c = chordPada(tBar);
+    // motif 4 bar: derajat nada per slot (regenerated tiap siklus — variasi dalam kesatuan)
+    const motif = gaya.ritme.map(([pos]) => {
+      const kuat = Number.isInteger(pos); // ketukan penuh = wajib nada akor
+      if (kuat) return { kuat, deg: Math.floor(rng() * 5) };
+      // nada sambung dari tangga nada (indeks disimpan; dipilih dekat nada sebelumnya)
+      return { kuat, deg: Math.floor(rng() * gaya.tangga.length * 2) };
+    });
+    for (let i = 0; i < gaya.ritme.length; i++) {
+      const [pos, len] = gaya.ritme[i];
+      const t = tPos(bar, pos);
+      if (t < -0.05 || t > durasi + 0.2) continue;
+      let semit: number;
+      if (motif[i].kuat) {
+        semit = nadaDerajat(c.minor, motif[i].deg);
+        nadaPrev = semit;
+      } else {
+        // sambungan: nada tangga terdekat dari nada sebelumnya (arah acak, jarang lompat)
+        const kandidat = gaya.tangga.concat(gaya.tangga.map((s) => s + 12));
+        const arah = rng() < 0.5 ? -1 : 1;
+        const lompatMaks = 2 + Math.round(gaya.lompat * 5 * rng());
+        let terbaik = kandidat[0];
+        let jarakTerbaik = 1e9;
+        for (const k of kandidat) {
+          const jarak = Math.abs(k - nadaPrev);
+          if (jarak <= lompatMaks && jarak < jarakTerbaik) { jarakTerbaik = jarak; terbaik = k; }
+        }
+        semit = terbaik;
+        nadaPrev = semit;
+      }
+      semit = Math.max(-4, Math.min(16, semit)); // jaga register
+      const f0 = base * Math.pow(2, c.root / 12) * Math.pow(2, semit / 12);
+      const f = Math.min(1975, Math.max(130, f0));
+      const d = Math.min(8, Math.max(0.06, len * spb * 0.92));
+      const g = Math.min(1, 0.52 + 0.22 * rng() + (motif[i].kuat ? 0.14 : 0));
+      catatan.push({ t: bulat(t), d: bulat(d), f: bulat(f, 2), g: bulat(g, 2) });
+      // ornamen: grace note khas genre — turun 2 semitone, nyaris bersamaan
+      if (gaya.ornamen && motif[i].kuat && pos % 2 === 0 && rng() < 0.55 && t > 0.08) {
+        catatan.push({
+          t: bulat(t - 0.07), d: 0.06,
+          f: bulat(f * Math.pow(2, -2 / 12), 2), g: bulat(g * 0.5, 2),
+        });
+      }
+    }
+  }
+  return catatan.slice(0, 6000);
+}
+
 // ============ RENDER IRINGAN PENUH ============
 
 export interface KtxIring {
@@ -105,12 +255,17 @@ export interface KtxIring {
 export interface OpsiIring {
   /** 0..1 intensitas drum+bass+akor */
   groove: number;
-  /** 0..1 level melodi asli dgn alat lead */
+  /** 0..1 level MELODI BARU (diciptakan dari chord — bukan melodi asli) */
   melodi: number;
+  /** 0..1 (v0.12.0, opsional) melodi ASLI lagu dipakai sbg pegangan — bawaan 0 */
+  melodiAsli?: number;
+  /** v0.12.0 — angka variasi utk melodi baru (tombol "Variasikan") */
+  variasi?: number;
 }
 
-/** Render iringan genre PENUH → WAV PCM16 stereo 44100 Hz sepanjang durasi+ekor.
- *  Semua instrumen mengikuti BPM, fase, progresi chord, dan melodi lagu asli. */
+/** Render MUSIK BARU khas genre → WAV PCM16 stereo 44100 Hz sepanjang durasi+ekor.
+ *  Semua instrumen mengikuti BPM, fasa, dan progresi chord lagu asli; melodinya
+ *  DICPTAKAN dari chord (buatMelodiBaru). Audio asli TIDAK ikut sama sekali. */
 export function buatIringanWav(a: KtxIring, genre: GenreMusik, opsi: OpsiIring): Buffer {
   const iring = IRING_GENRE[genre];
   const bpm = Math.min(220, Math.max(50, a.bpm || 120));
@@ -120,6 +275,7 @@ export function buatIringanWav(a: KtxIring, genre: GenreMusik, opsi: OpsiIring):
   const campur = new Float32Array(totalN);
   const groove = Math.min(1, Math.max(0, opsi.groove));
   const melodiLv = Math.min(1, Math.max(0, opsi.melodi));
+  const melodiAsliLv = Math.min(1, Math.max(0, opsi.melodiAsli ?? 0));
 
   // posisi waktu dgn swing: off-beat ke-8 digeser utk feel jazz/blues/hiphop
   const tPos = (bar: number, pos: number): number => {
@@ -164,12 +320,23 @@ export function buatIringanWav(a: KtxIring, genre: GenreMusik, opsi: OpsiIring):
 
   const nBar = Math.ceil(durasi / (spb * 4)) + 1;
 
-  // ===== 1) DRUM — pola khas genre, sejajar beat asli =====
+  // ===== 1) DRUM — pola khas genre, sejajar beat asli + fill tiap 8 bar =====
   for (let bar = 0; bar < nBar; bar++) {
+    const intro = bar < 2 ? 0.72 : 1; // pembukaan sedikit lebih lembut
     for (const ev of polaBar(iring.drum, bar)) {
       const t = tPos(bar, ev.pos);
       if (t < 0 || t > durasi + 0.4) continue;
-      tulisKeBufor(campur, ambilDrum(ev.ins, ev.gain * iring.gDrum * groove, ev.f || 330), t);
+      tulisKeBufor(campur, ambilDrum(ev.ins, ev.gain * iring.gDrum * groove * intro, ev.f || 330), t);
+    }
+    // v0.12.0 — FILL: rentetan 16 dtk di akhir tiap bar ke-8 (transisi antarbagian)
+    if (nBar > 8 && bar % 8 === 7) {
+      const insFill: Instrumen =
+        iring.drum === "dangdut" || iring.drum === "gamelan" ? "tak" : "snare";
+      [3, 3.25, 3.5, 3.75].forEach((p, i) => {
+        const t = tPos(bar, p);
+        if (t < 0 || t > durasi + 0.4) return;
+        tulisKeBufor(campur, ambilDrum(insFill, (0.42 + i * 0.11) * iring.gDrum * groove, 330), t);
+      });
     }
   }
 
@@ -283,13 +450,64 @@ export function buatIringanWav(a: KtxIring, genre: GenreMusik, opsi: OpsiIring):
     }
   }
 
-  // ===== 4) MELODI ASLI — dimainkan ulang alat lead khas genre =====
-  if (melodiLv > 0 && Array.isArray(a.melodi)) {
+  // ===== 4) MELODI BARU — DICPTAKAN dari chord lagu asli (bukan disalin) =====
+  if (melodiLv > 0) {
+    const baru = buatMelodiBaru(a, genre, opsi.variasi ?? 0);
+    for (const n of baru) {
+      tulisKeBufor(campur, ambilNada(iring.lead, n.f, n.d, n.g * iring.gLead * melodiLv * 1.15), n.t);
+    }
+  }
+
+  // ===== 4b) MELODI ASLI (opsional) — jalur pitch lagu asli sbg pegangan =====
+  if (melodiAsliLv > 0 && Array.isArray(a.melodi)) {
     for (const n of a.melodi) {
       const d = Math.min(4, Math.max(0.08, n.d));
-      const g = n.g * iring.gLead * melodiLv * 1.15;
+      const g = n.g * iring.gLead * melodiAsliLv * 1.15;
       if (g <= 0.01) continue;
       tulisKeBufor(campur, ambilNada(iring.lead, n.f, d, g), n.t);
+    }
+  }
+
+  // ===== 5) PERKUSI EKSTRA khas genre (v0.12.0 — rasa genre makin kental) =====
+  if (iring.perkusi) {
+    for (let bar = 0; bar < nBar; bar++) {
+      if (iring.perkusi === "tabla") {
+        // teka-teki dadra India — dengung dha & kringan tin: rasa Bollywood-dangdut
+        const polaTabla: [number, number, number][] = [
+          [0, 95, 1], [0.5, 520, 0.55], [1, 520, 0.65], [1.5, 95, 0.85],
+          [2, 95, 1], [2.5, 520, 0.55], [3, 520, 0.65], [3.5, 95, 0.7],
+        ];
+        for (const [p, f, g] of polaTabla) {
+          const t = tPos(bar, p);
+          if (t < 0 || t > durasi + 0.4) continue;
+          tulisKeBufor(campur, ambilDrum("tabla", g * 0.5 * iring.gDrum * groove, f), t);
+        }
+      } else {
+        // shaker: desis 8 dtk lembut (ska/edm/disco)
+        for (let i = 0; i < 8; i++) {
+          const t = tPos(bar, i * 0.5);
+          if (t < 0 || t > durasi + 0.4) continue;
+          tulisKeBufor(campur, ambilDrum("shaker", (i % 2 ? 0.32 : 0.22) * iring.gDrum * groove, 0), t);
+        }
+      }
+    }
+  }
+
+  // ===== 6) DEKORASI MELODI khas genre (v0.12.0 — mis. sitar India utk dangdut) =====
+  if (iring.dekorasi) {
+    for (let bar = 0; bar < nBar; bar++) {
+      const tBar = bar * 4 * spb + (a.fase || 0);
+      const c = chordPada(tBar);
+      const fRoot = FREQ_C4 * Math.pow(2, c.root / 12) * 2; // oktaf atas wilayah akor
+      const fKvint = fRoot * Math.pow(2, 7 / 12);
+      const hias: [number, number, number][] = [
+        [0.75, fRoot, 0.3], [1.75, fKvint, 0.24], [2.75, fRoot, 0.26], [3.5, fKvint, 0.2],
+      ];
+      for (const [p, f, g] of hias) {
+        const t = tPos(bar, p);
+        if (t < 0 || t > durasi + 0.3) continue;
+        tulisKeBufor(campur, ambilNada(iring.dekorasi, f, spb * 0.6, g * iring.gComp * groove), t);
+      }
     }
   }
 

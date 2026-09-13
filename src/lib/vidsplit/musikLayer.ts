@@ -1,16 +1,19 @@
-// VidSplit v0.10.0 → v0.11.0 — synthesizer layer instrumen murni JS (tanpa dependensi):
+// VidSplit v0.10.0 → v0.12.0 — synthesizer layer instrumen murni JS (tanpa dependensi):
 // kick, snare, hi-hat, kendang (dug/tak), gong, pluck, kebisingan vinyl —
 // disusun jadi pola ritme per genre, dirender ke WAV PCM16 stereo 44100 Hz.
 // Dipakai /api/musik/proses untuk lapisan "tambah alat musik" (mode lapisan)
-// dan — sejak v0.11.0 — sebagai basis instrumen utk TRANSFORMASI PENUH:
-// nadaIns() menyintesis nada bervariasi (bass/piano/orgel/flute/saw/pluk/saron/bell/sub)
-// yg dipakai musikTransformasi.ts menyusun iringan baru mengikuti chord & melodi.
+// dan sebagai basis instrumen utk TRANSFORMASI PENUH.
+// v0.12.0 "MUSIK BARU DARI CHORD": tambah alat nada SITAR (rasa India utk dangdut)
+// + BRASS (tembaga ska), perkusi TABLA (dha/tin) & SHAKER — dipakai mesin
+// buatMelodiBaru() di musikTransformasi.ts yang MENCIPTAKAN melodi baru dari chord.
 import type { PolaLayer } from "./musik";
 
 const SR = 44100;
 export const LAJU = SR; // laju sampel semua render
 
-export type Instrumen = "kick" | "snare" | "hat" | "kendang" | "tak" | "gong" | "pluck" | "stab";
+export type Instrumen =
+  | "kick" | "snare" | "hat" | "kendang" | "tak" | "gong" | "pluck" | "stab"
+  | "tabla" | "shaker"; // v0.12.0 — perkusi India (dha/tin) & shaker
 interface Acara {
   /** posisi dalam bar (0..4, desimal = off-beat) */
   pos: number;
@@ -25,6 +28,7 @@ export function sampel(ins: Instrumen, gain: number, f: number): Float32Array {
   const panjang = {
     kick: 0.30, snare: 0.20, hat: 0.07, kendang: 0.28, tak: 0.14,
     gong: 2.6, pluck: 0.34, stab: 0.26,
+    tabla: 0.24, shaker: 0.10, // v0.12.0
   }[ins];
   const n = Math.floor(panjang * SR);
   const keluar = new Float32Array(n);
@@ -78,6 +82,25 @@ export function sampel(ins: Instrumen, gain: number, f: number): Float32Array {
         const env = Math.exp(-t * 16);
         v = (Math.sin(2 * Math.PI * f * t) + Math.sin(2 * Math.PI * f * 1.26 * t)
           + Math.sin(2 * Math.PI * f * 1.5 * t)) * 0.28 * env;
+        break;
+      }
+      case "tabla": {
+        // v0.12.0 — tabla India: f rendah (<200 Hz) = "dha" (dengung melengkung turun),
+        // f tinggi = "tin" (kring pendek). Dipakai utk rasa dangdut-Bollywood.
+        if (f < 200) {
+          const bend = 1 + 0.4 * Math.exp(-t * 26); // pitch turun cepat
+          const env = Math.exp(-t * 11);
+          v = (Math.sin(2 * Math.PI * f * bend * t) * 0.95 + rand() * 0.06) * env;
+        } else {
+          const env = Math.exp(-t * 24);
+          v = (Math.sin(2 * Math.PI * f * t) * 0.6 + rand() * 0.25) * env;
+        }
+        break;
+      }
+      case "shaker": {
+        // v0.12.0 — shaker: desis pendek band-pass kasar (selisih derau)
+        const derau = rand() - rand();
+        v = derau * 0.45 * Math.exp(-t * 40) * Math.min(1, t * 60);
         break;
       }
     }
@@ -250,7 +273,8 @@ export function wavDariFloat(campur: Float32Array): Buffer {
 // disco). Tiap nada digambar sesuai frekuensi & durasi dari hasil analisis lagu.
 
 export type InsNada =
-  | "bass" | "sub" | "piano" | "orgel" | "flute" | "saw" | "pluk" | "saron" | "bell";
+  | "bass" | "sub" | "piano" | "orgel" | "flute" | "saw" | "pluk" | "saron" | "bell"
+  | "sitar" | "brass"; // v0.12.0 — sitar India (dangdut) & tembaga (ska/funk)
 
 /** Gambar SATU nada alat musik `ins` pada frekuensi `f` (Hz) selama `durasi` detik.
  *  Mengembalikan buffer mono Float32 (panjang = durasi × 44100). */
@@ -330,6 +354,25 @@ export function nadaIns(ins: InsNada, f: number, durasi: number, gain: number): 
         const env = Math.min(1, t / 0.002) * Math.exp(-t * 1.6);
         v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2.4 * t) * 0.5
           + Math.sin(duaPi * ff * 3.9 * t) * 0.25 + Math.sin(duaPi * ff * 5.1 * t) * 0.1) * env;
+        break;
+      }
+      case "sitar": {
+        // v0.12.0 — sitar India: dengung inharmonik (buzz jembatan) + wobble halus,
+        // dentum awal tajam lalu meluruh — rasa Bollywood khas dangdut lawas.
+        const wob = 1 + 0.005 * Math.sin(duaPi * 6.3 * t);
+        const buzz = Math.sin(duaPi * ff * 4.02 * t) * 0.14 + Math.sin(duaPi * ff * 6.98 * t) * 0.07;
+        const env = Math.min(1, t / 0.0015) * Math.exp(-t * 5.2);
+        v = (Math.sin(duaPi * ff * wob * t) + Math.sin(duaPi * ff * 2 * t) * 0.4
+          + Math.sin(duaPi * ff * 3.01 * t) * 0.22 + buzz) * env;
+        break;
+      }
+      case "brass": {
+        // v0.12.0 — seksi tembaga: serak saw harmonik + serangan tiup (swell awal)
+        let jumlah = 0;
+        for (let k = 1; k <= 8; k++) jumlah += Math.sin(duaPi * ff * k * t + Math.sin(duaPi * k * 0.9)) / k;
+        const tiup = (rand() - rand()) * 0.02 * Math.min(1, t * 30);
+        const env = Math.min(1, t / 0.035) * (0.45 + 0.55 * Math.exp(-t * 7));
+        v = (Math.tanh(jumlah * 1.05) * 0.85 + tiup) * env;
         break;
       }
     }
