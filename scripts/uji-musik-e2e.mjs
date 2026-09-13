@@ -232,22 +232,41 @@ cek(an2.ok && an2.bpm >= 100 && an2.bpm <= 140, `analisis ulang ok (BPM ${an2.bp
 cek(Array.isArray(an2.chord) && an2.chord.length >= 3, `chord referensi: ${an2.chord?.length} segmen`);
 // bukti tidak langsung: proses musik baru di atas sudah menghasilkan audio tanpa error.
 
-console.log("== 13. v0.13.0 — REMAKE bawaan (tanpa field mode): kemiripan 80% + dangdut ==");
+console.log("== 13. v0.14.0 — VERSI GENRE bawaan (tanpa field mode): TANPA lapisan + warna dangdut 55% ==");
 const p7 = await POST("/api/musik/proses", {
-  file: up.file, judul: "Remake Uji", genre: "dangdut", layerLevel: 40,
+  file: up.file, judul: "Remake Uji", genre: "dangdut", layerLevel: 0, tingkatGenre: 55,
   karaoke: "asli", bpm: an.bpm, fase: an.fase,
-  // tanpa "mode" → clampStudio jatuh ke bawaan BARU "remake" dgn kemiripan 80 (±2 semitone)
+  // tanpa "mode" → clampStudio jatuh ke bawaan "remake" (v0.14): TANPA nada tambahan,
+  // warna genre terkunci lagu (EQ/echo/lebar), kemiripan 80 (±2 semitone)
 });
-cek(p7.ok && p7.id, `job remake bawaan mulai: ${p7.id}`);
+cek(p7.ok && p7.id, `job versi genre mulai: ${p7.id}`);
 const j7 = await pollJob(p7.id);
-cek(!j7.error && j7.fileMp3, "remake bawaan selesai tanpa error");
+cek(!j7.error && j7.fileMp3, "versi genre bawaan selesai tanpa error (tanpa lapisan)");
 const pr7 = ffprobe(path.join(WORK, j7.fileMp3));
 cek(Math.abs(pr7.durasi - 16 / 1.02) < 1.2,
-  `durasi remake 80% ≈ ${(16 / 1.02).toFixed(2)} dtk (${pr7.durasi.toFixed(2)})`);
+  `durasi versi genre 80% ≈ ${(16 / 1.02).toFixed(2)} dtk (${pr7.durasi.toFixed(2)})`);
 const vol7 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j7.fileMp3),
   "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
 const mean7 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol7)?.[1] || 0);
-cek(mean7 > -40, `remake 80% tidak bisu (mean_volume ${mean7} dB)`);
+cek(mean7 > -40, `versi genre 55% tidak bisu (mean_volume ${mean7} dB)`);
+
+console.log("== 14. v0.14.0 — VERSI GENRE EDM: tremolo pump terkunci-BPM + lebar stereo ==");
+const p8 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Pump Uji", genre: "edm", layerLevel: 0, tingkatGenre: 90,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  mode: "remake", kemiripan: 100, transpose: 0, kecepatan: 1,
+});
+cek(p8.ok && p8.id, `job edm pump mulai: ${p8.id}`);
+const j8 = await pollJob(p8.id);
+cek(!j8.error && j8.fileMp3, "versi genre edm (pump) selesai tanpa error");
+const pr8 = ffprobe(path.join(WORK, j8.fileMp3));
+// resep edm tempo 1.06 → durasi ≈ 16/1.06
+cek(Math.abs(pr8.durasi - 16 / 1.06) < 1.2,
+  `durasi edm pump ≈ ${(16 / 1.06).toFixed(2)} dtk (${pr8.durasi.toFixed(2)})`);
+const vol8 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j8.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean8 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol8)?.[1] || 0);
+cek(mean8 > -40, `edm pump tidak bisu (mean_volume ${mean8} dB)`);
 
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

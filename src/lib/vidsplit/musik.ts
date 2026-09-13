@@ -19,10 +19,13 @@ export type GenreMusik =
 export type KaraokeMode = "asli" | "karaoke" | "vokal";
 
 /** Cara pengubah genre bekerja:
- *  - "remake"  : (v0.13.0, BAWAAN) REMAKE 80% — lagu asli tetap fondasi utuh (melodi,
- *                vokal, groove = ±80% mirip), lalu diubah ±20%: nada dasar digeser
- *                (transpos, tempo tetap), lapisan irama genre ditumpang, karakter
- *                EQ/efek genre diterapkan. Bunyi tetap "rekaman asli" — bukan synth.
+ *  - "remake"  : (v0.14.0, BAWAAN) VERSI GENRE ala Suno — lagu asli tetap fondasi utuh
+ *                100% (melodi, vokal, groove = bunyi rekaman asli) dan TIDAK ADA nada
+ *                tambahan sama sekali (sumber bentrok irama dihapus dari jalur bawaan).
+ *                Perubahan gaya dilakukan lewat transformasi yang TERKUNCI ke lagu:
+ *                warna genre (EQ/karakter/ruang/lebar), gerak tremolo yang lajunya
+ *                dihitung dari BPM lagu, geser nada dasar (transpos, tempo tetap).
+ *                Lapisan irama sintesis masih tersedia sbg opsi eksperimental.
  *  - "lapisan": lagu asli utuh + efek karakter genre + lapisan instrumen (v0.10).
  *  - "penuh"  : MUSIK BARU DARI CHORD — audio asli TIDAK ikut (vokal bawaan 0%); chord,
  *                BPM & fasa lagu asli dijadikan REFERENSI lalu seluruh musik baru
@@ -80,6 +83,98 @@ export const DAFTAR_GENRE: GenreMusik[] = [
   "pop", "rock", "punk", "metal", "jazz", "blues", "reggae", "ska", "dangdut",
   "edm", "hiphop", "funk", "disco", "keroncong", "country", "lofi", "gamelan",
 ];
+
+// ============ v0.14.0 — WARNA GENRE utk mode REMAKE ("versi genre") ============
+
+/** Resep WARNA GENRE: murni transformasi atas AUDIO ASLI (tanpa nada tambahan) —
+ *  semua nilai di-skalakan dgn "tingkat rasa genre" (0–100%).
+ *  eq     : pita parametrik [freq Hz, lebar oktaf, gain dB (× t)]
+ *  bass   : dorongan bass dB @95 Hz (× t)
+ *  treble : dorongan tinggi dB @9500 Hz (× t, boleh minus)
+ *  comp   : [threshold dB, ratio, attack ms, release ms, makeup dB] — ratio/makeup × t
+ *  echo   : [delay ms, decay, outGain maks (× t)] — ruang/karakter khas genre
+ *  lebar  : lebar stereo ekstra (extrastereo m = 1 + lebar × t)
+ *  kilau  : crystalizer (× t)
+ *  pump   : depth tremolo (× t) dgn pumpMul kelipatan ketuk (2 = not ke-8) — LAJU
+ *           DIHITUNG dari BPM lagu × faktor tempo, jadi geraknya selalu seirama
+ *  wobble : [freq Hz, depth (× t)] vibrato khas kaset (lofi)
+ *  lowpass: potong frekuensi tinggi (lofi/hiphop)
+ *  phaser : kecepatan Hz (aktif di paruh atas tingkat) — raung blues */
+export interface ResepWarna {
+  eq?: [number, number, number][];
+  bass?: number;
+  treble?: number;
+  comp?: [number, number, number, number, number];
+  echo?: [string, string, number];
+  lebar?: number;
+  kilau?: number;
+  pump?: number;
+  pumpMul?: number;
+  wobble?: [number, number];
+  lowpass?: number;
+  phaser?: number;
+}
+
+export const WARNA_GENRE: Record<GenreMusik, ResepWarna> = {
+  pop:       { eq: [[3000, 1.2, 3]], treble: 2, comp: [-16, 2.5, 12, 180, 3], kilau: 1.8, lebar: 0.3 },
+  rock:      { eq: [[120, 1, 4], [2500, 1.5, 5]], comp: [-14, 4, 8, 120, 4], kilau: 2.5, lebar: 0.2 },
+  punk:      { eq: [[200, 1.2, 4], [4000, 1.5, 5]], comp: [-12, 6, 5, 90, 4], kilau: 2, lebar: 0.15 },
+  metal:     { bass: 6, eq: [[3500, 1.8, 6]], comp: [-13, 8, 4, 80, 4], kilau: 3, lebar: 0.15 },
+  jazz:      { eq: [[180, 1, 3]], treble: -2.5, comp: [-20, 2, 25, 350, 2], echo: ["90|180", "0.18|0.1", 0.5], lebar: 0.2 },
+  blues:     { eq: [[160, 1, 3.5]], treble: -1.5, comp: [-18, 2.5, 15, 250, 2], echo: ["70", "0.15", 0.5], phaser: 0.6, lebar: 0.2 },
+  reggae:    { bass: 7, eq: [[2500, 1.4, -3]], comp: [-18, 3, 15, 250, 2], echo: ["180|320", "0.22|0.12", 0.6], lebar: 0.35, pump: 0.12, pumpMul: 0.5 },
+  ska:       { eq: [[800, 1.2, 3]], treble: 3, comp: [-15, 3, 10, 140, 2.5], lebar: 0.35, pump: 0.2, pumpMul: 2 },
+  dangdut:   { bass: 5, eq: [[90, 0.9, 3], [1800, 1.3, 4]], treble: 2, comp: [-16, 3.5, 10, 160, 2.5], echo: ["120|240", "0.14|0.08", 0.45], lebar: 0.35 },
+  edm:       { bass: 6, treble: 4, comp: [-12, 6, 6, 110, 4], kilau: 2, lebar: 0.5, pump: 0.32, pumpMul: 2 },
+  hiphop:    { bass: 7, lowpass: 13500, comp: [-15, 4, 8, 140, 3], lebar: 0.2, pump: 0.14, pumpMul: 1 },
+  funk:      { eq: [[400, 1.1, 4], [7000, 1.4, 2.5]], comp: [-14, 5, 5, 100, 3], kilau: 1.5, lebar: 0.3, pump: 0.16, pumpMul: 2 },
+  disco:     { bass: 4, treble: 3.5, comp: [-14, 4, 8, 130, 3], kilau: 2, lebar: 0.6, pump: 0.26, pumpMul: 2 },
+  keroncong: { eq: [[220, 1, 3]], treble: -1, comp: [-19, 2.2, 20, 300, 2], echo: ["120|240", "0.2|0.12", 0.55], lebar: 0.25 },
+  country:   { eq: [[500, 1, 2.5]], treble: 2, comp: [-17, 2.8, 14, 200, 2], echo: ["110", "0.28", 0.6], lebar: 0.2 },
+  lofi:      { bass: 4, lowpass: 7500, comp: [-18, 3, 18, 250, 2], echo: ["60|110", "0.15|0.1", 0.45], wobble: [3.5, 0.1], lebar: 0 },
+  gamelan:   { eq: [[900, 1.2, 3.5]], treble: 1.5, comp: [-18, 2.5, 18, 280, 2], echo: ["160|300", "0.25|0.15", 0.65], lebar: 0.45 },
+};
+
+const dua = (n: number) => Math.round(n * 100) / 100;
+
+/** v0.14.0 — bangun rantai filter WARNA GENRE utk mode remake ("versi genre").
+ *  tingkat 0–100 (0 = apa adanya). bpmEfektif = BPM lagu × faktor tempo hasil —
+ *  dipakai tremolo "pump" agar laju geraknya TERKUNCI ke tempo lagu sendiri.
+ *  Karena tidak ada nada/ritme baru yang ditambahkan, hasil MUSTAHIL saling
+ *  bertentangan dgn irama asli — semua perubahan lahir dari audio asli itu sendiri. */
+export function rantaiWarna(genre: GenreMusik, tingkat: number, bpmEfektif: number): string[] {
+  const w = WARNA_GENRE[genre];
+  if (!w) return [];
+  const t = Math.min(1, Math.max(0, tingkat / 100));
+  if (t <= 0.005) return [];
+  const out: string[] = [];
+  if (w.lowpass) out.push(`lowpass=f=${Math.round(w.lowpass)}`);
+  if (w.bass) out.push(`bass=g=${dua(w.bass * t)}:f=95`);
+  if (w.treble) out.push(`treble=g=${dua(w.treble * t)}:f=9500`);
+  for (const [f, wd, g] of w.eq ?? []) {
+    if (Math.abs(g * t) < 0.4) continue; // pita nyaris nol tidak perlu
+    out.push(`equalizer=f=${f}:t=q:w=${wd}:g=${dua(g * t)}`);
+  }
+  if (w.comp) {
+    const [th, rasio, atk, rel, mk] = w.comp;
+    out.push(`acompressor=threshold=${th}dB:ratio=${dua(1 + (rasio - 1) * t)}:attack=${atk}:release=${rel}:makeup=${dua(mk * t)}`);
+  }
+  if (w.echo) {
+    const [d, dc, g] = w.echo;
+    out.push(`aecho=0.8:${dua(0.3 + Math.abs(g) * t)}:${d}:${dc}`);
+  }
+  if (w.kilau && t > 0.05) out.push(`crystalizer=i=${dua(w.kilau * t)}`);
+  if (w.pump && w.pumpMul) {
+    const f = Math.min(20, Math.max(0.1, (Math.max(50, Math.min(220, bpmEfektif)) / 60) * w.pumpMul));
+    out.push(`tremolo=f=${dua(f)}:d=${dua(Math.max(0.01, w.pump * t))}`);
+  }
+  if (w.wobble && w.wobble[1] * t >= 0.015) {
+    out.push(`vibrato=f=${w.wobble[0]}:d=${dua(w.wobble[1] * t)}`);
+  }
+  if (w.phaser && t >= 0.35) out.push(`aphaser=0.6:0.6:3:0.6:${dua(w.phaser)}:t`);
+  if (w.lebar && t > 0.05) out.push(`extrastereo=m=${dua(1 + w.lebar * t)}`);
+  return out;
+}
 
 /** Resep tiap genre: rantai filter ffmpeg (dipakai berurutan), pengali tempo,
  *  pola layer instrumen, dan level layer bawaan (%). */
@@ -215,6 +310,9 @@ export interface OpsiStudioMusik {
   /** v0.13.0 (mode remake) transpos manual -5..+5 semitone; null = OTOMATIS
    *  (dihitung dari kemiripan + arah deterministik dari nama berkas). */
   transpose: number | null;
+  /** v0.14.0 (mode remake) 0–100 — tingkat RASA GENRE: seberapa kuat warna genre
+   *  (EQ/karakter/ruang/lebar/gerak terkunci-BPM) diterapkan ke lagu asli. Bawaan 55. */
+  tingkatGenre: number;
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -240,6 +338,7 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
       o.transpose === null || o.transpose === undefined
         ? null
         : Math.min(5, Math.max(-5, Math.round(Number(o.transpose)))),
+    tingkatGenre: Math.min(100, Math.max(0, Math.round(Number(o.tingkatGenre ?? 55)))),
   };
 }
 
@@ -298,7 +397,9 @@ export function skalaChord(c: SegmenChord[], faktor: number): SegmenChord[] {
  *  atempo di ujung rantai, sehingga durasi keluar = durasi sumber / tempo.
  *  v0.13.0 mode remake: `o.transpose` (± semitone) menggeser nada dasar sumber via
  *  asetrate + atempo kompensasi (durasi TETAP — seperti varispeed pita lalu dikembalikan).
- *  `srSumber` = laju sampel asli berkas (untuk asetrate; bawaan 44100). */
+ *  `srSumber` = laju sampel asli berkas (untuk asetrate; bawaan 44100).
+ *  v0.14.0 mode remake: karakter genre memakai rantaiWarna() (WARNA GENRE) — tanpa
+ *  nada tambahan; lapisan sintesis hanya bila layerLevel > 0 (opsi eksperimental). */
 export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
   graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number;
 } {
@@ -307,8 +408,19 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
   const kecepatan = o.kecepatan || 1; // defensif bila dipanggil tanpa clamp
   const tempo = tempoResep * kecepatan;
   const penuh = o.mode === "penuh";
+  const remake = o.mode === "remake";
   const baris: string[] = [];
-  const rantai = resep ? resep.rantai.join(",") : "anull";
+  // v0.14.0 — mode REMAKE memakai WARNA GENRE (rantaiWarna): seluruh karakter lahir
+  // dari transformasi AUDIO ASLI (EQ/kompresor/echo/lebar/kilau) + tremolo "pump"
+  // yang lajunya DIHITUNG dari BPM lagu × faktor tempo (terkunci tempo) — TANPA
+  // nada tambahan → tidak mungkin saling bertentangan dgn irama asli.
+  // Lapisan sintesis hanya masuk bila user menaikkan slider "Lapisan (eksperimental)".
+  const warna = remake && o.genre !== "asli"
+    ? rantaiWarna(o.genre, o.tingkatGenre ?? 55, (o.bpm || 120) * tempo)
+    : [];
+  const rantai = remake
+    ? (warna.join(",") || "anull")
+    : resep ? resep.rantai.join(",") : "anull";
   // input 0 hanya dimasukkan ke graf bila benar-benar dipakai (lapisan selalu;
   // penuh hanya bila vokal ikut atau iringan mati) — output graf tak boleh menggantung.
   // v0.12.0: bawaan vokal 0 → audio asli TIDAK masuk graf sama sekali (musik baru murni).
@@ -335,7 +447,9 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
   let adaVokal = false;
   let labelAkhir = "mix"; // label bebas di ujung cabang (dikonsumsi atempo/limiter)
   if (!penuh) {
-    // ========== MODE LAPISAN (perilaku v0.10 + atempo nyata) ==========
+    // ========== MODE REMAKE ("versi genre" v0.14) & LAPISAN (perilaku v0.10) ==========
+    // remake: rantai = warna genre (tanpa nada tambahan) + lapisan OPSIONAL (eksper.)
+    // lapisan: rantai = resep genre klasik + lapisan bawaan aktif
     // pemisahan vokal (DSP tengah/samping) SEBELUM efek genre
     if (o.karaoke === "karaoke") {
       baris.push(

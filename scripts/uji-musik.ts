@@ -5,9 +5,9 @@
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorAtempo,
-  faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, RESEP_GENRE,
-  DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord, skalaLirik,
-  transposeAuto, type GenreMusik, type PolaLayer, type SegmenChord,
+  faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, rantaiWarna,
+  RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
+  skalaLirik, transposeAuto, WARNA_GENRE, type GenreMusik, type PolaLayer, type SegmenChord,
 } from "../src/lib/vidsplit/musik";
 import { beriReverb, buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
 import { buatIringanWav, buatMelodiBaru, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
@@ -390,6 +390,55 @@ rb[100] = 0.8;
 beriReverb(rb, 0.25);
 const ekor = Array.from(rb.slice(13230, 22050)).reduce((a, b) => a + Math.abs(b), 0);
 cek(Number.isFinite(ekor) && ekor > 0.001, `reverb: ada ekor setelah klik (${ekor.toFixed(3)})`);
+
+console.log("== 26. v0.14.0 — WARNA_GENRE 17 lengkap & rantaiWarna skalabel ==");
+cek(DAFTAR_GENRE.every((g) => !!WARNA_GENRE[g]), "WARNA_GENRE 17 genre lengkap");
+cek(rantaiWarna("edm", 0, 120).length === 0, "tingkat 0 → rantai kosong (apa adanya)");
+const edm100 = rantaiWarna("edm", 100, 120);
+cek(edm100.some((s) => s.startsWith("tremolo=f=4:d=0.32")),
+  "edm 100% @120 BPM → tremolo pump 4 Hz (2× ketuk, TERKUNCI BPM)");
+const rock100 = rantaiWarna("rock", 100, 120);
+const rock50 = rantaiWarna("rock", 50, 120);
+const g100 = Number(/equalizer[^,]*g=([\d.-]+)/.exec(rock100.join(","))?.[1] ?? NaN);
+const g50 = Number(/equalizer[^,]*g=([\d.-]+)/.exec(rock50.join(","))?.[1] ?? NaN);
+cek(Math.abs(g100 - 4) < 0.01 && Math.abs(g50 - 2) < 0.01, `gain EQ ikut skala (100%→${g100}, 50%→${g50})`);
+cek(rantaiWarna("edm", 100, 120).some((s) => s.includes("extrastereo=m=1.5")),
+  "lebar stereo edm = 1 + 0.5×t");
+const lofi100 = rantaiWarna("lofi", 100, 120);
+cek(lofi100.some((s) => s.startsWith("lowpass=f=7500")) && lofi100.some((s) => s.startsWith("vibrato=f=3.5")),
+  "lofi: lowpass + wobble kaset (vibrato)");
+const blues100 = rantaiWarna("blues", 100, 120);
+cek(blues100.some((s) => s.startsWith("aphaser=")), "blues: phaser raung di paruh atas");
+let warnaOk = true;
+for (const g of DAFTAR_GENRE) {
+  for (const t of [1, 30, 55, 80, 100]) {
+    for (const s of rantaiWarna(g, t, 118)) {
+      if (/NaN|undefined|Infinity/.test(s) || s.length > 200) { warnaOk = false; console.error(`    jelek @${g}/${t}: ${s}`); }
+    }
+  }
+}
+cek(warnaOk, "17 genre × 5 tingkat: semua filter valid (tanpa NaN/undefined)");
+// BPM ekstrem tetap aman di tremolo
+const pCepat = rantaiWarna("disco", 90, 999);
+cek(pCepat.some((s) => /^tremolo=f=[\d.]+:d=/.test(s)), "BPM raksasa di-clamp → tremolo tetap valid");
+
+console.log("== 27. v0.14.0 — clampStudio tingkatGenre & graf REMAKE tanpa lapisan ==");
+const cl14 = clampStudio({ file: "x", tingkatGenre: 500 });
+cek(cl14.tingkatGenre === 100, "tingkatGenre di-clamp ≤100");
+const cl14b = clampStudio({ file: "x" });
+cek(cl14b.tingkatGenre === 55, "bawaan tingkatGenre = 55");
+const gV14 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "edm", layerLevel: 0, tingkatGenre: 80, kemiripan: 100, transpose: 0 });
+cek(gV14.adaLayer === false && !gV14.graf.includes("[1:a]"),
+  "remake bawaan v0.14: TANPA lapisan — tidak ada input 1 (nol nada tambahan)");
+cek(gV14.graf.includes("tremolo=") && gV14.graf.includes("extrastereo"),
+  "remake edm: warna genre (pump terkunci-BPM + lebar) masuk graf");
+cek(!gV14.graf.includes("f=90,") && gV14.graf.includes("bass=g=4.8:f=95"),
+  "remake edm memakai WARNA baru (bass 95 Hz ter-skala), bukan resep lama");
+const gA14 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "asli", layerLevel: 0, tingkatGenre: 80, kemiripan: 100, transpose: 0 });
+cek(gA14.graf.includes("anull") && !gA14.graf.includes("tremolo"), "remake genre asli → passthrough");
+// lapisan opsional masih bekerja saat dinaikkan manual
+const gL14 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "rock", layerLevel: 40, tingkatGenre: 60 });
+cek(gL14.adaLayer && gL14.graf.includes("amix=inputs=2"), "lapisan eksperimental masih bisa diaktifkan manual");
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

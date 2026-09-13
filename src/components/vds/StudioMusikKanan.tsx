@@ -1,7 +1,7 @@
 "use client";
 
-// VidSplit v0.13.0 — STUDIO MUSIK: panel kolom KANAN
-// 2. Pengubah genre (17 genre, mode REMAKE 80% / MUSIK BARU DARI CHORD / LAPISAN)
+// VidSplit v0.14.0 — STUDIO MUSIK: panel kolom KANAN
+// 2. Pengubah genre (17 genre, mode VERSI GENRE ala Suno / MUSIK BARU DARI CHORD / LAPISAN)
 // 3. Tempo (0.5×/1×/1.5×) · 4. Vokal & karaoke · 5. Visual musik (15 gaya + kustom)
 import { BarisSlider, ChipPilihan, Kartu, PilihWarna } from "@/components/vds/bits";
 import { Mic, Palette, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
@@ -26,6 +26,8 @@ export interface AturMusik {
   kemiripan: number;
   /** v0.13.0 (remake) transpos -5..+5 semitone; null = otomatis dari kemiripan */
   transpose: number | null;
+  /** v0.14.0 (remake) 0–100 tingkat rasa genre — warna suara tanpa nada tambahan */
+  tingkatGenre: number;
   visual: IdVisual;
   resolusi: "720" | "1080";
   vis: OpsiVisual;
@@ -33,7 +35,9 @@ export interface AturMusik {
 
 export const aturMusikDefault: AturMusik = {
   genre: "asli",
-  layerLevel: 30,
+  // v0.14.0 — lapisan sintesis bawaan MATI (sumber bentrok irama); warna genre 55%
+  layerLevel: 0,
+  tingkatGenre: 55,
   karaoke: "asli",
   mode: "remake",
   kecepatan: 1,
@@ -65,32 +69,36 @@ export type UbahMusik = (u: Partial<AturMusik>) => void;
 
 export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik }) {
   const pilihGenre = (g: GenreMusik | "asli") => {
-    const bawaan = g === "asli" ? 0 : RESEP_GENRE[g].layerBawaan;
+    // v0.14.0 — remake/penuh: lapisan TETAP mati (sumber konflik irama); hanya mode
+    // lapisan klasik yang tetap memakai bawaan lama
+    const bawaan = atur.mode === "lapisan" && g !== "asli" ? RESEP_GENRE[g].layerBawaan : 0;
     ubah({ genre: g, layerLevel: bawaan });
   };
   const transposeEfe = atur.transpose ?? transposeAuto(atur.kemiripan, "pratinjau");
   return (
     <Kartu
       judul="2. Pengubah genre musik"
-      deskripsi="17 genre — Remake mirip asli (disarankan), musik baru dari chord, atau lapisan"
+      deskripsi="17 genre — Versi genre mirip asli (disarankan), musik baru dari chord, atau lapisan"
       ikon={<SlidersHorizontal className="h-4 w-4" />}
     >
       <ChipPilihan<ModeTransformasi>
         nilai={atur.mode}
         onChange={(v) => ubah({ mode: v })}
         pilihan={[
-          { v: "remake", label: "Remake — mirip asli", hint: "Lagu asli ±80% + ubah 20%" },
+          { v: "remake", label: "Versi genre — mirip asli", hint: "Lagu asli 100% + gaya genre terkunci" },
           { v: "penuh", label: "Musik baru dari chord", hint: "Musik diciptakan ulang total" },
           { v: "lapisan", label: "Lapisan", hint: "Lagu asli + lapisan genre (v0.10)" },
         ]}
       />
       {atur.mode === "remake" && (
         <p className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/5 p-2 text-[11px] leading-relaxed text-emerald-200/90">
-          <b>Remake (mirip asli)</b> — lagu asli tetap fondasi utuh: melodi, vokal dan groove
-          asli terdengar (bunyi tetap "rekaman asli", bukan synth). Yang diubah sekitar 20%:
-          <b> nada dasar digeser</b> (transpos, tempo tetap), lapisan irama genre ditumpang,
-          dan karakter EQ/efek genre diterapkan. Turunkan "Tingkat kemiripan" bila ingin
-          makin beda dari lagu asli.
+          <b>Versi genre (prinsip Suno, offline)</b> — lagu asli dipertahankan 100%:
+          melodi, vokal dan groove persis rekaman asli, <b>tanpa satu pun nada tambahan</b>
+          (sumber bentrok irama dihapus). Gaya diubah lewat transformasi yang
+          <b> terkunci ke lagu</b>: warna genre (EQ/karakter/ruang/lebar stereo), gerak
+          yang lajunya dihitung dari BPM lagu sendiri, dan geser nada dasar. Karena itu
+          hasilnya <b>mustahil saling bertentangan</b> dgn irama asli — tinggal atur
+          seberapa kuat rasa genrenya.
         </p>
       )}
       {atur.mode === "penuh" && (
@@ -168,12 +176,23 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
           </div>
           {atur.genre !== "asli" && (
             <BarisSlider
-              label={`Lapisan ${INFO_GENRE[atur.genre].label} (irama genre ditumpang)`}
+              label={`Tingkat rasa genre ${INFO_GENRE[atur.genre].label} (warna suara)`}
+              nilai={atur.tingkatGenre}
+              min={0}
+              max={100}
+              step={5}
+              fmt={(n) => (n === 0 ? "Apa adanya" : `${n}%`)}
+              onChange={(n) => ubah({ tingkatGenre: n })}
+            />
+          )}
+          {atur.genre !== "asli" && (
+            <BarisSlider
+              label={`Lapisan irama sintesis (EKSPERIMENTAL — bisa tidak sinkron)`}
               nilai={atur.layerLevel}
               min={0}
               max={100}
               step={5}
-              fmt={(n) => (n === 0 ? "Mati" : `${n}%`)}
+              fmt={(n) => (n === 0 ? "Mati (disarankan)" : `${n}%`)}
               onChange={(n) => ubah({ layerLevel: n })}
             />
           )}
@@ -182,7 +201,10 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
               ? `Auto: nada dasar ${transposeEfe === 0 ? "tetap (100% mirip)" : `digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`}`
               : `Nada dasar digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone (manual)`}
             {atur.genre !== "asli"
-              ? `, lapisan ${INFO_GENRE[atur.genre].label} ${atur.layerLevel}% + karakter genre`
+              ? `, warna ${INFO_GENRE[atur.genre].label} ${atur.tingkatGenre}% (tanpa nada tambahan — dijamin seirama)`
+              : ""}
+            {atur.layerLevel > 0 && atur.genre !== "asli"
+              ? ` + lapisan eksperimental ${atur.layerLevel}%`
               : ""}
             . Durasi dan tempo lagu tetap sama.
           </p>

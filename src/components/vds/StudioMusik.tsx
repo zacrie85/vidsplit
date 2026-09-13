@@ -1,6 +1,6 @@
 "use client";
 
-// VidSplit v0.12.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
+// VidSplit v0.14.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
 // Kolom KIRI  = 1. Impor musik + info lagu (BPM/kunci/chord + BPM & durasi HASIL) + gelombang
 // Kolom TENGAH= Pratinjau audio & visual + 6. Lirik & chord + 7. Ekspor (MP4/MP3/chord/lirik)
 // Kolom KANAN= 2. Genre (lapisan/penuh) · 3. Tempo · 4. Karaoke · 5. Visual (di StudioMusikKanan.tsx)
@@ -13,9 +13,10 @@ import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, ty
 import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-// v2 (v0.13.0): naikkan kunci — preferensi lama (mode "penuh" bawaan v0.12) di-reset
-// agar semua pengguna langsung mendapat default baru "remake" (mirip asli).
-const KUNCI_ATUR = "vidsplit-musik-v2";
+// v3 (v0.14.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
+// mendapat jalur baru "versi genre": lapisan sintesis MATI (sumber bentrok irama) +
+// tingkat rasa genre 55% (warna suara tanpa nada tambahan).
+const KUNCI_ATUR = "vidsplit-musik-v3";
 
 interface InfoLagu {
   file: string;
@@ -163,6 +164,7 @@ export function StudioMusik() {
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
         variasi: atur.variasi,
         kemiripan: atur.kemiripan, transpose: atur.transpose,
+        tingkatGenre: atur.tingkatGenre,
       }),
     })
       .then((r) => r.json())
@@ -261,6 +263,7 @@ export function StudioMusik() {
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
         variasi: atur.variasi,
         kemiripan: atur.kemiripan, transpose: atur.transpose,
+        tingkatGenre: atur.tingkatGenre,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,
@@ -337,7 +340,10 @@ export function StudioMusik() {
                   <p className="mt-1 text-[11px] text-cyan-300/90">
                     Hasil ≈ <b>{bpmHasil} BPM</b> · {fmtMenit(durasiHasil)}
                     {atur.mode === "remake" && transposeEfe !== 0
-                      ? ` · remake: nada dasar ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`
+                      ? ` · versi genre: nada dasar ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`
+                      : ""}
+                    {atur.mode === "remake" && atur.genre !== "asli"
+                      ? ` · rasa genre ${atur.tingkatGenre}% (tanpa nada tambahan)`
                       : ""}
                     {atur.mode === "penuh" && atur.genre !== "asli" ? " · musik baru dari chord" : ""}
                     {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
