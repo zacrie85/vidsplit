@@ -10,10 +10,12 @@ import {
 } from "lucide-react";
 import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
 import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
-import { faktorWaktuStudio, parseLrc, formatWaktuLrc } from "@/lib/vidsplit/musik";
+import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-const KUNCI_ATUR = "vidsplit-musik-v1";
+// v2 (v0.13.0): naikkan kunci — preferensi lama (mode "penuh" bawaan v0.12) di-reset
+// agar semua pengguna langsung mendapat default baru "remake" (mirip asli).
+const KUNCI_ATUR = "vidsplit-musik-v2";
 
 interface InfoLagu {
   file: string;
@@ -160,6 +162,7 @@ export function StudioMusik() {
         grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
         variasi: atur.variasi,
+        kemiripan: atur.kemiripan, transpose: atur.transpose,
       }),
     })
       .then((r) => r.json())
@@ -257,6 +260,7 @@ export function StudioMusik() {
         grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
         variasi: atur.variasi,
+        kemiripan: atur.kemiripan, transpose: atur.transpose,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,
@@ -291,6 +295,10 @@ export function StudioMusik() {
   const faktorWaktu = lagu ? faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }) : 1;
   const bpmHasil = lagu ? Math.round(lagu.bpm * faktorWaktu) : 0;
   const durasiHasil = lagu ? lagu.durasi / faktorWaktu : 0;
+  // v0.13.0 — transpos efektif mode remake (null = otomatis dari kemiripan + nama berkas)
+  const transposeEfe = atur.mode === "remake"
+    ? (atur.transpose ?? transposeAuto(atur.kemiripan, lagu?.file || ""))
+    : 0;
   const fmtMenit = (d: number) => `${Math.floor(d / 60)}:${String(Math.max(0, Math.round(d % 60))).padStart(2, "0")}`;
 
   // ---------- render ----------
@@ -325,9 +333,12 @@ export function StudioMusik() {
                   <span>Kunci ≈ {lagu.kunci}</span>
                   <span>{lagu.chord.length} chord terdeteksi</span>
                 </div>
-                {(faktorWaktu !== 1 || atur.mode === "penuh") && (
+                {(faktorWaktu !== 1 || atur.mode === "penuh" || (atur.mode === "remake" && transposeEfe !== 0)) && (
                   <p className="mt-1 text-[11px] text-cyan-300/90">
                     Hasil ≈ <b>{bpmHasil} BPM</b> · {fmtMenit(durasiHasil)}
+                    {atur.mode === "remake" && transposeEfe !== 0
+                      ? ` · remake: nada dasar ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`
+                      : ""}
                     {atur.mode === "penuh" && atur.genre !== "asli" ? " · musik baru dari chord" : ""}
                     {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
                   </p>
@@ -367,7 +378,7 @@ export function StudioMusik() {
         </Kartu>
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-[11px] leading-relaxed text-slate-500">
           <p className="mb-1 font-medium text-slate-400">Alur Studio Musik</p>
-          Impor lagu → pilih <b className="text-slate-400">Transformasi penuh</b> atau Lapisan + genre
+          Impor lagu → pilih <b className="text-slate-400">Remake (mirip asli)</b> atau genre lain
           & tempo → <b className="text-slate-400">Proses audio</b> dulu (dengarkan hasilnya) → intip
           visual → tulis lirik + sinkron → <b className="text-slate-400">Ekspor</b> untuk MP4 + MP3 + chord + lirik.
         </div>

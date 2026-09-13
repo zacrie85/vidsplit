@@ -18,13 +18,17 @@ export type GenreMusik =
  *  | vokal (tonjolkan vokal, kurangi instrumen) — metode DSP tengah/samping stereo. */
 export type KaraokeMode = "asli" | "karaoke" | "vokal";
 
-/** v0.12.0 — cara pengubah genre bekerja:
- *  - "lapisan": lagu asli utuh + efek karakter genre + lapisan instrumen di atasnya (v0.10).
+/** Cara pengubah genre bekerja:
+ *  - "remake"  : (v0.13.0, BAWAAN) REMAKE 80% — lagu asli tetap fondasi utuh (melodi,
+ *                vokal, groove = ±80% mirip), lalu diubah ±20%: nada dasar digeser
+ *                (transpos, tempo tetap), lapisan irama genre ditumpang, karakter
+ *                EQ/efek genre diterapkan. Bunyi tetap "rekaman asli" — bukan synth.
+ *  - "lapisan": lagu asli utuh + efek karakter genre + lapisan instrumen (v0.10).
  *  - "penuh"  : MUSIK BARU DARI CHORD — audio asli TIDAK ikut (vokal bawaan 0%); chord,
  *                BPM & fasa lagu asli dijadikan REFERENSI lalu seluruh musik baru
  *                (drum/bass/akor/melodi/perkusi) diciptakan khas genre pilihan;
  *                vokal asli opsional (DSP kanal tengah) bila ingin dinyanyikan. */
-export type ModeTransformasi = "lapisan" | "penuh";
+export type ModeTransformasi = "remake" | "lapisan" | "penuh";
 
 /** pilihan kecepatan tempo — 0.5 = perlambat 2× lebih lama, 1.5 = percepat ⅓ lebih cepat */
 export const PILIHAN_KECEPATAN = [0.5, 1, 1.5] as const;
@@ -191,7 +195,7 @@ export interface OpsiStudioMusik {
   bpm: number;
   /** offset fasa beat (detik) dari analisis — agar instrumen sejajar pukulan asli */
   fase: number;
-  /** v0.11.0 — "lapisan" | "penuh" (lihat ModeTransformasi) */
+  /** "remake" | "lapisan" | "penuh" (lihat ModeTransformasi) */
   mode: ModeTransformasi;
   /** v0.11.0 — kecepatan tempo hasil: 0.5 | 1 | 1.5 */
   kecepatan: number;
@@ -205,6 +209,12 @@ export interface OpsiStudioMusik {
   vokalLevel: number;
   /** v0.12.0 — angka variasi melodi baru (tombol "Variasikan melodi") */
   variasi: number;
+  /** v0.13.0 (mode remake) 40–100 % — tingkat kemiripan dgn lagu asli. Sisanya =
+   *  "perubahan": nada dasar digeser otomatis ±N semitone (1 N per 10%). Bawaan 80. */
+  kemiripan: number;
+  /** v0.13.0 (mode remake) transpos manual -5..+5 semitone; null = OTOMATIS
+   *  (dihitung dari kemiripan + arah deterministik dari nama berkas). */
+  transpose: number | null;
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -218,14 +228,33 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
     karaoke: o.karaoke === "karaoke" || o.karaoke === "vokal" ? o.karaoke : "asli",
     bpm: Math.min(220, Math.max(50, Number(o.bpm) || 120)),
     fase: Math.max(0, Number(o.fase) || 0),
-    mode: o.mode === "penuh" ? "penuh" : "lapisan",
+    mode: o.mode === "penuh" || o.mode === "lapisan" ? o.mode : "remake",
     kecepatan: (PILIHAN_KECEPATAN as readonly number[]).includes(kec) ? kec : 1,
     grooveLevel: Math.min(100, Math.max(0, Math.round(Number(o.grooveLevel ?? 70)))),
     melodiLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiLevel ?? 65)))),
     melodiAsliLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiAsliLevel ?? 0)))),
     vokalLevel: Math.min(100, Math.max(0, Math.round(Number(o.vokalLevel ?? 0)))),
     variasi: Math.min(999, Math.max(0, Math.round(Number(o.variasi ?? 0)))),
+    kemiripan: Math.min(100, Math.max(40, Math.round(Number(o.kemiripan ?? 80)))),
+    transpose:
+      o.transpose === null || o.transpose === undefined
+        ? null
+        : Math.min(5, Math.max(-5, Math.round(Number(o.transpose)))),
   };
+}
+
+/** v0.13.0 — geser nada dasar OTOMATIS utk mode REMAKE, dari tingkat kemiripan.
+ *  kemiripan 100 → 0 semitone; 80 → ±2; 60 → ±4; 40 → ±5 (dibulatkan, maks ±5).
+ *  Arah (naik/turun) dipilih deterministik dari seed — lagu sama selalu sama,
+ *  lagu beda dapat arah beda biar variasi antarlagu terasa. */
+export function transposeAuto(kemiripan: number, seed: string): number {
+  const k = Math.min(100, Math.max(40, Number(kemiripan) || 80));
+  const perubahan = Math.min(60, Math.max(0, 100 - k));
+  const st = Math.min(5, Math.round(perubahan / 10));
+  if (st <= 0) return 0;
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < seed.length; i++) { h ^= seed.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h % 2 === 0 ? st : -st;
 }
 
 /** Faktor percepatan TOTAL: resep tempo genre × kecepatan pilihan user.
@@ -263,12 +292,15 @@ export function skalaChord(c: SegmenChord[], faktor: number): SegmenChord[] {
 }
 
 /** Bangun graf filter_complex pemrosesan audio.
- *  Input 0 = sumber; input 1 (opsional) = wav layer (mode lapisan) ATAU iringan genre
- *  tersintesis (mode penuh). Label keluar [aout].
+ *  Input 0 = sumber; input 1 (opsional) = wav layer (mode lapisan/remake) ATAU iringan
+ *  genre tersintesis (mode penuh). Label keluar [aout].
  *  tempo = faktor percepatan total (resep genre × kecepatan) — diterapkan NYATA via
- *  atempo di ujung rantai, sehingga durasi keluar = durasi sumber / tempo. */
-export function bangunFilterAudio(o: OpsiStudioMusik): {
-  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean;
+ *  atempo di ujung rantai, sehingga durasi keluar = durasi sumber / tempo.
+ *  v0.13.0 mode remake: `o.transpose` (± semitone) menggeser nada dasar sumber via
+ *  asetrate + atempo kompensasi (durasi TETAP — seperti varispeed pita lalu dikembalikan).
+ *  `srSumber` = laju sampel asli berkas (untuk asetrate; bawaan 44100). */
+export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
+  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number;
 } {
   const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
   const tempoResep = resep ? resep.tempo : 1;
@@ -281,8 +313,22 @@ export function bangunFilterAudio(o: OpsiStudioMusik): {
   // penuh hanya bila vokal ikut atau iringan mati) — output graf tak boleh menggantung.
   // v0.12.0: bawaan vokal 0 → audio asli TIDAK masuk graf sama sekali (musik baru murni).
   const pakaiSumber = !penuh || (o.vokalLevel ?? 0) > 0 || (o.grooveLevel ?? 0) <= 0;
+  // v0.13.0 — transpos remake: hanya utk mode lapisan/remake (penuh = musik baru murni)
+  const transpose = penuh ? 0 : Math.min(5, Math.max(-5, Math.round(o.transpose ?? 0)));
   if (pakaiSumber) {
-    baris.push("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[base]");
+    if (transpose !== 0) {
+      // varispeed pita: asetrate menggeser nada (dan sementara mempercepat),
+      // aresample kembalikan laju sampel, atempo kompensasi mengembalikan DURASI —
+      // hasil: nada dasar naik/turun N semitone, tempo & panjang lagu tetap.
+      const rasio = Math.pow(2, transpose / 12);
+      const aset = Math.round(srSumber * rasio);
+      const kompensasi = Math.pow(2, -transpose / 12).toFixed(5);
+      baris.push(
+        `[0:a]asetrate=${aset},aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,atempo=${kompensasi}[base]`,
+      );
+    } else {
+      baris.push("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[base]");
+    }
   }
 
   let adaLayer: boolean;
@@ -357,7 +403,7 @@ export function bangunFilterAudio(o: OpsiStudioMusik): {
   } else {
     baris.push(`[${labelAkhir}]alimiter=limit=0.95[aout]`);
   }
-  return { graf: baris.join(";"), adaLayer, tempo, adaVokal };
+  return { graf: baris.join(";"), adaLayer, tempo, adaVokal, transpose };
 }
 
 // ============ 15 VISUALISER ============

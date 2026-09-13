@@ -15,7 +15,7 @@ import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
-  formatChordSheet, formatLrc, skalaChord, skalaLirik, RESEP_GENRE,
+  formatChordSheet, formatLrc, skalaChord, skalaLirik, RESEP_GENRE, transposeAuto,
   type BarisLirik, type IdVisual, type OpsiVisual, type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
 import { buatLayerWav } from "./musikLayer";
@@ -110,7 +110,13 @@ async function prosesAudio(
   if (!srcAbs || !existsSync(srcAbs)) throw new Error("Berkas sumber tidak ditemukan");
   const info = await probeAudio(srcAbs);
   if (!info.adaAudio) throw new Error("Berkas tidak punya jalur audio");
-  const { graf, adaLayer, tempo } = bangunFilterAudio(o);
+  // v0.13.0 — REMAKE: transpos efektif (null = otomatis dari tingkat kemiripan + nama berkas)
+  const transposeEfe =
+    o.mode === "remake" ? (o.transpose ?? transposeAuto(o.kemiripan, o.file)) : 0;
+  const { graf, adaLayer, tempo } = bangunFilterAudio(
+    { ...o, transpose: transposeEfe },
+    info.sr || 44100,
+  );
   const durasiKeluar = info.durasi / tempo;
   const args: string[] = ["-y", "-hide_banner", "-i", srcAbs];
   let layerAbs: string | null = null;
@@ -136,8 +142,9 @@ async function prosesAudio(
       const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
       const pola = resep?.layer;
       if (pola) {
-        // layer hidup di linimasa ASLI (atempo dipakai di ujung rantai graf)
-        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase);
+        // layer hidup di linimasa ASLI (atempo dipakai di ujung rantai graf);
+        // v0.13.0: lapisan mengikuti transpos remake — nada petik/stab ikut digeser
+        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase, transposeEfe);
         layerAbs = path.join(dirWork("tmp"), `layer-${ktx.jobId}.wav`);
         writeFileSync(layerAbs, layerWav);
         args.push("-i", layerAbs);

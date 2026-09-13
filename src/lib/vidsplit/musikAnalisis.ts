@@ -36,8 +36,9 @@ export interface HasilAnalisis {
   gelombang: number[];
 }
 
-/** Probe khusus AUDIO — beda dgn probe() video yang menolak berkas tanpa stream video. */
-export async function probeAudio(abs: string, binFfprobe?: string): Promise<{ durasi: number; adaAudio: boolean }> {
+/** Probe khusus AUDIO — beda dgn probe() video yang menolak berkas tanpa stream video.
+ *  v0.13.0: kembalikan juga `sr` (laju sampel asli) utk transpos asetrate mode remake. */
+export async function probeAudio(abs: string, binFfprobe?: string): Promise<{ durasi: number; adaAudio: boolean; sr: number }> {
   const { spawn } = await import("node:child_process");
   let bin = binFfprobe;
   if (!bin) {
@@ -54,12 +55,14 @@ export async function probeAudio(abs: string, binFfprobe?: string): Promise<{ du
     c.on("close", (kode) => (kode === 0 ? resolve(stdout) : reject(new Error(`ffprobe gagal: ${stderr.slice(-300)}`))));
   });
   const j = JSON.parse(out) as {
-    streams?: Array<{ codec_type: string }>;
+    streams?: Array<{ codec_type: string; sample_rate?: string }>;
     format?: { duration?: string };
   };
   const adaAudio = (j.streams || []).some((s) => s.codec_type === "audio");
   const durasi = parseFloat(j.format?.duration ?? "0") || 0;
-  return { durasi, adaAudio };
+  const strSr = (j.streams || []).find((s) => s.codec_type === "audio")?.sample_rate;
+  const sr = Math.min(192000, Math.max(8000, parseInt(strSr || "44100", 10) || 44100));
+  return { durasi, adaAudio, sr };
 }
 
 /** Dekode audio → PCM mono float32 [-1..1] via ffmpeg (stdout pipe s16le). */

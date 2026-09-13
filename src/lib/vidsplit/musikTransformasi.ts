@@ -15,7 +15,7 @@
 // Hasil = musik benar-benar baru khas genre yang "mengikuti" lagu asli via chord-nya —
 // 100% offline, JS murni, tanpa dependensi.
 import type { GenreMusik, PolaLayer, SegmenChord } from "./musik";
-import { LAJU, nadaIns, polaBar, sampel, tulisKeBufor, wavDariFloat, type InsNada, type Instrumen } from "./musikLayer";
+import { LAJU, nadaIns, polaBar, sampel, tulisKeBufor, wavDariFloat, beriReverb, type InsNada, type Instrumen } from "./musikLayer";
 import type { CatatanMelodi } from "./musikAnalisis";
 
 const FREQ_C2 = 65.406; // C2 — basis frekuensi bass
@@ -511,5 +511,7 @@ export function buatIringanWav(a: KtxIring, genre: GenreMusik, opsi: OpsiIring):
     }
   }
 
+  // v0.13.0 — reverb studio halus: tidak lagi kering mengklik (bunyi "nut-nut" berkurang)
+  beriReverb(campur, 0.16);
   return wavDariFloat(campur);
 }

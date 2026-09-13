@@ -7,9 +7,9 @@ import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorAtempo,
   faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, RESEP_GENRE,
   DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord, skalaLirik,
-  type GenreMusik, type PolaLayer, type SegmenChord,
+  transposeAuto, type GenreMusik, type PolaLayer, type SegmenChord,
 } from "../src/lib/vidsplit/musik";
-import { buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
+import { beriReverb, buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
 import { buatIringanWav, buatMelodiBaru, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
 import { ekstrakMelodi } from "../src/lib/vidsplit/musikAnalisis";
 
@@ -137,8 +137,8 @@ const cl11 = clampStudio({ file: "x", mode: "penuh", kecepatan: 1.5, grooveLevel
 cek(cl11.mode === "penuh" && cl11.kecepatan === 1.5, "mode penuh + kecepatan 1.5 diterima");
 cek(cl11.grooveLevel === 100 && cl11.melodiLevel === 0 && cl11.vokalLevel === 42, "groove/melodi/vokal di-clamp 0–100");
 const cl12 = clampStudio({ file: "x", mode: "aneh" as never, kecepatan: 1.3 as never });
-cek(cl12.mode === "lapisan" && cl12.kecepatan === 1, "mode/kecepatan aneh → default aman");
-cek(clampStudio({ file: "x" }).mode === "lapisan", "tanpa mode → lapisan (kompatibel v0.10)");
+cek(cl12.mode === "remake" && cl12.kecepatan === 1, "mode/kecepatan aneh → default aman (remake v0.13)");
+cek(clampStudio({ file: "x" }).mode === "remake", "tanpa mode → remake (bawaan baru v0.13)");
 
 console.log("== 10. v0.11.0 — faktor waktu & atempo ==");
 cek(Math.abs(faktorWaktuStudio({ genre: "asli", kecepatan: 1 }) - 1) < 1e-9, "faktor asli 1× = 1");
@@ -336,6 +336,60 @@ const wPegangan = buatIringanWav(
 );
 cek(wPegangan.slice(0, 4).toString("ascii") === "RIFF" && Math.abs(wPegangan.length - ekspektasi8) < 4,
   "melodi asli sbg pegangan (opsional) → WAV valid");
+
+console.log("== 22. v0.13.0 — clampStudio remake: kemiripan & transpose ==");
+const clA = clampStudio({ file: "x", mode: "remake", kemiripan: 500, transpose: 99 });
+cek(clA.kemiripan === 100 && clA.transpose === 5, "kemiripan ≤100 & transpose ≤+5");
+const clB = clampStudio({ file: "x", mode: "remake", kemiripan: 10, transpose: -99 });
+cek(clB.kemiripan === 40 && clB.transpose === -5, "kemiripan ≥40 & transpose ≥-5");
+const clC = clampStudio({ file: "x", mode: "remake", transpose: null });
+cek(clC.transpose === null && clC.kemiripan === 80, "transpose null = Auto & kemiripan bawaan 80");
+
+console.log("== 23. v0.13.0 — transposeAuto (deterministik, dari kemiripan) ==");
+cek(transposeAuto(100, "apapun") === 0, "kemiripan 100 → transpos 0");
+cek(Math.abs(transposeAuto(80, "lagu-a")) === 2, `kemiripan 80 → ±2 semitone (${transposeAuto(80, "lagu-a")})`);
+cek(Math.abs(transposeAuto(60, "lagu-a")) === 4, "kemiripan 60 → ±4 semitone");
+cek(Math.abs(transposeAuto(40, "lagu-a")) === 5, "kemiripan 40 → ±5 (maks)");
+cek(transposeAuto(80, "lagu-a") === transposeAuto(80, "lagu-a"), "deterministik — seed sama hasil sama");
+
+console.log("== 24. v0.13.0 — graf REMAKE: asetrate + atempo kompensasi ==");
+const gR3 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "dangdut", layerLevel: 40, kemiripan: 60, transpose: 3 }, 48000);
+cek(gR3.transpose === 3 && gR3.graf.includes("asetrate=57082"), `remake +3 @48k → asetrate=57082`);
+cek(gR3.graf.includes("atempo=0.84090"), "kompensasi atempo=0.84090 (durasi tetap)");
+cek(gR3.graf.includes("[1:a]volume=") && gR3.graf.includes("amix=inputs=2"), "remake: layer ikut diaduk");
+cek(gR3.tempo === 1.02, "tempo remake tetap resep genre (transpos tak ubah durasi)");
+const gRm = bangunFilterAudio({ ...dasar, mode: "remake", genre: "rock", kemiripan: 80, transpose: -5 });
+cek(gRm.graf.includes("asetrate=33038") && gRm.graf.includes("atempo=1.33484"), "remake −5 @44.1k → asetrate=33038 + atempo=1.33484");
+const gR0 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "asli", layerLevel: 0, kemiripan: 100, transpose: 0 });
+cek(!gR0.graf.includes("asetrate") && gR0.transpose === 0, "transpos 0 → graf tanpa asetrate");
+const gRp = bangunFilterAudio({ ...dasar, mode: "penuh", genre: "dangdut", grooveLevel: 75, kemiripan: 40, transpose: 3 });
+cek(!gRp.graf.includes("asetrate") && gRp.transpose === 0, "mode penuh mengabaikan transpos (musik baru murni)");
+
+console.log("== 25. v0.13.0 — layer: transpos, stereo, reverb, kendang dung/dut ==");
+const l0 = buatLayerWav("gamelan", 120, 4, 0, 0);
+const l4 = buatLayerWav("gamelan", 120, 4, 0, 4);
+cek(l0.length === l4.length, "transpos layer tak ubah panjang WAV");
+let bedaGeser = false;
+for (let i = 44; i < Math.min(l0.length, 400000); i++) if (l0[i] !== l4[i]) { bedaGeser = true; break; }
+cek(bedaGeser, "transpos layer (+4) → nada petik/stab bergeser (audio beda)");
+const wDut = buatLayerWav("dangdut", 120, 4, 0);
+let stereoAda = false;
+for (let i = 44; i + 3 < Math.min(wDut.length, 600000); i += 2) {
+  if (wDut[i] !== wDut[i + 2]) { stereoAda = true; break; }
+}
+cek(stereoAda, "layer kini stereo — kanal kiri ≠ kanan (pan + reverb)");
+const kdung = sampel("kendang", 0.8, 78);
+const kdut = sampel("kendang", 0.8, 150);
+let bedaKendang = false;
+for (let i = 0; i < Math.min(kdung.length, kdut.length); i++) {
+  if (Math.abs(kdung[i] - kdut[i]) > 0.01) { bedaKendang = true; break; }
+}
+cek(bedaKendang && kdung.length > 1000 && kdut.length > 1000, "kendang dung (f<130) ≠ dut (f≥130)");
+const rb = new Float32Array(44100);
+rb[100] = 0.8;
+beriReverb(rb, 0.25);
+const ekor = Array.from(rb.slice(13230, 22050)).reduce((a, b) => a + Math.abs(b), 0);
+cek(Number.isFinite(ekor) && ekor > 0.001, `reverb: ada ekor setelah klik (${ekor.toFixed(3)})`);
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

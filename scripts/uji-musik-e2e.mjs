@@ -90,18 +90,20 @@ cek(an.bpm >= 100 && an.bpm <= 140, `BPM terdeteksi ${an.bpm} (harapan ~120, tre
 cek(Array.isArray(an.chord) && an.chord.length >= 3 && an.chord.length <= 14, `chord terdeteksi: ${an.chord?.length} segmen (harapan ≈4, Am→F→C→G)`);
 cek(!!an.kunci && an.gelombang?.length > 0, `kunci ≈ ${an.kunci}, gelombang ${an.gelombang?.length} titik`);
 
-console.log("== 3. Proses audio: genre rock + layer 40% ==");
+console.log("== 3. Proses audio: REMAKE 80%→60% (dangdut, layer 40%, transpos auto) ==");
 const p1 = await POST("/api/musik/proses", {
-  file: up.file, judul: "Musik Uji", genre: "rock", layerLevel: 40,
+  file: up.file, judul: "Musik Uji", genre: "dangdut", layerLevel: 40,
   karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  mode: "remake", kemiripan: 60, transpose: null,
 });
 cek(p1.ok && p1.id, `job proses mulai: ${p1.id}`);
 const j1 = await pollJob(p1.id);
-cek(!j1.error && j1.fileProses && j1.fileMp3, "proses selesai tanpa error");
+cek(!j1.error && j1.fileProses && j1.fileMp3, "proses remake selesai tanpa error");
 const mp3Abs = path.join(WORK, j1.fileMp3);
 cek(existsSync(mp3Abs) && statSync(mp3Abs).size > 50_000, `proses.mp3 ada (${(statSync(mp3Abs).size / 1024).toFixed(0)} KB)`);
 const pr1 = ffprobe(mp3Abs);
-cek(Math.abs(pr1.durasi - 16) < 1.2, `durasi proses ≈ 16 dtk (${pr1.durasi.toFixed(2)})`);
+// transpos auto ±4 semitone TIDAK mengubah durasi (dikompensasi atempo)
+cek(Math.abs(pr1.durasi - 16 / 1.02) < 1.2, `durasi remake ≈ ${(16 / 1.02).toFixed(2)} dtk (${pr1.durasi.toFixed(2)})`);
 
 console.log("== 4. Proses audio: mode KARAOKE (stereo dibuat dulu) ==");
 const p2 = await POST("/api/musik/proses", {
@@ -229,6 +231,23 @@ const an2 = await POST("/api/musik/analisis", { file: up.file });
 cek(an2.ok && an2.bpm >= 100 && an2.bpm <= 140, `analisis ulang ok (BPM ${an2.bpm})`);
 cek(Array.isArray(an2.chord) && an2.chord.length >= 3, `chord referensi: ${an2.chord?.length} segmen`);
 // bukti tidak langsung: proses musik baru di atas sudah menghasilkan audio tanpa error.
+
+console.log("== 13. v0.13.0 — REMAKE bawaan (tanpa field mode): kemiripan 80% + dangdut ==");
+const p7 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Remake Uji", genre: "dangdut", layerLevel: 40,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  // tanpa "mode" → clampStudio jatuh ke bawaan BARU "remake" dgn kemiripan 80 (±2 semitone)
+});
+cek(p7.ok && p7.id, `job remake bawaan mulai: ${p7.id}`);
+const j7 = await pollJob(p7.id);
+cek(!j7.error && j7.fileMp3, "remake bawaan selesai tanpa error");
+const pr7 = ffprobe(path.join(WORK, j7.fileMp3));
+cek(Math.abs(pr7.durasi - 16 / 1.02) < 1.2,
+  `durasi remake 80% ≈ ${(16 / 1.02).toFixed(2)} dtk (${pr7.durasi.toFixed(2)})`);
+const vol7 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j7.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean7 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol7)?.[1] || 0);
+cek(mean7 > -40, `remake 80% tidak bisu (mean_volume ${mean7} dB)`);
 
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);
