@@ -1,0 +1,460 @@
+// VidSplit v0.10.0 — manajer job STUDIO MUSIK: proses audio (genre+karaoke+layer) →
+// render video visualizer (15 gaya, ffmpeg filter graf) → berkas chord/lirik →
+// salin otomatis ke folder tujuan → catat ke riwayat ekspor yang sudah ada.
+// Dukungan batal memakai registry batal.ts yang sama dgn ekspor video.
+import { randomBytes } from "node:crypto";
+import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
+import { dirWork, jalankanFfmpeg, pathAman, pilihFfmpeg } from "./ffmpeg";
+import { probeAudio } from "./musikAnalisis";
+import { catatRiwayat } from "./riwayat";
+import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tujuan";
+import type { InfoJob, KeluaranJob } from "./jobs";
+import { slugify } from "./types";
+import {
+  bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio,
+  formatChordSheet, formatLrc, RESEP_GENRE,
+  type BarisLirik, type IdVisual, type OpsiVisual, type OpsiStudioMusik, type SegmenChord,
+} from "./musik";
+import { buatLayerWav } from "./musikLayer";
+
+export interface InfoJobMusik {
+  id: string;
+  jenis: "proses" | "render";
+  tahap: "menyiapkan" | "audio" | "video" | "berkas" | "salin" | "selesai";
+  progres: number; // 0..100
+  pesan: string;
+  judul: string;
+  /** hasil render (mp4/mp3/txt/lrc) — hanya job render */
+  outputs: KeluaranJob[];
+  /** hasil proses audio utk didengar di UI */
+  fileProses: string | null;
+  fileMp3: string | null;
+  error: string | null;
+  selesai: boolean;
+  batalDiminta: boolean;
+  dibatalkan: boolean;
+  dibuat: number;
+}
+
+const jobs = new Map<string, InfoJobMusik>();
+
+export function ambilJobMusik(id: string): InfoJobMusik | undefined {
+  return jobs.get(id);
+}
+
+export function batalkanJobMusik(id: string): boolean {
+  const job = jobs.get(id);
+  if (!job || job.selesai) return false;
+  job.batalDiminta = true;
+  mintaBatal(id);
+  return true;
+}
+
+// ---------- util ----------
+
+/** Escape path utk nilai filter ffmpeg (subtitles=...) — aman utk drive Windows. */
+function escapePathFilter(p: string): string {
+  return p.replaceAll("\\", "/").replaceAll(":", "\\:").replaceAll("'", "\\'");
+}
+
+function dirFonts(): string {
+  const kandidat = [
+    process.env.VIDSPLIT_FONTS,
+    path.join(process.cwd(), "assets", "fonts"),
+    path.join(process.cwd(), "..", "assets", "fonts"),
+    path.join(process.cwd(), "..", "..", "assets", "fonts"),
+  ].filter(Boolean) as string[];
+  for (const d of kandidat) if (existsSync(d)) return d;
+  return "/usr/share/fonts/truetype/dejavu";
+}
+
+function rapikanJobLama() {
+  const batas = Date.now() - 6 * 3600 * 1000;
+  for (const [id, j] of jobs) {
+    if (j.selesai && j.dibuat < batas) jobs.delete(id);
+  }
+}
+
+/** Buang berkas pratinjau lama — simpan maks 8 terbaru. */
+function pangkasPratinjau() {
+  try {
+    const d = dirWork("musik");
+    const daftar = readdirSync(d)
+      .filter((f) => f.startsWith("pratinjau-") && f.endsWith(".mp4"))
+      .map((f) => ({ f, t: statSync(path.join(d, f)).mtimeMs }))
+      .sort((a, b) => b.t - a.t);
+    for (const x of daftar.slice(8)) unlinkSync(path.join(d, x.f));
+  } catch { /* abaikan */ }
+}
+
+interface KtxRahasia {
+  jobId: string;
+  onProgres: (f: number) => void;
+}
+
+/** Proses audio: genre + karaoke + layer instrumen → proses.wav & proses.mp3 (320k).
+ *  Mengembalikan path relatif keduanya. */
+async function prosesAudio(
+  o: OpsiStudioMusik,
+  folderOut: string,
+  ktx: KtxRahasia,
+): Promise<{ wavRel: string; mp3Rel: string; durasi: number }> {
+  const ff = await pilihFfmpeg();
+  const srcAbs = pathAman(o.file);
+  if (!srcAbs || !existsSync(srcAbs)) throw new Error("Berkas sumber tidak ditemukan");
+  const info = await probeAudio(srcAbs);
+  if (!info.adaAudio) throw new Error("Berkas tidak punya jalur audio");
+  const { graf, adaLayer, tempo } = bangunFilterAudio(o);
+  const durasiKeluar = info.durasi / tempo;
+  const args: string[] = ["-y", "-hide_banner", "-i", srcAbs];
+  let layerAbs: string | null = null;
+  if (adaLayer) {
+    const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
+    const pola = resep?.layer;
+    if (pola) {
+      const layerWav = buatLayerWav(pola, o.bpm * tempo, durasiKeluar + 1, o.fase);
+      layerAbs = path.join(dirWork("tmp"), `layer-${ktx.jobId}.wav`);
+      writeFileSync(layerAbs, layerWav);
+      args.push("-i", layerAbs);
+    }
+  }
+  const grafAkhir = `${graf};[aout]asplit=2[awav][amp3]`;
+  args.push(
+    "-filter_complex", grafAkhir,
+    "-map", "[awav]", "-c:a", "pcm_s16le", path.join(folderOut, "proses.wav"),
+    "-map", "[amp3]", "-c:a", "libmp3lame", "-b:a", "320k",
+    "-metadata", `title=${o.judul}`, path.join(folderOut, "proses.mp3"),
+  );
+  await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(ktx.jobId, c));
+  if (layerAbs) { try { unlinkSync(layerAbs); } catch { /* abaikan */ } }
+  const wavRel = `${path.basename(folderOut)}/proses.wav`;
+  const mp3Rel = `${path.basename(folderOut)}/proses.mp3`;
+  return { wavRel: `musik/${wavRel}`, mp3Rel: `musik/${mp3Rel}`, durasi: durasiKeluar };
+}
+
+/** Render MP4 visualizer dari audio terproses + overlay ASS (judul/chord/lirik). */
+async function renderVid(
+  o: OpsiStudioMusik,
+  wavRel: string,
+  folderOut: string,
+  vis: { id: IdVisual; opsi: OpsiVisual; resolusi: "720" | "1080"; lirik: BarisLirik[]; chord: SegmenChord[] },
+  durasi: number,
+  ktx: KtxRahasia,
+): Promise<string> {
+  const ff = await pilihFfmpeg();
+  const wavAbs = pathAman(wavRel);
+  if (!wavAbs || !existsSync(wavAbs)) throw new Error("Audio terproses hilang — proses ulang dulu");
+  const H = vis.resolusi === "1080" ? 1080 : 720;
+  const W = Math.round((H * 16) / 9 / 2) * 2; // 1920 / 1280
+  const fps = 30;
+  const sensDb = ((vis.opsi.sensitivitas - 5) * 1.6).toFixed(1);
+  const grafVisual = bangunRantaiVisual(vis.id, {
+    w: W, h: H, fps, durasi, o: vis.opsi,
+  }).replace("[av]", "[av2]");
+  const baris: string[] = [`[0:a]asplit=2[ae][av]`, `[av]volume=${sensDb}dB[av2]`, grafVisual];
+  const fileAss = path.join(dirWork("tmp"), `musik-${ktx.jobId}.ass`);
+  const ass = bangunAss({
+    w: W, h: H, durasi, vis: vis.opsi, lirik: vis.lirik, chord: vis.chord,
+  });
+  if (ass) {
+    writeFileSync(fileAss, ass, "utf8");
+    baris.push(`[viz]format=yuv420p,subtitles=filename='${escapePathFilter(fileAss)}':fontsdir='${escapePathFilter(dirFonts())}'[vfin]`);
+  } else {
+    baris.push(`[viz]format=yuv420p[vfin]`);
+  }
+  const namaMp4 = `${slugify(o.judul) || "musik"}-studio.mp4`;
+  const args = [
+    "-y", "-hide_banner",
+    "-i", wavAbs,
+    "-filter_complex", baris.join(";"),
+    "-map", "[vfin]", "-map", "[ae]",
+    "-t", durasi.toFixed(3),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart", "-shortest",
+    path.join(folderOut, namaMp4),
+  ];
+  await jalankanFfmpeg(args, durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(ktx.jobId, c));
+  try { if (existsSync(fileAss)) unlinkSync(fileAss); } catch { /* abaikan */ }
+  return namaMp4;
+}
+
+function ukuran(abs: string): number {
+  try { return statSync(abs).size; } catch { return 0; }
+}
+
+// ---------- pekerja utama ----------
+
+interface OpsiRenderLengkap extends OpsiStudioMusik {
+  visual: IdVisual;
+  opsiVisual: OpsiVisual;
+  resolusi: "720" | "1080";
+  lirik: BarisLirik[];
+  chord: SegmenChord[];
+  /** true bila sumber = proses.wav hasil job proses sebelumnya */
+  audioSudahProses: boolean;
+  /** bila audioSudahProses: wav rel hasil proses sebelumnya */
+  wavSiap: string | null;
+  /** bila audioSudahProses: mp3 rel hasil proses sebelumnya (utk disalin sbg hasil) */
+  fileMp3Siap: string | null;
+}
+
+async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: string) {
+  const job = jobs.get(id)!;
+  const ktx: KtxRahasia = {
+    jobId: id,
+    onProgres: (f) => {
+      // pemetaan progres: tahap audio 0–35, video 35–95
+      if (job.tahap === "audio") job.progres = Math.min(34, Math.round(f * 35));
+      else if (job.tahap === "video") job.progres = 35 + Math.min(59, Math.round(f * 60));
+    },
+  };
+  try {
+    // tahap 1: audio
+    let wavRel = o.wavSiap;
+    let mp3Sumber: string | null = null;
+    if (!o.audioSudahProses || !wavRel) {
+      job.tahap = "audio";
+      job.pesan = "Memproses audio (genre, karaoke, layer instrumen)…";
+      const folderProses = dirWork(`musik/${id}`);
+      const hasil = await prosesAudio(clampStudio(o), folderProses, ktx);
+      wavRel = hasil.wavRel;
+      mp3Sumber = hasil.mp3Rel;
+      job.fileProses = wavRel;
+      job.fileMp3 = mp3Sumber;
+    } else {
+      job.fileProses = wavRel;
+    }
+    if (apakahBatal(id)) throw new Error("DIBATALKAN");
+    // tahap 2: video
+    job.tahap = "video";
+    job.pesan = "Merender visualizer (CPU, efek realtime)…";
+    const durasi = (await probeAudio(pathAman(wavRel)!)).durasi;
+    const namaMp4 = await renderVid(o, wavRel, folderOut, {
+      id: o.visual, opsi: o.opsiVisual, resolusi: o.resolusi,
+      lirik: o.lirik, chord: o.chord,
+    }, durasi, ktx);
+    if (apakahBatal(id)) throw new Error("DIBATALKAN");
+    // tahap 3: berkas pendamping
+    job.tahap = "berkas";
+    job.pesan = "Menulis berkas chord & lirik…";
+    const slug = slugify(o.judul) || "musik";
+    const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Karaoke: ${o.karaoke} · Visual: ${o.visual} · BPM ${Math.round(o.bpm)}`;
+    const txtAbs = path.join(folderOut, `${slug}-chord-lirik.txt`);
+    writeFileSync(txtAbs, formatChordSheet(o.judul, meta, o.chord, o.lirik), "utf8");
+    if (o.lirik.length) {
+      writeFileSync(path.join(folderOut, `${slug}.lrc`), formatLrc(o.lirik), "utf8");
+    }
+    // mp3 320k: ambil dari proses tadi (sudah 320k) atau hasil proses sebelumnya
+    const mp3Rel = mp3Sumber ?? o.fileMp3Siap;
+    const outputs: KeluaranJob[] = [];
+    const daftarFile: { file: string; abs: string }[] = [];
+    const mp4Abs = path.join(folderOut, namaMp4);
+    if (existsSync(mp4Abs)) daftarFile.push({ file: namaMp4, abs: mp4Abs });
+    if (mp3Rel) {
+      const mp3Abs = pathAman(mp3Rel);
+      if (mp3Abs && existsSync(mp3Abs)) {
+        const mp3Out = path.join(folderOut, `${slug}-audio.mp3`);
+        if (mp3Abs !== mp3Out) {
+          const { copyFileSync } = await import("node:fs");
+          copyFileSync(mp3Abs, mp3Out);
+        }
+        daftarFile.push({ file: `${slug}-audio.mp3`, abs: mp3Out });
+      }
+    }
+    if (existsSync(txtAbs)) daftarFile.push({ file: `${slug}-chord-lirik.txt`, abs: txtAbs });
+    const lrcAbs = path.join(folderOut, `${slug}.lrc`);
+    if (o.lirik.length && existsSync(lrcAbs)) daftarFile.push({ file: `${slug}.lrc`, abs: lrcAbs });
+    for (const f of daftarFile) outputs.push({ video: o.judul, file: f.file, ukuran: ukuran(f.abs) });
+    if (!outputs.length) throw new Error("Tidak ada hasil yang berhasil dirender");
+    job.outputs = outputs;
+    // tahap 4: salin otomatis + riwayat (integrasi penuh dgn sistem video)
+    const setelan = muatSetelanTujuan();
+    let folderTersimpan: string | null = null;
+    if (setelan.otomatis && setelan.folder) {
+      job.tahap = "salin";
+      job.pesan = `Menyalin hasil ke folder tujuan…`;
+      job.progres = 96;
+      const salin = await salinHasilKeTujuan(
+        { id, outputs, antrean: [{ nama: o.judul, total: 1, selesai: 1, status: "selesai" }] },
+        setelan.folder,
+      );
+      folderTersimpan = salin.folder;
+      if (salin.gagal.length) {
+        job.pesan = `Selesai — ${salin.gagal.length} berkas gagal tersalin ke folder tujuan`;
+      }
+      if (setelan.bersihkanKerja && !salin.gagal.length) buangSalinanKerja({ id, outputs });
+    }
+    catatRiwayat({
+      id,
+      antrean: [{ nama: o.judul, total: 1, selesai: 1, status: "selesai" }],
+      outputs,
+      videoAktif: -1,
+      partAktif: 0,
+      progresPart: 100,
+      progresTotal: 100,
+      error: null,
+      adaGagal: false,
+      selesaiSemua: true,
+      batalDiminta: false,
+      dibatalkan: false,
+      dibuat: job.dibuat,
+      akselerasi: "ffmpeg (efek visual CPU)",
+      paralel: 1,
+      folderTersimpan,
+      menyalin: false,
+      peringatanSalin: null,
+    } satisfies InfoJob);
+    job.tahap = "selesai";
+    job.pesan = folderTersimpan
+      ? `Selesai — hasil tersalin ke ${folderTersimpan}`
+      : "Selesai — hasil siap diunduh";
+    job.progres = 100;
+    job.selesai = true;
+  } catch (e) {
+    const dibatalkan = apakahBatal(id) || (e instanceof Error && e.message === "DIBATALKAN");
+    job.dibatalkan = dibatalkan;
+    job.selesai = true;
+    job.tahap = "selesai";
+    job.error = dibatalkan
+      ? "Dibatalkan — hasil parsial dibuang"
+      : e instanceof Error ? e.message : String(e);
+    if (dibatalkan) {
+      // buang file parsial di folder output
+      try {
+        const { rmSync } = await import("node:fs");
+        rmSync(folderOut, { recursive: true, force: true });
+      } catch { /* abaikan */ }
+      job.outputs = [];
+    }
+  } finally {
+    bersihkanBatal(id);
+  }
+}
+
+// ---------- API publik ----------
+
+export interface OpsiProsesMasuk extends OpsiStudioMusik {}
+
+/** Job proses audio saja (pratinjau suara genre/karaoke/layer). */
+export function mulaiProsesMusik(opsi: OpsiProsesMasuk): string {
+  rapikanJobLama();
+  const id = randomBytes(4).toString("hex");
+  const folderOut = dirWork(`musik/${id}`);
+  jobs.set(id, {
+    id, jenis: "proses", tahap: "menyiapkan", progres: 0,
+    pesan: "Menyiapkan…", judul: opsi.judul, outputs: [],
+    fileProses: null, fileMp3: null, error: null,
+    selesai: false, batalDiminta: false, dibatalkan: false, dibuat: Date.now(),
+  });
+  void (async () => {
+    const job = jobs.get(id)!;
+    const ktx: KtxRahasia = {
+      jobId: id,
+      onProgres: (f) => {
+        if (job.tahap === "audio") job.progres = Math.min(99, Math.round(f * 100));
+      },
+    };
+    try {
+      job.tahap = "audio";
+      job.pesan = "Memproses audio (genre, karaoke, layer)…";
+      const hasil = await prosesAudio(clampStudio(opsi), folderOut, ktx);
+      if (apakahBatal(id)) throw new Error("DIBATALKAN");
+      job.fileProses = hasil.wavRel;
+      job.fileMp3 = hasil.mp3Rel;
+      job.tahap = "selesai";
+      job.pesan = "Audio siap — dengarkan di pratinjau";
+      job.progres = 100;
+      job.selesai = true;
+    } catch (e) {
+      const dibatalkan = apakahBatal(id) || (e instanceof Error && e.message === "DIBATALKAN");
+      job.dibatalkan = dibatalkan;
+      job.selesai = true;
+      job.tahap = "selesai";
+      job.error = dibatalkan ? "Dibatalkan" : e instanceof Error ? e.message : String(e);
+    } finally {
+      bersihkanBatal(id);
+    }
+  })();
+  return id;
+}
+
+export interface OpsiRenderMasuk extends OpsiRenderLengkap {}
+
+/** Job render penuh: audio (bila perlu) + video visualizer + berkas + riwayat. */
+export function mulaiRenderMusik(opsi: OpsiRenderMasuk): string {
+  rapikanJobLama();
+  const id = randomBytes(4).toString("hex");
+  const folderOut = dirWork(`output/${id}`);
+  jobs.set(id, {
+    id, jenis: "render", tahap: "menyiapkan", progres: 0,
+    pesan: "Menyiapkan…", judul: opsi.judul, outputs: [],
+    fileProses: null, fileMp3: null, error: null,
+    selesai: false, batalDiminta: false, dibatalkan: false, dibuat: Date.now(),
+  });
+  void jalankanRender(id, opsi, folderOut);
+  return id;
+}
+
+/** Pratinjau visual 10 detik 640×360 — berjalan SERENTAK (await) di route. */
+export async function pratinjauVisual(opsi: {
+  wavRel: string; judul: string;
+  visual: IdVisual; opsiVisual: OpsiVisual;
+  mulai: number; lirik: BarisLirik[]; chord: SegmenChord[];
+}): Promise<string> {
+  pangkasPratinjau();
+  const id = randomBytes(4).toString("hex");
+  const folderOut = dirWork("musik");
+  const ktx: KtxRahasia = { jobId: id, onProgres: () => {} };
+  const potongLirik: BarisLirik[] = [];
+  const akhir = opsi.mulai + 10;
+  for (const b of opsi.lirik) {
+    if (b.mulai >= opsi.mulai - 0.2 && b.mulai < akhir) potongLirik.push({ ...b, mulai: b.mulai - opsi.mulai });
+  }
+  const potongChord: SegmenChord[] = [];
+  for (const c of opsi.chord) {
+    const akhirC = c.mulai + c.durasi;
+    if (akhirC > opsi.mulai && c.mulai < akhir) {
+      potongChord.push({ ...c, mulai: Math.max(0, c.mulai - opsi.mulai), durasi: Math.min(akhirC, akhir) - Math.max(opsi.mulai, c.mulai) });
+    }
+  }
+  const filePratinjau = path.join(folderOut, `pratinjau-${id}.mp4`);
+  // render manual singkat: 10 dtk 640x360
+  const ff = await pilihFfmpeg();
+  const wavAbs = pathAman(opsi.wavRel);
+  if (!wavAbs || !existsSync(wavAbs)) throw new Error("Audio terproses tidak ada — proses dulu");
+  const sensDb = ((opsi.opsiVisual.sensitivitas - 5) * 1.6).toFixed(1);
+  const grafVisual = bangunRantaiVisual(opsi.visual, {
+    w: 640, h: 360, fps: 30, durasi: 10, o: opsi.opsiVisual,
+  }).replace("[av]", "[av2]");
+  const baris: string[] = [`[0:a]asplit=2[ae][av]`, `[av]volume=${sensDb}dB[av2]`, grafVisual];
+  const ass = bangunAss({
+    w: 640, h: 360, durasi: 10, vis: opsi.opsiVisual, lirik: potongLirik, chord: potongChord,
+  });
+  const fileAss = path.join(dirWork("tmp"), `pratinjau-${id}.ass`);
+  if (ass) {
+    writeFileSync(fileAss, ass, "utf8");
+    baris.push(`[viz]format=yuv420p,subtitles=filename='${escapePathFilter(fileAss)}':fontsdir='${escapePathFilter(dirFonts())}'[vfin]`);
+  } else {
+    baris.push(`[viz]format=yuv420p[vfin]`);
+  }
+  const args = [
+    "-y", "-hide_banner",
+    "-ss", Math.max(0, opsi.mulai).toFixed(2),
+    "-i", wavAbs,
+    "-filter_complex", baris.join(";"),
+    "-map", "[vfin]", "-map", "[ae]",
+    "-t", "10",
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p",
+    "-c:a", "aac", "-b:a", "128k",
+    "-movflags", "+faststart", "-shortest",
+    filePratinjau,
+  ];
+  await jalankanFfmpeg(args, 10, ktx.onProgres, ff.bin);
+  try { if (existsSync(fileAss)) unlinkSync(fileAss); } catch { /* abaikan */ }
+  return `musik/pratinjau-${id}.mp4`;
+}
+
+

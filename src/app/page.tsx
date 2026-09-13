@@ -11,6 +11,7 @@ import {
   Info,
   ListVideo,
   MonitorPlay,
+  Music,
   Trash2,
 } from "lucide-react";
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
@@ -24,6 +25,7 @@ import {
   PanelWatermark,
 } from "@/components/vds/BagianAtur";
 import { Preview } from "@/components/vds/Preview";
+import { StudioMusik } from "@/components/vds/StudioMusik";
 import { GerbangLayar, TombolGantiPassword, sudahTerbuka } from "@/components/vds/Gerbang";
 import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
 import {
@@ -70,6 +72,18 @@ export default function Halaman() {
   const [sibukBg, setSibukBg] = useState(false);
   const [sibukLogo, setSibukLogo] = useState(false);
   const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({ paralel: 2, pakaiGpu: true });
+  // v0.10.0 — sakelar Mode Video / Mode Musik (Studio Musik)
+  const [mode, setMode] = useState<"video" | "musik">("video");
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem("vidsplit-mode-v1");
+      if (m === "musik" || m === "video") setMode(m);
+    } catch { /* abaikan */ }
+  }, []);
+  const gantiMode = (m: "video" | "musik") => {
+    setMode(m);
+    try { localStorage.setItem("vidsplit-mode-v1", m); } catch { /* abaikan */ }
+  };
 
   // status gerbang dibaca dari sessionStorage (satu kali per sesi browser)
   useEffect(() => {
@@ -376,7 +390,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.9.2
+            v0.10.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -385,7 +399,31 @@ export default function Halaman() {
           <b> berurutan dari atas ke bawah</b>, tiap potongan vertikal 9:16 + judul + Part
           + background intro.
         </p>
+        {/* v0.10.0 — sakelar dua mode */}
+        <div className="mt-4 inline-flex rounded-xl border border-slate-700 bg-slate-900/70 p-1">
+          <button
+            type="button"
+            onClick={() => gantiMode("video")}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+              mode === "video" ? "bg-amber-400 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Clapperboard className="h-4 w-4" /> Mode Video
+          </button>
+          <button
+            type="button"
+            onClick={() => gantiMode("musik")}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+              mode === "musik" ? "bg-amber-400 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Music className="h-4 w-4" /> Mode Musik
+          </button>
+        </div>
       </header>
+
+      {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
+      {mode === "musik" && <StudioMusik />}
 
       {/* v0.9.1 — DASBOR 3 KOLOM 25% / 50% / 25%:
           KIRI = antrean (muat 15 video) + menu 1 + Ringkasan + Riwayat ekspor ·
@@ -393,6 +431,7 @@ export default function Halaman() {
           (Tulisan judul), menu 3 (Tulisan Part otomatis), bersihkan.
           v0.9.1: posisi Ringkasan DITUKAR dgn menu 2, posisi Riwayat ekspor
           DITUKAR dgn menu 3 — hanya tata letak, semua fitur tidak berubah. */}
+      {mode === "video" && (
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]">
         {/* ============ KOLOM KIRI (25%) ============ */}
         <div className="space-y-4">
@@ -632,6 +671,7 @@ export default function Halaman() {
           )}
         </div>
       </div>
+      )}
 
       <footer className="mt-12 text-center text-[11px] text-slate-600">
         VidSplit — dibuat untuk kreator konten. Diproses penuh di perangkatmu dengan ffmpeg.

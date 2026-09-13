@@ -1,0 +1,637 @@
+"use client";
+
+// VidSplit v0.10.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
+// Kolom KIRI  = 1. Impor musik + info lagu (BPM/kunci/chord) + gelombang
+// Kolom TENGAH= Pratinjau audio & visual + 5. Lirik & chord + 6. Ekspor (MP4/MP3/chord/lirik)
+// Kolom KANAN= 2. Genre · 3. Karaoke · 4. Visual (di StudioMusikKanan.tsx)
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Download, FileMusic, ListMusic, Loader2, Music, Play, RefreshCw, Square, Trash2,
+} from "lucide-react";
+import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
+import { PanelGenre, PanelKaraoke, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
+import { parseLrc, formatWaktuLrc } from "@/lib/vidsplit/musik";
+import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
+
+const KUNCI_ATUR = "vidsplit-musik-v1";
+
+interface InfoLagu {
+  file: string;
+  nama: string;
+  ukuran: number;
+  durasi: number;
+  bpm: number;
+  fase: number;
+  kunci: string;
+  chord: SegmenChord[];
+  gelombang: number[];
+}
+
+interface InfoJobMusikUI {
+  id: string;
+  jenis: "proses" | "render";
+  tahap: string;
+  progres: number;
+  pesan: string;
+  judul: string;
+  outputs: { video: string; file: string; ukuran: number }[];
+  fileProses: string | null;
+  fileMp3: string | null;
+  error: string | null;
+  selesai: boolean;
+  batalDiminta: boolean;
+  dibatalkan: boolean;
+}
+
+function urlMedia(rel: string, unduh = false): string {
+  return `/api/file?p=${encodeURIComponent(rel)}${unduh ? "&dl=1" : ""}`;
+}
+
+export function StudioMusik() {
+  const [atur, setAtur] = useState<AturMusik>(aturMusikDefault);
+  const [lagu, setLagu] = useState<InfoLagu | null>(null);
+  const [sibukImpor, setSibukImpor] = useState(false);
+  const [sibukAnalisis, setSibukAnalisis] = useState(false);
+  const [jobP, setJobP] = useState<InfoJobMusikUI | null>(null); // job proses audio
+  const [jobR, setJobR] = useState<InfoJobMusikUI | null>(null); // job render
+  const [hasilProses, setHasilProses] = useState<{ wav: string; mp3: string } | null>(null);
+  const [pratinjau, setPratinjau] = useState<string | null>(null);
+  const [sibukPratinjau, setSibukPratinjau] = useState(false);
+  const [pratinjauMulai, setPratinjauMulai] = useState(0);
+  const [lirikTeks, setLirikTeks] = useState("");
+  const [waktuBaris, setWaktuBaris] = useState<(number | null)[]>([]);
+  const [sinkronAktif, setSinkronAktif] = useState(false);
+  const [barisTandai, setBarisTandai] = useState(0);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // ---------- persistensi pengaturan ----------
+  useEffect(() => {
+    try {
+      const mentah = localStorage.getItem(KUNCI_ATUR);
+      if (mentah) {
+        const s = JSON.parse(mentah) as Partial<AturMusik>;
+        setAtur((p) => ({ ...p, ...s, vis: { ...p.vis, ...(s.vis || {}) } }));
+      }
+    } catch { /* abaikan */ }
+  }, []);
+  useEffect(() => {
+    try { localStorage.setItem(KUNCI_ATUR, JSON.stringify(atur)); } catch { /* abaikan */ }
+  }, [atur]);
+
+  const ubah = useCallback((u: Partial<AturMusik>) => setAtur((p) => ({ ...p, ...u })), []);
+
+  // ---------- polling job ----------
+  const pollJob = (id: string, selesai: (j: InfoJobMusikUI) => void) => {
+    const timer = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/musik/job?id=${id}`, { cache: "no-store" });
+        const j = (await r.json()) as { ok: boolean; job?: InfoJobMusikUI };
+        if (j.ok && j.job) {
+          if (j.job.jenis === "proses") setJobP(j.job);
+          else setJobR(j.job);
+          if (j.job.selesai || j.job.error) {
+            clearInterval(timer);
+            selesai(j.job);
+          }
+        }
+      } catch { /* jaringan — coba lagi di tick berikutnya */ }
+    }, 800);
+  };
+
+  // ---------- impor & analisis ----------
+  const analisis = async (fileRel: string, nama: string, ukuran: number) => {
+    setSibukAnalisis(true);
+    try {
+      const r = await fetch("/api/musik/analisis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: fileRel }),
+      });
+      const j = (await r.json()) as {
+        ok: boolean; error?: string; durasi?: number; bpm?: number; fase?: number;
+        kunci?: string; chord?: SegmenChord[]; gelombang?: number[];
+      };
+      if (!j.ok) throw new Error(j.error || "Analisis gagal");
+      setLagu({
+        file: fileRel, nama, ukuran,
+        durasi: j.durasi || 0, bpm: j.bpm || 120, fase: j.fase || 0,
+        kunci: j.kunci || "-", chord: j.chord || [], gelombang: j.gelombang || [],
+      });
+      setHasilProses(null);
+      setPratinjau(null);
+    } catch (e) {
+      alert(`Analisis gagal: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSibukAnalisis(false);
+    }
+  };
+
+  const imporLagu = async (f: File) => {
+    if (sibukImpor) return;
+    setSibukImpor(true);
+    try {
+      const r = await fetch(`/api/upload?kind=audio&nama=${encodeURIComponent(f.name)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/octet-stream" },
+        body: f,
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; error?: string; ukuran?: number };
+      if (!j.ok || !j.file) throw new Error(j.error || "Unggah gagal");
+      await analisis(j.file, f.name, j.ukuran || f.size);
+    } catch (e) {
+      alert(`Impor gagal: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSibukImpor(false);
+    }
+  };
+
+  // ---------- proses audio ----------
+  const mulaiProses = () => {
+    if (!lagu || jobP && !jobP.selesai) return;
+    setHasilProses(null);
+    fetch("/api/musik/proses", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: lagu.file, judul: lagu.nama.replace(/\.[^.]+$/, ""),
+        genre: atur.genre, layerLevel: atur.layerLevel, karaoke: atur.karaoke,
+        bpm: lagu.bpm, fase: lagu.fase,
+      }),
+    })
+      .then((r) => r.json())
+      .then((j: { ok: boolean; id?: string; error?: string }) => {
+        if (!j.ok || !j.id) throw new Error(j.error || "Gagal");
+        pollJob(j.id, (job) => {
+          if (job.fileProses && job.fileMp3 && !job.error) {
+            setHasilProses({ wav: job.fileProses, mp3: job.fileMp3 });
+          }
+        });
+      })
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)));
+  };
+
+  // ---------- pratinjau visual 10 dtk ----------
+  const mulaiPratinjau = async () => {
+    if (!hasilProses || sibukPratinjau) return;
+    setSibukPratinjau(true);
+    setPratinjau(null);
+    try {
+      const lirik = kumpulkanLirik();
+      const r = await fetch("/api/musik/pratinjau", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          wavRel: hasilProses.wav, judul: judulOverlay(), visual: atur.visual,
+          opsiVisual: atur.vis, mulai: pratinjauMulai, lirik,
+          chord: lagu?.chord || [],
+        }),
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; error?: string };
+      if (!j.ok || !j.file) throw new Error(j.error || "Pratinjau gagal");
+      setPratinjau(j.file);
+    } catch (e) {
+      alert(`Pratinjau gagal: ${e instanceof Error ? e.message : e}`);
+    } finally {
+      setSibukPratinjau(false);
+    }
+  };
+
+  // ---------- lirik ----------
+  const barisLirikTeks = lirikTeks.split(/\r?\n/).filter((b, i, a) => b.trim() || i < a.length - 1);
+  const judulOverlay = () =>
+    (atur.vis.teksJudul || "").trim() || (lagu?.nama.replace(/\.[^.]+$/, "") || "");
+
+  const kumpulkanLirik = (): BarisLirik[] => {
+    const hasil: BarisLirik[] = [];
+    barisLirikTeks.forEach((teks, i) => {
+      const t = waktuBaris[i];
+      if (teks.trim() && typeof t === "number" && t >= 0) hasil.push({ mulai: t, teks: teks.trim() });
+    });
+    return hasil.sort((a, b) => a.mulai - b.mulai);
+  };
+
+  const tandaiWaktu = () => {
+    const a = audioRef.current;
+    if (!a || !sinkronAktif) return;
+    const t = Math.round(a.currentTime * 100) / 100;
+    setWaktuBaris((lama) => {
+      const baru = [...lama];
+      while (baru.length < barisLirikTeks.length) baru.push(null);
+      baru[barisTandai] = t;
+      return baru;
+    });
+    setBarisTandai((n) => Math.min(barisLirikTeks.length - 1, n + 1));
+  };
+
+  const imporLrc = async (f: File) => {
+    const teks = await f.text();
+    const baris = parseLrc(teks);
+    if (!baris.length) {
+      alert("Tidak ada baris berwaktu di .lrc itu — format: [00:12.34] teks lirik");
+      return;
+    }
+    setLirikTeks(baris.map((b) => b.teks).join("\n"));
+    setWaktuBaris(baris.map((b) => b.mulai));
+    setBarisTandai(baris.length);
+  };
+
+  const jumlahBerwaktu = waktuBaris.filter((t) => typeof t === "number").length;
+
+  // ---------- ekspor ----------
+  const mulaiEkspor = () => {
+    if (!lagu || (jobR && !jobR.selesai)) return;
+    const lirik = kumpulkanLirik();
+    fetch("/api/musik/render", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file: lagu.file, judul: judulOverlay(),
+        genre: atur.genre, layerLevel: atur.layerLevel, karaoke: atur.karaoke,
+        bpm: lagu.bpm, fase: lagu.fase,
+        visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
+        lirik, chord: lagu?.chord || [],
+        audioSudahProses: !!hasilProses,
+        wavSiap: hasilProses?.wav ?? null,
+        fileMp3Siap: hasilProses?.mp3 ?? null,
+      }),
+    })
+      .then((r) => r.json())
+      .then((j: { ok: boolean; id?: string; error?: string }) => {
+        if (!j.ok || !j.id) throw new Error(j.error || "Gagal");
+        setJobR({
+          id: j.id, jenis: "render", tahap: "menyiapkan", progres: 0, pesan: "Menyiapkan…",
+          judul: "", outputs: [], fileProses: null, fileMp3: null, error: null,
+          selesai: false, batalDiminta: false, dibatalkan: false,
+        });
+        pollJob(j.id, () => { /* status akhir sudah di-set pollJob */ });
+      })
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)));
+  };
+
+  const batalJob = async (id: string) => {
+    await fetch("/api/musik/job", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, aksi: "batal" }),
+    });
+  };
+
+  const sibukProses = !!jobP && !jobP.selesai;
+  const sibukRender = !!jobR && !jobR.selesai;
+
+  // ---------- render ----------
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)]">
+      {/* ============ KOLOM KIRI ============ */}
+      <div className="space-y-4">
+        <Kartu
+          judul="1. Impor musik"
+          deskripsi="MP3 / WAV / M4A / OGG / FLAC — maks 500 MB"
+          ikon={<Music className="h-4 w-4" />}
+        >
+          <JatuhBerkas
+            terima="audio/*,.mp3,.wav,.m4a,.ogg,.flac"
+            hint="Klik atau seret lagu ke sini — akan dianalisis otomatis (BPM, kunci, chord)"
+            sibuk={sibukImpor || sibukAnalisis}
+            onFile={imporLagu}
+          />
+          {sibukAnalisis && (
+            <p className="mt-2 flex items-center gap-2 text-xs text-amber-300">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Menganalisis lagu…
+            </p>
+          )}
+          {lagu && (
+            <div className="mt-3 space-y-2">
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-3">
+                <p className="truncate text-sm font-medium text-slate-100" title={lagu.nama}>{lagu.nama}</p>
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+                  <span>{fmtUkuran(lagu.ukuran)}</span>
+                  <span>{Math.floor(lagu.durasi / 60)}:{String(Math.round(lagu.durasi % 60)).padStart(2, "0")}</span>
+                  <span className="text-amber-300">{Math.round(lagu.bpm)} BPM</span>
+                  <span>Kunci ≈ {lagu.kunci}</span>
+                  <span>{lagu.chord.length} chord terdeteksi</span>
+                </div>
+              </div>
+              {/* gelombang mini */}
+              <div className="flex h-12 items-center gap-[1.5px] overflow-hidden rounded-lg bg-slate-950/60 px-1.5">
+                {lagu.gelombang.filter((_, i) => i % 12 === 0).slice(0, 64).map((v, i) => (
+                  <span
+                    key={i}
+                    className="w-[3px] shrink-0 rounded-sm bg-cyan-400/70"
+                    style={{ height: `${Math.max(6, v * 100)}%` }}
+                  />
+                ))}
+              </div>
+              <audio
+                ref={audioRef}
+                controls
+                src={urlMedia(lagu.file)}
+                className="w-full"
+                preload="metadata"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  setLagu(null);
+                  setHasilProses(null);
+                  setPratinjau(null);
+                  setJobP(null);
+                }}
+                className="w-full rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition hover:border-red-400/60 hover:text-red-300"
+              >
+                Ganti lagu
+              </button>
+            </div>
+          )}
+        </Kartu>
+        <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-[11px] leading-relaxed text-slate-500">
+          <p className="mb-1 font-medium text-slate-400">Alur Studio Musik</p>
+          Impor lagu → pilih genre & karaoke → <b className="text-slate-400">Proses audio</b> dulu
+          (dengarkan hasilnya) → intip visual → tulis lirik + sinkron → <b className="text-slate-400">Ekspor</b>
+          untuk MP4 + MP3 + chord + lirik.
+        </div>
+      </div>
+
+      {/* ============ KOLOM TENGAH ============ */}
+      <div className="space-y-4">
+        {/* pratinjau */}
+        <Kartu
+          judul="Pratinjau audio & visual"
+          deskripsi="Proses dulu audio (genre/karaoke/layer), lalu intip gaya visualnya 10 detik"
+          ikon={<FileMusic className="h-4 w-4" />}
+        >
+          {!lagu ? (
+            <p className="rounded-xl border border-dashed border-slate-700 p-6 text-center text-sm text-slate-500">
+              Impor lagu dulu di kolom kiri.
+            </p>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={mulaiProses}
+                  disabled={sibukProses || sibukRender}
+                  className="flex items-center gap-2 rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {sibukProses ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  {sibukProses ? "Memproses audio…" : "Proses audio (dengarkan hasil)"}
+                </button>
+                {sibukProses && jobP && (
+                  <button
+                    type="button"
+                    onClick={() => batalJob(jobP.id)}
+                    className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-red-400/60 hover:text-red-300"
+                  >
+                    <Square className="h-3.5 w-3.5" /> Batal
+                  </button>
+                )}
+                {hasilProses && !sibukProses && (
+                  <button
+                    type="button"
+                    onClick={mulaiPratinjau}
+                    disabled={sibukPratinjau || sibukRender}
+                    className="flex items-center gap-2 rounded-lg border border-amber-400/70 bg-amber-400/10 px-4 py-2 text-sm font-medium text-amber-200 transition hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {sibukPratinjau ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                    Intip visual 10 dtk
+                  </button>
+                )}
+              </div>
+              {jobP && !jobP.selesai && (
+                <div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-800">
+                    <div className="h-full rounded-full bg-amber-400 transition-all" style={{ width: `${jobP.progres}%` }} />
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-400">{jobP.pesan} ({jobP.progres}%)</p>
+                </div>
+              )}
+              {jobP?.error && (
+                <p className="rounded-lg border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-300">{jobP.error}</p>
+              )}
+              {hasilProses && (
+                <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                  <p className="text-xs font-medium text-emerald-300">Audio hasil proses — siap didengar:</p>
+                  <audio controls src={urlMedia(hasilProses.mp3)} className="w-full" preload="metadata" />
+                  <a
+                    href={urlMedia(hasilProses.mp3, true)}
+                    className="inline-flex items-center gap-1.5 text-xs text-emerald-300 underline-offset-2 hover:underline"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Unduh MP3 320 kbps
+                  </a>
+                </div>
+              )}
+              {hasilProses && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400">Intip dari menit</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={Math.max(0, Math.floor((lagu.durasi || 60) - 10))}
+                    value={Math.floor(pratinjauMulai / 60)}
+                    onChange={(e) => setPratinjauMulai(Math.max(0, Number(e.target.value) * 60))}
+                    className="w-16 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-100"
+                  />
+                  <span className="text-[11px] text-slate-500">(10 detik, gunakan utk cek lirik/chord di tengah lagu)</span>
+                </div>
+              )}
+              {(sibukPratinjau || pratinjau) && (
+                <div className="overflow-hidden rounded-xl border border-slate-700/60 bg-black">
+                  {sibukPratinjau ? (
+                    <div className="flex h-48 items-center justify-center text-sm text-slate-400">
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Merender pratinjau visual…
+                    </div>
+                  ) : pratinjau ? (
+                    <video controls src={urlMedia(pratinjau)} className="w-full" preload="metadata" />
+                  ) : null}
+                </div>
+              )}
+              {pratinjau && (
+                <button
+                  type="button"
+                  onClick={() => setPratinjau(null)}
+                  className="text-[11px] text-slate-500 hover:text-slate-300"
+                >
+                  Tutup pratinjau visual
+                </button>
+              )}
+            </div>
+          )}
+        </Kartu>
+
+        {/* 5. lirik & chord */}
+        <Kartu
+          judul="5. Lirik & chord"
+          deskripsi="Tulis lirik (1 baris = 1 layar). Chord terdeteksi otomatis — tampil di atas lirik saat ekspor."
+          ikon={<ListMusic className="h-4 w-4" />}
+        >
+          <div className="space-y-2.5">
+            <textarea
+              value={lirikTeks}
+              onChange={(e) => {
+                setLirikTeks(e.target.value);
+              }}
+              rows={6}
+              placeholder={"Baris pertama lirik…\nBaris kedua…\n(kosongkan bila tak perlu lirik)"}
+              className="w-full resize-y rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="cursor-pointer rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500">
+                Impor .lrc
+                <input
+                  type="file"
+                  accept=".lrc,.txt"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void imporLrc(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+              {!sinkronAktif ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSinkronAktif(true);
+                    setBarisTandai(waktuBaris.findIndex((t) => t === null) < 0 ? barisLirikTeks.length - 1 : waktuBaris.findIndex((t) => t === null));
+                    audioRef.current?.play().catch(() => undefined);
+                  }}
+                  disabled={!lagu || !lirikTeks.trim()}
+                  className="flex items-center gap-1.5 rounded-lg border border-amber-400/70 bg-amber-400/10 px-3 py-1.5 text-xs text-amber-200 hover:bg-amber-400/20 disabled:opacity-50"
+                >
+                  <Play className="h-3.5 w-3.5" /> Sinkron lirik (ketuk sambil diputar)
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={tandaiWaktu}
+                    className="rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-950 hover:bg-amber-300"
+                  >
+                    Tandai baris #{barisTandai + 1} pada detik ini
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setSinkronAktif(false); audioRef.current?.pause(); }}
+                    className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:border-slate-500"
+                  >
+                    Selesai sinkron
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                onClick={() => { setWaktuBaris([]); setBarisTandai(0); setSinkronAktif(false); }}
+                className="flex items-center gap-1 rounded-lg border border-slate-700 px-2.5 py-1.5 text-xs text-slate-500 hover:border-red-400/60 hover:text-red-300"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Hapus waktu
+              </button>
+              <span className="text-[11px] text-slate-500">
+                {barisLirikTeks.filter((b) => b.trim()).length} baris · {jumlahBerwaktu} sudah berwaktu
+              </span>
+            </div>
+            {barisLirikTeks.length > 0 && (
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950/50 p-2 text-xs">
+                {barisLirikTeks.map((b, i) => (
+                  <div key={i} className={`flex gap-2 py-0.5 ${i === barisTandai && sinkronAktif ? "text-amber-300" : b.trim() ? "text-slate-300" : "text-slate-600"}`}>
+                    <span className="w-14 shrink-0 font-mono text-[10px] text-slate-500">
+                      {typeof waktuBaris[i] === "number" ? formatWaktuLrc(waktuBaris[i]!) : "—"}
+                    </span>
+                    <span className="truncate">{b || "(kosong)"}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Kartu>
+
+        {/* 6. ekspor */}
+        <Kartu
+          judul="6. Ekspor video musik"
+          deskripsi="MP4 visualizer + MP3 320 kbps + berkas chord & lirik — hasil juga masuk Riwayat ekspor"
+          ikon={<Download className="h-4 w-4" />}
+        >
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <div>
+                <p className="mb-1 text-xs text-slate-400">Resolusi</p>
+                <ChipPilihan<"720" | "1080">
+                  nilai={atur.resolusi}
+                  onChange={(v) => ubah({ resolusi: v })}
+                  pilihan={[
+                    { v: "720", label: "HD 720p", hint: "cepat" },
+                    { v: "1080", label: "Full HD 1080p", hint: "tajam" },
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={mulaiEkspor}
+                disabled={!lagu || sibukRender || sibukProses}
+                className="flex items-center gap-2 rounded-lg bg-amber-400 px-5 py-2.5 text-sm font-bold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {sibukRender ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                {sibukRender ? "Merender…" : "Mulai ekspor (MP4 + MP3 + chord)"}
+              </button>
+              {sibukRender && jobR && (
+                <button
+                  type="button"
+                  onClick={() => batalJob(jobR.id)}
+                  className="flex items-center gap-1.5 rounded-lg border border-slate-700 px-3 py-2 text-xs text-slate-300 hover:border-red-400/60 hover:text-red-300"
+                >
+                  <Square className="h-3.5 w-3.5" /> Batalkan
+                </button>
+              )}
+            </div>
+            {jobR && !jobR.selesai && (
+              <div>
+                <div className="h-2.5 overflow-hidden rounded-full bg-slate-800">
+                  <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-amber-400 transition-all" style={{ width: `${jobR.progres}%` }} />
+                </div>
+                <p className="mt-1 text-[11px] text-slate-400">
+                  {jobR.pesan} ({jobR.progres}%) — render visual CPU murni, sekecap 1-3× durasi lagu
+                </p>
+              </div>
+            )}
+            {jobR?.error && (
+              <p className="rounded-lg border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-300">{jobR.error}</p>
+            )}
+            {jobR?.selesai && !jobR.error && jobR.outputs.length > 0 && (
+              <div className="space-y-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <p className="text-xs font-semibold text-emerald-300">Hasil ekspor siap:</p>
+                {jobR.outputs.map((o) => (
+                  <div key={o.file} className="flex items-center justify-between gap-2 text-xs">
+                    <a href={urlMedia(`output/${jobR.id}/${o.file}`, true)} className="truncate text-slate-200 underline-offset-2 hover:text-amber-300 hover:underline">
+                      {o.file}
+                    </a>
+                    <span className="shrink-0 text-slate-500">{fmtUkuran(o.ukuran)}</span>
+                  </div>
+                ))}
+                <a
+                  href={`/api/zip?id=${jobR.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/10"
+                >
+                  <Download className="h-3.5 w-3.5" /> Unduh semua (ZIP)
+                </a>
+              </div>
+            )}
+            {jobR?.dibatalkan && (
+              <p className="rounded-lg border border-slate-600/40 bg-slate-800/40 p-2 text-xs text-slate-400">
+                Ekspor dibatalkan — hasil parsial dibuang.
+              </p>
+            )}
+          </div>
+        </Kartu>
+      </div>
+
+      {/* ============ KOLOM KANAN ============ */}
+      <div className="space-y-4">
+        <PanelGenre atur={atur} ubah={ubah} />
+        <PanelKaraoke atur={atur} ubah={ubah} />
+        <PanelVisual atur={atur} ubah={ubah} judulLagu={lagu?.nama.replace(/\.[^.]+$/, "") || ""} />
+      </div>
+    </div>
+  );
+}
