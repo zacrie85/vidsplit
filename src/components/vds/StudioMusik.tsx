@@ -1,16 +1,16 @@
 "use client";
 
-// VidSplit v0.10.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
-// Kolom KIRI  = 1. Impor musik + info lagu (BPM/kunci/chord) + gelombang
-// Kolom TENGAH= Pratinjau audio & visual + 5. Lirik & chord + 6. Ekspor (MP4/MP3/chord/lirik)
-// Kolom KANAN= 2. Genre · 3. Karaoke · 4. Visual (di StudioMusikKanan.tsx)
+// VidSplit v0.11.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
+// Kolom KIRI  = 1. Impor musik + info lagu (BPM/kunci/chord + BPM & durasi HASIL) + gelombang
+// Kolom TENGAH= Pratinjau audio & visual + 6. Lirik & chord + 7. Ekspor (MP4/MP3/chord/lirik)
+// Kolom KANAN= 2. Genre (lapisan/penuh) · 3. Tempo · 4. Karaoke · 5. Visual (di StudioMusikKanan.tsx)
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Download, FileMusic, ListMusic, Loader2, Music, Play, RefreshCw, Square, Trash2,
 } from "lucide-react";
 import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
-import { PanelGenre, PanelKaraoke, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
-import { parseLrc, formatWaktuLrc } from "@/lib/vidsplit/musik";
+import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
+import { faktorWaktuStudio, parseLrc, formatWaktuLrc } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
 const KUNCI_ATUR = "vidsplit-musik-v1";
@@ -156,6 +156,9 @@ export function StudioMusik() {
         file: lagu.file, judul: lagu.nama.replace(/\.[^.]+$/, ""),
         genre: atur.genre, layerLevel: atur.layerLevel, karaoke: atur.karaoke,
         bpm: lagu.bpm, fase: lagu.fase,
+        mode: atur.mode, kecepatan: atur.kecepatan,
+        grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
+        vokalLevel: atur.vokalLevel,
       }),
     })
       .then((r) => r.json())
@@ -184,6 +187,7 @@ export function StudioMusik() {
           wavRel: hasilProses.wav, judul: judulOverlay(), visual: atur.visual,
           opsiVisual: atur.vis, mulai: pratinjauMulai, lirik,
           chord: lagu?.chord || [],
+          faktor: faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }),
         }),
       });
       const j = (await r.json()) as { ok: boolean; file?: string; error?: string };
@@ -248,6 +252,9 @@ export function StudioMusik() {
         file: lagu.file, judul: judulOverlay(),
         genre: atur.genre, layerLevel: atur.layerLevel, karaoke: atur.karaoke,
         bpm: lagu.bpm, fase: lagu.fase,
+        mode: atur.mode, kecepatan: atur.kecepatan,
+        grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
+        vokalLevel: atur.vokalLevel,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,
@@ -278,6 +285,11 @@ export function StudioMusik() {
 
   const sibukProses = !!jobP && !jobP.selesai;
   const sibukRender = !!jobR && !jobR.selesai;
+  // BPM & durasi HASIL — mengikuti resep tempo genre × kecepatan pilihan user
+  const faktorWaktu = lagu ? faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }) : 1;
+  const bpmHasil = lagu ? Math.round(lagu.bpm * faktorWaktu) : 0;
+  const durasiHasil = lagu ? lagu.durasi / faktorWaktu : 0;
+  const fmtMenit = (d: number) => `${Math.floor(d / 60)}:${String(Math.max(0, Math.round(d % 60))).padStart(2, "0")}`;
 
   // ---------- render ----------
   return (
@@ -306,11 +318,18 @@ export function StudioMusik() {
                 <p className="truncate text-sm font-medium text-slate-100" title={lagu.nama}>{lagu.nama}</p>
                 <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
                   <span>{fmtUkuran(lagu.ukuran)}</span>
-                  <span>{Math.floor(lagu.durasi / 60)}:{String(Math.round(lagu.durasi % 60)).padStart(2, "0")}</span>
+                  <span>{fmtMenit(lagu.durasi)}</span>
                   <span className="text-amber-300">{Math.round(lagu.bpm)} BPM</span>
                   <span>Kunci ≈ {lagu.kunci}</span>
                   <span>{lagu.chord.length} chord terdeteksi</span>
                 </div>
+                {(faktorWaktu !== 1 || atur.mode === "penuh") && (
+                  <p className="mt-1 text-[11px] text-cyan-300/90">
+                    Hasil ≈ <b>{bpmHasil} BPM</b> · {fmtMenit(durasiHasil)}
+                    {atur.mode === "penuh" && atur.genre !== "asli" ? " · iringan diganti total" : ""}
+                    {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
+                  </p>
+                )}
               </div>
               {/* gelombang mini */}
               <div className="flex h-12 items-center gap-[1.5px] overflow-hidden rounded-lg bg-slate-950/60 px-1.5">
@@ -346,9 +365,9 @@ export function StudioMusik() {
         </Kartu>
         <div className="rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4 text-[11px] leading-relaxed text-slate-500">
           <p className="mb-1 font-medium text-slate-400">Alur Studio Musik</p>
-          Impor lagu → pilih genre & karaoke → <b className="text-slate-400">Proses audio</b> dulu
-          (dengarkan hasilnya) → intip visual → tulis lirik + sinkron → <b className="text-slate-400">Ekspor</b>
-          untuk MP4 + MP3 + chord + lirik.
+          Impor lagu → pilih <b className="text-slate-400">Transformasi penuh</b> atau Lapisan + genre
+          & tempo → <b className="text-slate-400">Proses audio</b> dulu (dengarkan hasilnya) → intip
+          visual → tulis lirik + sinkron → <b className="text-slate-400">Ekspor</b> untuk MP4 + MP3 + chord + lirik.
         </div>
       </div>
 
@@ -426,7 +445,7 @@ export function StudioMusik() {
                   <input
                     type="number"
                     min={0}
-                    max={Math.max(0, Math.floor((lagu.durasi || 60) - 10))}
+                    max={Math.max(0, Math.floor(durasiHasil - 10))}
                     value={Math.floor(pratinjauMulai / 60)}
                     onChange={(e) => setPratinjauMulai(Math.max(0, Number(e.target.value) * 60))}
                     className="w-16 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-100"
@@ -458,9 +477,9 @@ export function StudioMusik() {
           )}
         </Kartu>
 
-        {/* 5. lirik & chord */}
+        {/* 6. lirik & chord */}
         <Kartu
-          judul="5. Lirik & chord"
+          judul="6. Lirik & chord"
           deskripsi="Tulis lirik (1 baris = 1 layar). Chord terdeteksi otomatis — tampil di atas lirik saat ekspor."
           ikon={<ListMusic className="h-4 w-4" />}
         >
@@ -545,9 +564,9 @@ export function StudioMusik() {
           </div>
         </Kartu>
 
-        {/* 6. ekspor */}
+        {/* 7. ekspor */}
         <Kartu
-          judul="6. Ekspor video musik"
+          judul="7. Ekspor video musik"
           deskripsi="MP4 visualizer + MP3 320 kbps + berkas chord & lirik — hasil juga masuk Riwayat ekspor"
           ikon={<Download className="h-4 w-4" />}
         >
@@ -629,6 +648,7 @@ export function StudioMusik() {
       {/* ============ KOLOM KANAN ============ */}
       <div className="space-y-4">
         <PanelGenre atur={atur} ubah={ubah} />
+        <PanelTempo atur={atur} ubah={ubah} />
         <PanelKaraoke atur={atur} ubah={ubah} />
         <PanelVisual atur={atur} ubah={ubah} judulLagu={lagu?.nama.replace(/\.[^.]+$/, "") || ""} />
       </div>

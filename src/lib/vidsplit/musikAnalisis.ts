@@ -1,5 +1,7 @@
-// VidSplit v0.10.0 — analisis musik: dekode PCM via ffmpeg, deteksi tempo (autokorelasi
-// onset), fase beat, chord otomatis (chromagram → template maj/min), profil gelombang.
+// VidSplit v0.11.0 — analisis musik: dekode PCM via ffmpeg, deteksi tempo (autokorelasi
+// onset), fase beat, chord otomatis (chromagram → template maj/min), profil gelombang,
+// dan — baru v0.11.0 — EKSTRAKSI MELODI (pitch tracking semitone) yg menjadi "referensi"
+// transformasi penuh: jalur nada utama lagu asli dimainkan ulang dgn alat lead khas genre.
 // Hasil di-cache ke work/tmp agar analisis ulang instan.
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -10,6 +12,17 @@ import type { SegmenChord } from "./musik";
 const SR = 11025; // laju sampel dekode analisis
 const MAKS_DETIK = 900; // cap 15 menit
 
+export interface CatatanMelodi {
+  /** detik mulai nada */
+  t: number;
+  /** panjang nada (detik) */
+  d: number;
+  /** frekuensi nada (Hz) — sudah terkunci ke tangga nada semitone */
+  f: number;
+  /** kekuatan 0..1 — seberapa menonjol nada itu di lagu asli */
+  g: number;
+}
+
 export interface HasilAnalisis {
   durasi: number;
   bpm: number;
@@ -17,6 +30,8 @@ export interface HasilAnalisis {
   fase: number;
   kunci: string;
   chord: SegmenChord[];
+  /** jalur melodi utama (v0.11.0) — utk lead instrumen transformasi penuh */
+  melodi: CatatanMelodi[];
   /** 0..1 utk gambar gelombang di UI (~800 titik) */
   gelombang: number[];
 }
@@ -280,7 +295,99 @@ export function profilGelombang(pcm: Float32Array, n = 800): number[] {
   return hasil.map((v) => Math.round((v / maks) * 100) / 100);
 }
 
-/** Analisis lengkap + cache disk (kunci: path + mtime + ukuran). */
+// ============ EKSTRAKSI MELODI (v0.11.0) ============
+
+/** Lacu nada dominan per frame via Goertzel pada bin SEMITONE 110–880 Hz (39 bin).
+ *  Hasil = catatan bernada yg bisa dimainkan ulang alat lead khas genre. */
+export function ekstrakMelodi(pcm: Float32Array): CatatanMelodi[] {
+  const win = 4096, hop = 2048;
+  const nFrame = Math.max(0, Math.floor((pcm.length - win) / hop));
+  if (nFrame < 2) return [];
+  const S0 = -18; // semitone relatif C4 (261.63) = A2 (110 Hz)
+  const S1 = 20; // = A5 (880 Hz)
+  const nBin = S1 - S0 + 1;
+  const freq: number[] = [];
+  for (let s = S0; s <= S1; s++) freq.push(261.626 * Math.pow(2, s / 12));
+  // tabel cos/sin per bin (dihitung sekali)
+  const cosT: Float32Array[] = freq.map((f) => {
+    const w = (2 * Math.PI * f) / SR;
+    const a = new Float32Array(win);
+    for (let i = 0; i < win; i++) a[i] = Math.cos(w * i);
+    return a;
+  });
+  const sinT: Float32Array[] = freq.map((f) => {
+    const w = (2 * Math.PI * f) / SR;
+    const a = new Float32Array(win);
+    for (let i = 0; i < win; i++) a[i] = Math.sin(w * i);
+    return a;
+  });
+  const hopDetik = hop / SR;
+  const jejak = new Float32Array(nFrame).fill(-1); // semitone terpilih per frame, -1 = hening
+  const kuat = new Float32Array(nFrame);
+  for (let fr = 0; fr < nFrame; fr++) {
+    const awal = fr * hop;
+    const mag = new Float32Array(nBin);
+    let rata = 0;
+    let maks = 0;
+    let idxMaks = -1;
+    for (let b = 0; b < nBin; b++) {
+      let re = 0, im = 0;
+      const c = cosT[b], s = sinT[b];
+      for (let i = 0; i < win; i += 2) {
+        // langkah 2 — cukup akurat utk salience, 2× lebih cepat
+        re += pcm[awal + i] * c[i];
+        im += pcm[awal + i] * s[i];
+      }
+      const m = Math.sqrt(re * re + im * im);
+      mag[b] = m;
+      rata += m;
+      if (m > maks) { maks = m; idxMaks = b; }
+    }
+    rata /= nBin;
+    if (idxMaks < 0 || maks < 0.8 || maks < rata * 2.6) continue; // hening / tak menonjol
+    // pelipatan oktaf: suara lead & vokal biasanya 130–520 Hz — bila puncak terlalu
+    // tinggi dan oktaf di bawahnya hampir sekuat, turunkan agar melodi "mendarat"
+    while (idxMaks >= 12 && mag[idxMaks - 12] > maks * 0.62) {
+      idxMaks -= 12;
+      maks = mag[idxMaks];
+    }
+    jejak[fr] = S0 + idxMaks;
+    kuat[fr] = Math.min(1, (maks - rata) / Math.max(1e-9, maks));
+  }
+  // buang frame menyendiri (tetangga tak sama nada)
+  const bersih = new Float32Array(nFrame).fill(-1);
+  for (let fr = 0; fr < nFrame; fr++) {
+    const s = jejak[fr];
+    if (s < 0) continue;
+    const kiri = fr > 0 ? jejak[fr - 1] : -2;
+    const kanan = fr < nFrame - 1 ? jejak[fr + 1] : -2;
+    if (kiri === s || kanan === s) bersih[fr] = s;
+  }
+  // runtunkan frame bernada sama ≥2 frame → catatan
+  const catatan: CatatanMelodi[] = [];
+  let mulai = -1;
+  for (let fr = 0; fr <= nFrame; fr++) {
+    const s = fr < nFrame ? bersih[fr] : -2;
+    if (mulai >= 0 && (s !== bersih[mulai] || fr === nFrame)) {
+      const panjang = fr - mulai;
+      if (panjang >= 2 && bersih[mulai] >= 0) {
+        let jumlahKuat = 0;
+        for (let j = mulai; j < fr; j++) jumlahKuat += kuat[j];
+        catatan.push({
+          t: Math.round(mulai * hopDetik * 1000) / 1000,
+          d: Math.round(panjang * hopDetik * 1000) / 1000,
+          f: Math.round(261.626 * Math.pow(2, bersih[mulai] / 12) * 100) / 100,
+          g: Math.round(Math.min(1, jumlahKuat / panjang) * 100) / 100,
+        });
+      }
+      mulai = -1;
+    }
+    if (mulai < 0 && s >= 0) mulai = fr;
+  }
+  return catatan.slice(0, 4000);
+}
+
+// ============ ANALISIS LENGKAP + CACHE ============
 export async function analisisMusik(
   fileRel: string, bin: string,
 ): Promise<HasilAnalisis> {
@@ -292,17 +399,20 @@ export async function analisisMusik(
   const fileCache = dirWork(`tmp/analisis-${kunciCache}.json`);
   try {
     const cache = JSON.parse(readFileSync(fileCache, "utf8")) as HasilAnalisis;
-    if (cache && typeof cache.durasi === "number" && Array.isArray(cache.chord)) return cache;
+    // cache v0.10 tak punya melodi → dianggap basi agar analisis ulang
+    if (cache && typeof cache.durasi === "number" && Array.isArray(cache.chord) && Array.isArray(cache.melodi)) return cache;
   } catch { /* cache tiada — analisis sungguhan */ }
 
   const pcm = await decodePcm(abs, bin);
   const durasi = pcm.length / SR;
   const { bpm, fase } = deteksiTempo(pcm);
   const { chord, kunci } = deteksiChord(pcm, bpm);
+  const melodi = ekstrakMelodi(pcm);
   const hasil: HasilAnalisis = {
     durasi: Math.round(durasi * 100) / 100,
     bpm, fase, kunci,
     chord: chord.map((c) => ({ ...c, mulai: Math.round(c.mulai * 100) / 100, durasi: Math.round(c.durasi * 100) / 100 })),
+    melodi,
     gelombang: profilGelombang(pcm),
   };
   try { writeFileSync(fileCache, JSON.stringify(hasil), "utf8"); } catch { /* abaikan */ }

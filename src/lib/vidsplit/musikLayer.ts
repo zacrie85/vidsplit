@@ -1,12 +1,16 @@
-// VidSplit v0.10.0 — synthesizer layer instrumen murni JS (tanpa dependensi):
+// VidSplit v0.10.0 → v0.11.0 — synthesizer layer instrumen murni JS (tanpa dependensi):
 // kick, snare, hi-hat, kendang (dug/tak), gong, pluck, kebisingan vinyl —
 // disusun jadi pola ritme per genre, dirender ke WAV PCM16 stereo 44100 Hz.
-// Dipakai /api/musik/proses untuk lapisan "tambah alat musik" pada pengubah genre.
+// Dipakai /api/musik/proses untuk lapisan "tambah alat musik" (mode lapisan)
+// dan — sejak v0.11.0 — sebagai basis instrumen utk TRANSFORMASI PENUH:
+// nadaIns() menyintesis nada bervariasi (bass/piano/orgel/flute/saw/pluk/saron/bell/sub)
+// yg dipakai musikTransformasi.ts menyusun iringan baru mengikuti chord & melodi.
 import type { PolaLayer } from "./musik";
 
 const SR = 44100;
+export const LAJU = SR; // laju sampel semua render
 
-type Instrumen = "kick" | "snare" | "hat" | "kendang" | "tak" | "gong" | "pluck" | "stab";
+export type Instrumen = "kick" | "snare" | "hat" | "kendang" | "tak" | "gong" | "pluck" | "stab";
 interface Acara {
   /** posisi dalam bar (0..4, desimal = off-beat) */
   pos: number;
@@ -17,7 +21,7 @@ interface Acara {
 }
 
 // ---------- sampel instrumen (fungsi gelombang dgn envelop) ----------
-function sampel(ins: Instrumen, gain: number, f: number): Float32Array {
+export function sampel(ins: Instrumen, gain: number, f: number): Float32Array {
   const panjang = {
     kick: 0.30, snare: 0.20, hat: 0.07, kendang: 0.28, tak: 0.14,
     gong: 2.6, pluck: 0.34, stab: 0.26,
@@ -85,7 +89,7 @@ function sampel(ins: Instrumen, gain: number, f: number): Float32Array {
 // ---------- pola ritme per bar 4 ketuk ----------
 const PENTATONIK = [261.6, 293.7, 329.6, 392.0, 440.0]; // ~selandro mendekati gamelan/petik
 
-function polaBar(pola: PolaLayer, nomorBar: number): Acara[] {
+export function polaBar(pola: PolaLayer, nomorBar: number): Acara[] {
   switch (pola) {
     case "pop":
       return [
@@ -211,7 +215,13 @@ export function buatLayerWav(pola: PolaLayer, bpm: number, durasi: number, fase 
       campur[i + 1] += v;
     }
   }
-  // hard clip lembut + tulis PCM16
+  // hard clip lembut + tulis PCM16 (penulis WAV bersama — dipakai juga transformasi penuh)
+  return wavDariFloat(campur);
+}
+
+/** Float32 stereo interleaved → berkas WAV PCM16 (44100 Hz) dgn saturasi tanh lembut. */
+export function wavDariFloat(campur: Float32Array): Buffer {
+  const totalN = campur.length;
   const data = Buffer.alloc(totalN * 2);
   for (let i = 0; i < totalN; i++) {
     let v = campur[i] * 0.9;
@@ -232,4 +242,111 @@ export function buatLayerWav(pola: PolaLayer, bpm: number, durasi: number, fase 
   kepala.write("data", 36, "ascii");
   kepala.writeUInt32LE(data.length, 40);
   return Buffer.concat([kepala, data]);
+}
+
+// ============ v0.11.0 — SINTESIS NADA utk TRANSFORMASI PENUH ============
+// Alat musik bernada (bukan sekadar perkusi): bass, sub, piano, orgel, flute,
+// saw (lead gitar/synth), pluk (petik), saron (perunggu gamelan), bell (lonceng
+// disco). Tiap nada digambar sesuai frekuensi & durasi dari hasil analisis lagu.
+
+export type InsNada =
+  | "bass" | "sub" | "piano" | "orgel" | "flute" | "saw" | "pluk" | "saron" | "bell";
+
+/** Gambar SATU nada alat musik `ins` pada frekuensi `f` (Hz) selama `durasi` detik.
+ *  Mengembalikan buffer mono Float32 (panjang = durasi × 44100). */
+export function nadaIns(ins: InsNada, f: number, durasi: number, gain: number): Float32Array {
+  const d = Math.min(8, Math.max(0.05, durasi));
+  const n = Math.ceil(d * SR);
+  const keluar = new Float32Array(n);
+  const ff = Math.min(4200, Math.max(27.5, f || 220));
+  const duaPi = 2 * Math.PI;
+  let acak = 24681357;
+  const rand = () => {
+    acak = (acak * 1103515245 + 12345) & 0x7fffffff;
+    return acak / 0x3fffffff - 1;
+  };
+  for (let i = 0; i < n; i++) {
+    const t = i / SR;
+    const sisa = d - t; // menuju akhir nota (utk fade-out anti klik)
+    let v = 0;
+    switch (ins) {
+      case "bass": {
+        // bass tegas: gelombang dasar + oktaf + kvint atas, decay pelan
+        const env = Math.min(1, t / 0.006) * Math.exp(-t * 2.4) + (t > 0.05 ? 0.1 : 0);
+        v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2 * t) * 0.45
+          + Math.sin(duaPi * ff * 3 * t) * 0.12) * env;
+        break;
+      }
+      case "sub": {
+        // sub-bass 808-an: panjang, hangat, sedikit harmonik ke-2
+        const env = Math.min(1, t / 0.02) * (0.35 + 0.65 * Math.exp(-t * 1.4));
+        v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2 * t) * 0.25) * env;
+        break;
+      }
+      case "piano": {
+        const env = Math.min(1, t / 0.003) * Math.exp(-t * 2.8);
+        v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2 * t) * 0.5
+          + Math.sin(duaPi * ff * 3 * t) * 0.22 + Math.sin(duaPi * ff * 4 * t) * 0.1) * env;
+        break;
+      }
+      case "orgel": {
+        const fVib = ff * (1 + 0.004 * Math.sin(duaPi * 5.2 * t));
+        const env = Math.min(1, t / 0.02) * (0.55 + 0.45 * Math.exp(-t * 0.9));
+        v = (Math.sin(duaPi * fVib * t) + Math.sin(duaPi * fVib * 2 * t) * 0.55
+          + Math.sin(duaPi * fVib * 3 * t) * 0.3) * env;
+        break;
+      }
+      case "flute": {
+        const fVib = ff * (1 + 0.005 * Math.sin(duaPi * 5.5 * t));
+        const nafas = (rand() - rand()) * 0.04 * Math.min(1, t * 8);
+        const env = Math.min(1, t / 0.06) * (0.6 + 0.4 * Math.exp(-t * 0.5));
+        v = (Math.sin(duaPi * fVib * t) + nafas) * env;
+        break;
+      }
+      case "saw": {
+        // gitar/synth lead "bergerigi": jumlah harmonik + saturasi
+        let jumlah = 0;
+        for (let k = 1; k <= 10; k++) jumlah += Math.sin(duaPi * ff * k * t) / k;
+        const env = Math.min(1, t / 0.002) * (0.3 + 0.7 * Math.exp(-t * 5.5));
+        v = Math.tanh(jumlah * 1.15) * env * 0.8;
+        break;
+      }
+      case "pluk": {
+        const env = Math.min(1, t / 0.001) * Math.exp(-t * 8);
+        v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2 * t) * 0.4
+          + Math.sin(duaPi * ff * 3 * t) * 0.2 + Math.sin(duaPi * ff * 5 * t) * 0.08) * env;
+        break;
+      }
+      case "saron": {
+        // bilah perunggu gamelan: partial tak harmonik + dentum palu
+        const env = Math.min(1, t / 0.001) * Math.exp(-t * 3.5);
+        const pukul = rand() * 0.05 * Math.exp(-t * 60);
+        v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2.76 * t) * 0.4
+          + Math.sin(duaPi * ff * 5.4 * t) * 0.18 + Math.sin(duaPi * ff * 8.93 * t) * 0.09
+          + pukul) * env;
+        break;
+      }
+      case "bell": {
+        const env = Math.min(1, t / 0.002) * Math.exp(-t * 1.6);
+        v = (Math.sin(duaPi * ff * t) + Math.sin(duaPi * ff * 2.4 * t) * 0.5
+          + Math.sin(duaPi * ff * 3.9 * t) * 0.25 + Math.sin(duaPi * ff * 5.1 * t) * 0.1) * env;
+        break;
+      }
+    }
+    const fade = Math.min(1, sisa / 0.025);
+    keluar[i] = Math.max(-1, Math.min(1, v * gain * 0.8 * fade));
+  }
+  return keluar;
+}
+
+/** Tambahkan sampel mono ke bufer campur stereo (interleaved L,R) pada detik `t`. */
+export function tulisKeBufor(campur: Float32Array, s: Float32Array, t: number): void {
+  const awal = Math.floor(t * SR) * 2;
+  if (awal < 0) return;
+  for (let i = 0; i < s.length; i++) {
+    const idx = awal + i * 2;
+    if (idx + 1 >= campur.length) break;
+    campur[idx] += s[i];
+    campur[idx + 1] += s[i];
+  }
 }

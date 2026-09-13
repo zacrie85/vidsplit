@@ -30,6 +30,8 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       file?: string; judul?: string; genre?: string; layerLevel?: number;
       karaoke?: string; bpm?: number; fase?: number;
+      mode?: string; kecepatan?: number; grooveLevel?: number;
+      melodiLevel?: number; vokalLevel?: number;
       visual?: string; opsiVisual?: Partial<OpsiVisual>;
       resolusi?: string; lirik?: BarisLirik[]; chord?: SegmenChord[];
       audioSudahProses?: boolean; wavSiap?: string | null; fileMp3Siap?: string | null;
@@ -47,6 +49,11 @@ export async function POST(req: NextRequest) {
         karaoke: body.karaoke as OpsiStudioMusik["karaoke"],
         bpm: body.bpm,
         fase: body.fase,
+        mode: body.mode as OpsiStudioMusik["mode"],
+        kecepatan: body.kecepatan,
+        grooveLevel: body.grooveLevel,
+        melodiLevel: body.melodiLevel,
+        vokalLevel: body.vokalLevel,
       }),
       visual,
       opsiVisual: rapiVisual(body.opsiVisual),

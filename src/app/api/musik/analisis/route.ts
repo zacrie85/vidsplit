@@ -1,5 +1,7 @@
 // POST /api/musik/analisis — analisis lagu: durasi, BPM, fase beat, kunci,
 // chord otomatis (perkiraan), profil gelombang. Hasil di-cache server-side.
+// (jalur melodi utk transformasi penuh TIDAK dikirim ke UI — server membacanya
+// langsung dari cache saat proses supaya respons tetap ringan.)
 import { NextRequest, NextResponse } from "next/server";
 import { cariBinary } from "@/lib/vidsplit/ffmpeg";
 import { analisisMusik } from "@/lib/vidsplit/musikAnalisis";
@@ -14,7 +16,9 @@ export async function POST(req: NextRequest) {
     }
     const bin = await cariBinary("ffmpeg");
     const hasil = await analisisMusik(body.file, bin);
-    return NextResponse.json({ ok: true, ...hasil });
+    const { melodi: _melodi, ...untukUi } = hasil;
+    void _melodi;
+    return NextResponse.json({ ok: true, ...untukUi });
   } catch (e) {
     return NextResponse.json(
       { ok: false, error: e instanceof Error ? e.message : "Analisis gagal" },

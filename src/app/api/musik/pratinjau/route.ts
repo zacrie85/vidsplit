@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       wavRel?: string; judul?: string; visual?: string;
       opsiVisual?: Partial<OpsiVisual>; mulai?: number;
-      lirik?: BarisLirik[]; chord?: SegmenChord[];
+      lirik?: BarisLirik[]; chord?: SegmenChord[]; faktor?: number;
     };
     if (!body.wavRel) {
       return NextResponse.json(
@@ -31,6 +31,7 @@ export async function POST(req: NextRequest) {
       mulai: Math.max(0, Number(body.mulai) || 0),
       lirik: Array.isArray(body.lirik) ? body.lirik.slice(0, 900) : [],
       chord: Array.isArray(body.chord) ? body.chord.slice(0, 900) : [],
+      faktor: Number(body.faktor) || 1,
     });
     return NextResponse.json({ ok: true, file });
   } catch (e) {

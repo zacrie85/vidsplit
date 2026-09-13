@@ -1,6 +1,7 @@
-// VidSplit v0.10.0 — manajer job STUDIO MUSIK: proses audio (genre+karaoke+layer) →
-// render video visualizer (15 gaya, ffmpeg filter graf) → berkas chord/lirik →
-// salin otomatis ke folder tujuan → catat ke riwayat ekspor yang sudah ada.
+// VidSplit v0.11.0 — manajer job STUDIO MUSIK: proses audio (mode lapisan ATAU
+// transformasi penuh v0.11 + tempo 0.5×/1×/1.5×) → render video visualizer (15 gaya,
+// ffmpeg filter graf) → berkas chord/lirik (di-skala mengikuti tempo) → salin otomatis
+// ke folder tujuan → catat ke riwayat ekspor yang sudah ada.
 // Dukungan batal memakai registry batal.ts yang sama dgn ekspor video.
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -13,11 +14,13 @@ import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tuju
 import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
-  bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio,
-  formatChordSheet, formatLrc, RESEP_GENRE,
+  bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
+  formatChordSheet, formatLrc, skalaChord, skalaLirik, RESEP_GENRE,
   type BarisLirik, type IdVisual, type OpsiVisual, type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
 import { buatLayerWav } from "./musikLayer";
+import { buatIringanWav } from "./musikTransformasi";
+import { analisisMusik } from "./musikAnalisis";
 
 export interface InfoJobMusik {
   id: string;
@@ -94,7 +97,8 @@ interface KtxRahasia {
   onProgres: (f: number) => void;
 }
 
-/** Proses audio: genre + karaoke + layer instrumen → proses.wav & proses.mp3 (320k).
+/** Proses audio: genre + karaoke + layer instrumen (lapisan) ATAU transformasi penuh
+ *  (iringan asli diganti total) + tempo 0.5×/1×/1.5× → proses.wav & proses.mp3 (320k).
  *  Mengembalikan path relatif keduanya. */
 async function prosesAudio(
   o: OpsiStudioMusik,
@@ -111,19 +115,39 @@ async function prosesAudio(
   const args: string[] = ["-y", "-hide_banner", "-i", srcAbs];
   let layerAbs: string | null = null;
   if (adaLayer) {
-    const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
-    const pola = resep?.layer;
-    if (pola) {
-      const layerWav = buatLayerWav(pola, o.bpm * tempo, durasiKeluar + 1, o.fase);
-      layerAbs = path.join(dirWork("tmp"), `layer-${ktx.jobId}.wav`);
-      writeFileSync(layerAbs, layerWav);
+    if (o.mode === "penuh") {
+      // ==== TRANSFORMASI PENUH: iringan baru disintesis dari hasil analisis ====
+      const an = await analisisMusik(o.file, ff.bin);
+      const iringWav = buatIringanWav(
+        { bpm: an.bpm, fase: an.fase, durasi: info.durasi, chord: an.chord, melodi: an.melodi },
+        o.genre === "asli" ? "pop" : o.genre,
+        { groove: o.grooveLevel / 100, melodi: o.melodiLevel / 100 },
+      );
+      layerAbs = path.join(dirWork("tmp"), `iringan-${ktx.jobId}.wav`);
+      writeFileSync(layerAbs, iringWav);
       args.push("-i", layerAbs);
+    } else {
+      // ==== MODE LAPISAN (v0.10): layer ritme di atas lagu utuh ====
+      const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
+      const pola = resep?.layer;
+      if (pola) {
+        // layer hidup di linimasa ASLI (atempo dipakai di ujung rantai graf)
+        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase);
+        layerAbs = path.join(dirWork("tmp"), `layer-${ktx.jobId}.wav`);
+        writeFileSync(layerAbs, layerWav);
+        args.push("-i", layerAbs);
+      }
     }
   }
   const grafAkhir = `${graf};[aout]asplit=2[awav][amp3]`;
+  // -t pada ffmpeg hanya berlaku utk SATU berkas keluaran berikutnya —
+  // karena ada 2 keluaran (wav + mp3), -t wajib diulang di tiap kelompok map.
   args.push(
     "-filter_complex", grafAkhir,
+    // potong tepat ke durasi hasil (iringan punya ekor 1,2 dtk — jangan terbawa)
+    "-t", durasiKeluar.toFixed(3),
     "-map", "[awav]", "-c:a", "pcm_s16le", path.join(folderOut, "proses.wav"),
+    "-t", durasiKeluar.toFixed(3),
     "-map", "[amp3]", "-c:a", "libmp3lame", "-b:a", "320k",
     "-metadata", `title=${o.judul}`, path.join(folderOut, "proses.mp3"),
   );
@@ -217,7 +241,9 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     let mp3Sumber: string | null = null;
     if (!o.audioSudahProses || !wavRel) {
       job.tahap = "audio";
-      job.pesan = "Memproses audio (genre, karaoke, layer instrumen)…";
+      job.pesan = o.mode === "penuh"
+        ? "Menganalisis & menyusun iringan baru (transformasi penuh)…"
+        : "Memproses audio (genre, karaoke, layer instrumen)…";
       const folderProses = dirWork(`musik/${id}`);
       const hasil = await prosesAudio(clampStudio(o), folderProses, ktx);
       wavRel = hasil.wavRel;
@@ -232,20 +258,24 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     job.tahap = "video";
     job.pesan = "Merender visualizer (CPU, efek realtime)…";
     const durasi = (await probeAudio(pathAman(wavRel)!)).durasi;
+    // lirik & chord hidup di linimasa ASLI — skala mengikuti faktor tempo hasil
+    const faktor = faktorWaktuStudio(o);
+    const lirikSkala = skalaLirik(o.lirik, faktor);
+    const chordSkala = skalaChord(o.chord, faktor);
     const namaMp4 = await renderVid(o, wavRel, folderOut, {
       id: o.visual, opsi: o.opsiVisual, resolusi: o.resolusi,
-      lirik: o.lirik, chord: o.chord,
+      lirik: lirikSkala, chord: chordSkala,
     }, durasi, ktx);
     if (apakahBatal(id)) throw new Error("DIBATALKAN");
     // tahap 3: berkas pendamping
     job.tahap = "berkas";
     job.pesan = "Menulis berkas chord & lirik…";
     const slug = slugify(o.judul) || "musik";
-    const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Karaoke: ${o.karaoke} · Visual: ${o.visual} · BPM ${Math.round(o.bpm)}`;
+    const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Mode: ${o.mode === "penuh" ? "transformasi penuh" : "lapisan"} · Tempo: ${o.kecepatan}× · BPM hasil ≈ ${Math.round(o.bpm * faktorWaktuStudio(o))} · Visual: ${o.visual}`;
     const txtAbs = path.join(folderOut, `${slug}-chord-lirik.txt`);
-    writeFileSync(txtAbs, formatChordSheet(o.judul, meta, o.chord, o.lirik), "utf8");
+    writeFileSync(txtAbs, formatChordSheet(o.judul, meta, chordSkala, lirikSkala), "utf8");
     if (o.lirik.length) {
-      writeFileSync(path.join(folderOut, `${slug}.lrc`), formatLrc(o.lirik), "utf8");
+      writeFileSync(path.join(folderOut, `${slug}.lrc`), formatLrc(lirikSkala), "utf8");
     }
     // mp3 320k: ambil dari proses tadi (sudah 320k) atau hasil proses sebelumnya
     const mp3Rel = mp3Sumber ?? o.fileMp3Siap;
@@ -398,23 +428,28 @@ export function mulaiRenderMusik(opsi: OpsiRenderMasuk): string {
   return id;
 }
 
-/** Pratinjau visual 10 detik 640×360 — berjalan SERENTAK (await) di route. */
+/** Pratinjau visual 10 detik 640×360 — berjalan SERENTAK (await) di route.
+ *  faktor = faktor waktu proses (resep genre × kecepatan) — lirik/chord di-skala
+ *  dari linimasa asli ke linimasa HASIL agar sejajar dgn audio terproses. */
 export async function pratinjauVisual(opsi: {
   wavRel: string; judul: string;
   visual: IdVisual; opsiVisual: OpsiVisual;
-  mulai: number; lirik: BarisLirik[]; chord: SegmenChord[];
+  mulai: number; lirik: BarisLirik[]; chord: SegmenChord[]; faktor?: number;
 }): Promise<string> {
   pangkasPratinjau();
   const id = randomBytes(4).toString("hex");
   const folderOut = dirWork("musik");
   const ktx: KtxRahasia = { jobId: id, onProgres: () => {} };
+  const faktor = opsi.faktor && opsi.faktor > 0 ? opsi.faktor : 1;
+  const lirikSkala = skalaLirik(opsi.lirik, faktor);
+  const chordSkala = skalaChord(opsi.chord, faktor);
   const potongLirik: BarisLirik[] = [];
   const akhir = opsi.mulai + 10;
-  for (const b of opsi.lirik) {
+  for (const b of lirikSkala) {
     if (b.mulai >= opsi.mulai - 0.2 && b.mulai < akhir) potongLirik.push({ ...b, mulai: b.mulai - opsi.mulai });
   }
   const potongChord: SegmenChord[] = [];
-  for (const c of opsi.chord) {
+  for (const c of chordSkala) {
     const akhirC = c.mulai + c.durasi;
     if (akhirC > opsi.mulai && c.mulai < akhir) {
       potongChord.push({ ...c, mulai: Math.max(0, c.mulai - opsi.mulai), durasi: Math.min(akhirC, akhir) - Math.max(opsi.mulai, c.mulai) });

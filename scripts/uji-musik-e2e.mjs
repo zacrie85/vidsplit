@@ -172,5 +172,49 @@ await fetch(`${BASE}/api/musik/job`, {
 const j3 = await pollJob(p3.id);
 cek(j3.dibatalkan || j3.error, "job terbatal dengan rapi");
 
+console.log("== 9. v0.11.0 — TRANSFORMASI PENUH: dangdut + tempo 1.5× ==");
+const p4 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Transformasi Uji", genre: "dangdut", layerLevel: 0,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  mode: "penuh", kecepatan: 1.5, grooveLevel: 75, melodiLevel: 55, vokalLevel: 85,
+});
+cek(p4.ok && p4.id, `job transformasi penuh mulai: ${p4.id}`);
+const j4 = await pollJob(p4.id);
+cek(!j4.error && j4.fileProses && j4.fileMp3, "transformasi penuh selesai tanpa error");
+const mp3Penuh = path.join(WORK, j4.fileMp3);
+const prPenuh = ffprobe(mp3Penuh);
+// durasi harapan: 16 dtk / (resep dangdut 1.02 × kecepatan 1.5) ≈ 10.46
+cek(Math.abs(prPenuh.durasi - 16 / (1.02 * 1.5)) < 1.0,
+  `durasi transformasi+tempo ≈ ${(16 / (1.02 * 1.5)).toFixed(2)} dtk (${prPenuh.durasi.toFixed(2)})`);
+// audio tidak bisu — iringan baru benar-benar tersintesis
+const vol4 = spawnSync("ffmpeg", ["-hide_banner", "-i", mp3Penuh,
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const meanPenuh = Number(/mean_volume: ([-\d.]+) dB/.exec(vol4)?.[1] || 0);
+cek(meanPenuh > -40, `iringan penuh tidak bisu (mean_volume ${meanPenuh} dB)`);
+
+console.log("== 10. v0.11.0 — TRANSFORMASI PENUH instrumental (vokal 0%) + tempo 0.5× ==");
+const p5 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Instrumental Uji", genre: "ska", layerLevel: 0,
+  karaoke: "karaoke", bpm: an.bpm, fase: an.fase,
+  mode: "penuh", kecepatan: 0.5, grooveLevel: 80, melodiLevel: 60, vokalLevel: 0,
+});
+const j5 = await pollJob(p5.id);
+cek(!j5.error && j5.fileMp3, "instrumental penuh (ska 0.5×) selesai tanpa error");
+const pr5 = ffprobe(path.join(WORK, j5.fileMp3));
+// durasi harapan: 16 / (resep ska 1.1 × 0.5) ≈ 29.09
+cek(Math.abs(pr5.durasi - 16 / (1.1 * 0.5)) < 1.6,
+  `durasi instrumental 0.5× ≈ ${(16 / (1.1 * 0.5)).toFixed(2)} dtk (${pr5.durasi.toFixed(2)})`);
+const vol5 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j5.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean5 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol5)?.[1] || 0);
+cek(mean5 > -40, `instrumental ska tidak bisu (mean_volume ${mean5} dB)`);
+
+console.log("== 11. v0.11.0 — analisis kini menyertakan melodi ==");
+// analisis ulang (cache v0.10 tidak lagi dipakai karena tanpa melodi)
+const an2 = await POST("/api/musik/analisis", { file: up.file });
+cek(an2.ok && an2.bpm >= 100 && an2.bpm <= 140, `analisis ulang ok (BPM ${an2.bpm})`);
+// jalur melodi tak dikirim ke UI, tapi harus terpakai server-side — bukti tidak langsung:
+// proses penuh di atas sudah menghasilkan audio beriringan tanpa error.
+
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

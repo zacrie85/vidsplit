@@ -1,6 +1,9 @@
-// VidSplit v0.10.0 — STUDIO MUSIK: tipe data, resep genre (17), resep visual (15),
+// VidSplit v0.11.0 — STUDIO MUSIK: tipe data, resep genre (17), resep visual (15),
 // pembangun filter audio ffmpeg, subtitle ASS (judul + chord + lirik), LRC & chord sheet.
-// Semua pemrosesan 100% ffmpeg + JS murni — tanpa dependensi npm baru.
+// Baru v0.11.0: MODE TRANSFORMASI PENUH (instrumen lama diganti total iringan genre
+// tersintesis dari hasil analisis chord/BPM/melodi) + KECEPATAN TEMPO 0.5×/1×/1.5×
+// (atempo nyata di rantai ffmpeg — juga memperbaiki tempo resep genre yang dulu
+// hanya mengubah durasi tanpa melar audio). Semua 100% ffmpeg + JS murni.
 import type { NamaFont } from "./types";
 
 // ============ TIPE DASAR ============
@@ -14,6 +17,18 @@ export type GenreMusik =
 /** Mode pemisahan vokal: asli (tanpa ubah) | karaoke (buang vokal, sisakan instrumen)
  *  | vokal (tonjolkan vokal, kurangi instrumen) — metode DSP tengah/samping stereo. */
 export type KaraokeMode = "asli" | "karaoke" | "vokal";
+
+/** v0.11.0 — cara pengubah genre bekerja:
+ *  - "lapisan": lagu asli utuh + efek karakter genre + lapisan instrumen di atasnya (v0.10).
+ *  - "penuh"  : TRANSFORMASI PENUH — iringan asli ditinggalkan, seluruh iringan baru
+ *                (drum/bass/akor/melodi) disintesis mengikuti hasil analisis lagu asli
+ *                (BPM, fasa beat, progresi chord, jalur melodi) dgn instrumen khas genre;
+ *                vokal asli tetap bisa diikutkan (DSP kanal tengah). */
+export type ModeTransformasi = "lapisan" | "penuh";
+
+/** pilihan kecepatan tempo — 0.5 = perlambat 2× lebih lama, 1.5 = percepat ⅓ lebih cepat */
+export const PILIHAN_KECEPATAN = [0.5, 1, 1.5] as const;
+export type Kecepatan = (typeof PILIHAN_KECEPATAN)[number];
 
 /** Pola layer instrumen tersintesis (dibuat di musikLayer.ts) */
 export type PolaLayer =
@@ -169,17 +184,28 @@ export interface OpsiStudioMusik {
   file: string;
   judul: string;
   genre: GenreMusik | "asli";
-  /** 0–100 % level layer instrumen */
+  /** 0–100 % level layer instrumen (mode lapisan) */
   layerLevel: number;
   karaoke: KaraokeMode;
-  /** BPM hasil analisis — dipakai menyusun layer instrumen */
+  /** BPM hasil analisis — dipakai menyusun layer/iringan instrumen */
   bpm: number;
-  /** offset fasa beat (detik) dari analisis — agar layer sejajar pukulan asli */
+  /** offset fasa beat (detik) dari analisis — agar instrumen sejajar pukulan asli */
   fase: number;
+  /** v0.11.0 — "lapisan" | "penuh" (lihat ModeTransformasi) */
+  mode: ModeTransformasi;
+  /** v0.11.0 — kecepatan tempo hasil: 0.5 | 1 | 1.5 */
+  kecepatan: number;
+  /** v0.11.0 (mode penuh) 0–100 intensitas iringan genre (drum+bass+akor) */
+  grooveLevel: number;
+  /** v0.11.0 (mode penuh) 0–100 melodi asli dimainkan ulang dgn alat lead khas genre */
+  melodiLevel: number;
+  /** v0.11.0 (mode penuh) 0–100 vokal asli ikut diaduk (0 = instrumental) */
+  vokalLevel: number;
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
   const genre = o.genre && (o.genre === "asli" || DAFTAR_GENRE.includes(o.genre)) ? o.genre : "asli";
+  const kec = Number(o.kecepatan ?? 1);
   return {
     file: String(o.file || ""),
     judul: String(o.judul || "Lagu Tanpa Nama").slice(0, 200),
@@ -188,52 +214,142 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
     karaoke: o.karaoke === "karaoke" || o.karaoke === "vokal" ? o.karaoke : "asli",
     bpm: Math.min(220, Math.max(50, Number(o.bpm) || 120)),
     fase: Math.max(0, Number(o.fase) || 0),
+    mode: o.mode === "penuh" ? "penuh" : "lapisan",
+    kecepatan: (PILIHAN_KECEPATAN as readonly number[]).includes(kec) ? kec : 1,
+    grooveLevel: Math.min(100, Math.max(0, Math.round(Number(o.grooveLevel ?? 70)))),
+    melodiLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiLevel ?? 55)))),
+    vokalLevel: Math.min(100, Math.max(0, Math.round(Number(o.vokalLevel ?? 100)))),
   };
 }
 
-/** Bangun graf filter_complex pemrosesan audio.
- *  Input 0 = sumber; input 1 (opsional, bila layer aktif) = wav layer instrumen.
- *  Label keluar [aout]. */
-export function bangunFilterAudio(o: OpsiStudioMusik): { graf: string; adaLayer: boolean; tempo: number } {
+/** Faktor percepatan TOTAL: resep tempo genre × kecepatan pilihan user.
+ *  1.2 = hasil 1.2× lebih cepat (durasi dibagi 1.2). */
+export function faktorWaktuStudio(o: Pick<OpsiStudioMusik, "genre" | "kecepatan">): number {
   const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
-  const tempo = resep ? resep.tempo : 1;
+  return (resep ? resep.tempo : 1) * o.kecepatan;
+}
+
+/** Rantai pengali atempo — ffmpeg butuh tiap atempo di 0.5–2.0.
+ *  0.425 → [0.5, 0.85]; 3.4 → [2, 1.7]; 1 → []. */
+export function faktorAtempo(f: number): number[] {
+  const hasil: number[] = [];
+  let t = f;
+  while (t < 0.5 - 1e-9) { hasil.push(0.5); t /= 0.5; }
+  while (t > 2 + 1e-9) { hasil.push(2); t /= 2; }
+  if (hasil.length || Math.abs(t - 1) > 0.004) hasil.push(Math.round(t * 1000) / 1000);
+  return hasil;
+}
+
+/** Skala waktu lirik/chord saat tempo diubah: hasil = asal / faktor.
+ *  tempo 1.5 → semua tanda waktu dikali 2/3; tempo 0.5 → dikali 2. */
+export function skalaLirik(l: BarisLirik[], faktor: number): BarisLirik[] {
+  const f = faktor > 0 ? faktor : 1;
+  return l.map((b) => ({ ...b, mulai: Math.round((b.mulai / f) * 1000) / 1000 }));
+}
+
+export function skalaChord(c: SegmenChord[], faktor: number): SegmenChord[] {
+  const f = faktor > 0 ? faktor : 1;
+  return c.map((s) => ({
+    ...s,
+    mulai: Math.round((s.mulai / f) * 1000) / 1000,
+    durasi: Math.round((s.durasi / f) * 1000) / 1000,
+  }));
+}
+
+/** Bangun graf filter_complex pemrosesan audio.
+ *  Input 0 = sumber; input 1 (opsional) = wav layer (mode lapisan) ATAU iringan genre
+ *  tersintesis (mode penuh). Label keluar [aout].
+ *  tempo = faktor percepatan total (resep genre × kecepatan) — diterapkan NYATA via
+ *  atempo di ujung rantai, sehingga durasi keluar = durasi sumber / tempo. */
+export function bangunFilterAudio(o: OpsiStudioMusik): {
+  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean;
+} {
+  const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
+  const tempoResep = resep ? resep.tempo : 1;
+  const kecepatan = o.kecepatan || 1; // defensif bila dipanggil tanpa clamp
+  const tempo = tempoResep * kecepatan;
+  const penuh = o.mode === "penuh";
   const baris: string[] = [];
-  // 1) normalisasi format — pastikan fltp 44100 stereo untuk semua jalur
-  baris.push("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[base]");
-  // 2) pemisahan vokal (DSP tengah/samping) SEBELUM efek genre — agar lapisan baru tak ikut terhapus
-  if (o.karaoke === "karaoke") {
-    // buang vokal tengah: (L−R) + bass mono dikembalikan agar dentum tetap utuh
-    baris.push(
-      "[base]asplit=2[k1][k2]",
-      "[k1]pan=stereo|c0=0.5*c0+-0.5*c1|c1=0.5*c1+-0.5*c0[side]",
-      "[k2]pan=mono|c0=0.5*c0+0.5*c1,lowpass=f=140[bass0]",
-      "[bass0]pan=stereo|c0=c0|c1=c0[bass]",
-      "[side][bass]amix=inputs=2:duration=first[ksrc]",
-    );
-  } else if (o.karaoke === "vokal") {
-    // tonjolkan vokal: kanal tengah dipangkas bass & ekstrem — vokal paling menonjol
-    baris.push(
-      "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200[voc0]",
-      "[voc0]pan=stereo|c0=c0|c1=c0[ksrc]",
-    );
-  } else {
-    baris.push("[base]anull[ksrc]");
-  }
-  // 3) resep genre
   const rantai = resep ? resep.rantai.join(",") : "anull";
-  baris.push(`[ksrc]${rantai}[g]`);
-  // 4) layer instrumen + pencampuran — kompensasi volume amix (2× utk jalur utama)
-  const adaLayer = !!resep && o.layerLevel > 0 && !!resep.layer;
-  if (adaLayer) {
-    const lv = (o.layerLevel / 100) * 2;
-    baris.push("[g]volume=2.0[g2]");
-    baris.push(`[1:a]volume=${lv.toFixed(3)}[lay]`);
-    baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
-  } else {
-    baris.push("[g]volume=1.9[mix]");
+  // input 0 hanya dimasukkan ke graf bila benar-benar dipakai (lapisan selalu;
+  // penuh hanya bila vokal ikut atau iringan mati) — output graf tak boleh menggantung
+  const pakaiSumber = !penuh || (o.vokalLevel ?? 100) > 0 || (o.grooveLevel ?? 0) <= 0;
+  if (pakaiSumber) {
+    baris.push("[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[base]");
   }
-  baris.push("[mix]alimiter=limit=0.95[aout]");
-  return { graf: baris.join(";"), adaLayer, tempo };
+
+  let adaLayer: boolean;
+  let adaVokal = false;
+  let labelAkhir = "mix"; // label bebas di ujung cabang (dikonsumsi atempo/limiter)
+  if (!penuh) {
+    // ========== MODE LAPISAN (perilaku v0.10 + atempo nyata) ==========
+    // pemisahan vokal (DSP tengah/samping) SEBELUM efek genre
+    if (o.karaoke === "karaoke") {
+      baris.push(
+        "[base]asplit=2[k1][k2]",
+        "[k1]pan=stereo|c0=0.5*c0+-0.5*c1|c1=0.5*c1+-0.5*c0[side]",
+        "[k2]pan=mono|c0=0.5*c0+0.5*c1,lowpass=f=140[bass0]",
+        "[bass0]pan=stereo|c0=c0|c1=c0[bass]",
+        "[side][bass]amix=inputs=2:duration=first[ksrc]",
+      );
+    } else if (o.karaoke === "vokal") {
+      baris.push(
+        "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200[voc0]",
+        "[voc0]pan=stereo|c0=c0|c1=c0[ksrc]",
+      );
+    } else {
+      baris.push("[base]anull[ksrc]");
+    }
+    baris.push(`[ksrc]${rantai}[g]`);
+    adaLayer = !!resep && o.layerLevel > 0 && !!resep.layer;
+    if (adaLayer) {
+      const lv = (o.layerLevel / 100) * 2;
+      baris.push("[g]volume=2.0[g2]");
+      baris.push(`[1:a]volume=${lv.toFixed(3)}[lay]`);
+      baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
+    } else {
+      baris.push("[g]volume=1.9[mix]");
+    }
+  } else {
+    // ========== MODE PENUH v0.11.0 — iringan genre menggantikan instrumen asli ==========
+    // vokal asli diambil lewat DSP kanal tengah (band 160–6500 Hz);
+    // iringan asli TIDAK dipakai — seluruh iringan baru dari input 1 (disintesis
+    // mengikuti chord/BPM/melodi hasil analisis — lihat musikTransformasi.ts).
+    const vokalOn = (o.vokalLevel ?? 100) > 0;
+    adaLayer = (o.grooveLevel ?? 0) > 0;
+    adaVokal = vokalOn;
+    const gVokal = ((o.vokalLevel ?? 100) / 100) * 1.55;
+    const gIring = ((o.grooveLevel ?? 70) / 100) * 1.9;
+    if (vokalOn && adaLayer) {
+      baris.push(
+        `[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=160,lowpass=f=6500[voc0]`,
+        `[voc0]volume=${gVokal.toFixed(3)}[voc]`,
+        `[1:a]volume=${gIring.toFixed(3)}[ir]`,
+        "[voc][ir]amix=inputs=2:duration=first[mix]",
+      );
+    } else if (adaLayer) {
+      baris.push(`[1:a]volume=${gIring.toFixed(3)}[mix]`);
+    } else if (vokalOn) {
+      baris.push(
+        "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=160,lowpass=f=6500[voc0]",
+        `[voc0]volume=${gVokal.toFixed(3)}[mix]`,
+      );
+    } else {
+      baris.push("[base]anull[mix]"); // tak ada iringan & vokal — apa adanya
+    }
+    // karakter genre menyatu di ATAS campuran (ringan — instrumen sudah khas genre)
+    baris.push(`[mix]${rantai}[g]`);
+    labelAkhir = "g";
+  }
+  // atempo nyata: resep tempo genre × kecepatan user (rantai bila di luar 0.5–2)
+  const at = faktorAtempo(tempo);
+  if (at.length) {
+    baris.push(`[${labelAkhir}]${at.map((f) => `atempo=${f}`).join(",")}[at]`);
+    baris.push("[at]alimiter=limit=0.95[aout]");
+  } else {
+    baris.push(`[${labelAkhir}]alimiter=limit=0.95[aout]`);
+  }
+  return { graf: baris.join(";"), adaLayer, tempo, adaVokal };
 }
 
 // ============ 15 VISUALISER ============
@@ -444,7 +560,7 @@ export function bangunAss(opsi: {
   const mvJudul = Math.round(40 * skala);
   const kepala = [
     "[Script Info]",
-    "; VidSplit Studio Musik v0.10.0",
+    "; VidSplit Studio Musik v0.11.0",
     "ScriptType: v4.00+",
     `PlayResX: ${w}`,
     `PlayResY: ${h}`,
