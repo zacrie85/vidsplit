@@ -387,5 +387,45 @@ const vol18 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j18.fil
 const mean18 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol18)?.[1] || 0);
 cek(mean18 > -40, `vokal saja + warna vokal tidak bisu (mean_volume ${mean18} dB)`);
 
+console.log("== 21. v0.18.0 — SUMBER VIDEO (MP4) + BPM MANUAL ==");
+// (a) bungkus lagu sintetis yang sama menjadi MP4 (video testsrc2 + audio AAC)
+const VIDEO_UJI = path.join(WORK, "sample", "musik-uji.mp4");
+const VIDEO_BISU = path.join(WORK, "sample", "musik-uji-bisu.mp4");
+execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error",
+  "-i", SAMPEL, "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15",
+  "-shortest", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+  "-c:a", "aac", "-b:a", "160k", VIDEO_UJI], { stdio: "inherit" });
+// (b) MP4 TANPA audio — harus ditolak dengan pesan jelas
+execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error",
+  "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=15:duration=4",
+  "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", VIDEO_BISU],
+  { stdio: "inherit" });
+cek(existsSync(VIDEO_UJI) && statSync(VIDEO_UJI).size > 50_000, `video uji ada (${(statSync(VIDEO_UJI).size / 1024).toFixed(0)} KB)`);
+const unggahVideo = async (abs, nama) => {
+  const r = await fetch(`${BASE}/api/upload?kind=audio&nama=${encodeURIComponent(nama)}`, {
+    method: "POST", headers: { "Content-Type": "application/octet-stream" },
+    body: readFileSync(abs),
+  });
+  return r.json();
+};
+const upV = await unggahVideo(VIDEO_UJI, "musik-uji.mp4");
+cek(upV.ok && upV.file && upV.ekstrakDariVideo === true, `video terunggah + audio diekstrak otomatis → ${upV.file}`);
+cek(String(upV.file).endsWith(".flac"), "hasil ekstraksi berbentuk FLAC lossless");
+const upB = await unggahVideo(VIDEO_BISU, "musik-uji-bisu.mp4");
+cek(!upB.ok && /audio/i.test(upB.error || ""), `video tanpa trek audio ditolak: "${(upB.error || "").slice(0, 60)}…"`);
+// (c) analisis langsung di FLAC hasil ekstraksi — BPM & chord tetap terbaca
+const anV = await POST("/api/musik/analisis", { file: upV.file });
+cek(anV.ok && Math.abs((anV.bpm || 0) - 120) < 8, `analisis FLAC hasil ekstraksi ok — BPM ${anV.bpm} (≈120)`);
+// (d) BPM MANUAL 137.5 (bukan hasil deteksi) dipakai proses — job sukses, durasi tak berubah
+const p19 = await POST("/api/musik/proses", {
+  file: upV.file, judul: "Sumber Video BPM Manual", genre: "asli", layerLevel: 0,
+  karaoke: "asli", bpm: 137.5, fase: anV.fase || 0, kecepatan: 1,
+});
+cek(p19.ok && p19.id, `job proses dgn BPM manual 137.5 mulai: ${p19.id}`);
+const j19 = await pollJob(p19.id);
+cek(!j19.error && j19.fileMp3, "proses dgn BPM manual selesai tanpa error");
+const pr19 = ffprobe(path.join(WORK, j19.fileMp3));
+cek(Math.abs(pr19.durasi - 16) < 1.2, `durasi proses dgn BPM manual ≈ 16 dtk (${pr19.durasi.toFixed(2)} — BPM manual tidak mengubah durasi)`);
+
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

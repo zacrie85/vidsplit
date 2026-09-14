@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
 import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
-import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan } from "@/lib/vidsplit/musik";
+import { faktorWaktuStudio, bpmAman, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
 // v6 (v0.17.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
@@ -29,6 +29,8 @@ interface InfoLagu {
   kunci: string;
   chord: SegmenChord[];
   gelombang: number[];
+  /** v0.18.0 — true bila audio diekstrak dari file video (mp4/mkv) */
+  ekstrak?: boolean;
 }
 
 interface InfoJobMusikUI {
@@ -72,6 +74,9 @@ export function StudioMusik({
   const [sinkronAktif, setSinkronAktif] = useState(false);
   const [barisTandai, setBarisTandai] = useState(0);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // v0.18.0 — BPM manual: null = pakai deteksi otomatis; teks utk input bebas saat mengetik
+  const [bpmManual, setBpmManual] = useState<number | null>(null);
+  const [bpmTeks, setBpmTeks] = useState("");
 
   // ---------- persistensi pengaturan ----------
   useEffect(() => {
@@ -108,7 +113,7 @@ export function StudioMusik({
   };
 
   // ---------- impor & analisis ----------
-  const analisis = async (fileRel: string, nama: string, ukuran: number) => {
+  const analisis = async (fileRel: string, nama: string, ukuran: number, ekstrak = false) => {
     setSibukAnalisis(true);
     try {
       const r = await fetch("/api/musik/analisis", {
@@ -125,9 +130,12 @@ export function StudioMusik({
         file: fileRel, nama, ukuran,
         durasi: j.durasi || 0, bpm: j.bpm || 120, fase: j.fase || 0,
         kunci: j.kunci || "-", chord: j.chord || [], gelombang: j.gelombang || [],
+        ekstrak,
       });
       setHasilProses(null);
       setPratinjau(null);
+      setBpmManual(null); // lagu baru → BPM kembali ke deteksi otomatis
+      setBpmTeks("");
     } catch (e) {
       alert(`Analisis gagal: ${e instanceof Error ? e.message : e}`);
     } finally {
@@ -144,9 +152,9 @@ export function StudioMusik({
         headers: { "Content-Type": "application/octet-stream" },
         body: f,
       });
-      const j = (await r.json()) as { ok: boolean; file?: string; error?: string; ukuran?: number };
+      const j = (await r.json()) as { ok: boolean; file?: string; error?: string; ukuran?: number; ekstrakDariVideo?: boolean };
       if (!j.ok || !j.file) throw new Error(j.error || "Unggah gagal");
-      await analisis(j.file, f.name, j.ukuran || f.size);
+      await analisis(j.file, f.name, j.ukuran || f.size, !!j.ekstrakDariVideo);
     } catch (e) {
       alert(`Impor gagal: ${e instanceof Error ? e.message : e}`);
     } finally {
@@ -164,7 +172,7 @@ export function StudioMusik({
       body: JSON.stringify({
         file: lagu.file, judul: lagu.nama.replace(/\.[^.]+$/, ""),
         genre: atur.genre, layerLevel: atur.layerLevel, karaoke: atur.karaoke,
-        bpm: lagu.bpm, fase: lagu.fase,
+        bpm: bpmEfe, fase: lagu.fase,
         mode: atur.mode, kecepatan: atur.kecepatan,
         grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
@@ -265,7 +273,7 @@ export function StudioMusik({
       body: JSON.stringify({
         file: lagu.file, judul: judulOverlay(),
         genre: atur.genre, layerLevel: atur.layerLevel, karaoke: atur.karaoke,
-        bpm: lagu.bpm, fase: lagu.fase,
+        bpm: bpmEfe, fase: lagu.fase,
         mode: atur.mode, kecepatan: atur.kecepatan,
         grooveLevel: atur.grooveLevel, melodiLevel: atur.melodiLevel,
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
@@ -304,9 +312,11 @@ export function StudioMusik({
 
   const sibukProses = !!jobP && !jobP.selesai;
   const sibukRender = !!jobR && !jobR.selesai;
+  // v0.18.0 — BPM efektif: manual (input user) kalau diisi, kalau tidak hasil deteksi
+  const bpmEfe = bpmManual ?? (lagu ? lagu.bpm : 120);
   // BPM & durasi HASIL — mengikuti resep tempo genre × kecepatan pilihan user
   const faktorWaktu = lagu ? faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }) : 1;
-  const bpmHasil = lagu ? Math.round(lagu.bpm * faktorWaktu) : 0;
+  const bpmHasil = lagu ? Math.round(bpmEfe * faktorWaktu) : 0;
   const durasiHasil = lagu ? lagu.durasi / faktorWaktu : 0;
   // v0.13.0 — transpos efektif mode remake (null = otomatis dari kemiripan + nama berkas);
   // v0.15.0 — dikalikan tingkat perubahan musik (0% → nada tetap, benar-benar asli)
@@ -324,12 +334,12 @@ export function StudioMusik({
       <div className="space-y-4">
         <Kartu
           judul="1. Impor musik"
-          deskripsi="MP3 / WAV / M4A / OGG / FLAC — maks 500 MB"
+          deskripsi="MP3 / WAV / M4A / OGG / FLAC · MP4 / MKV — audio maks 500 MB · video maks 2 GB"
           ikon={<Music className="h-4 w-4" />}
         >
           <JatuhBerkas
-            terima="audio/*,.mp3,.wav,.m4a,.ogg,.flac"
-            hint="Klik atau seret lagu ke sini — akan dianalisis otomatis (BPM, kunci, chord)"
+            terima="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.mp4,.mkv,.webm,.mov,.m4v,.avi"
+            hint="Klik / seret lagu ATAU video (MP4/MKV) — audio diekstrak otomatis lalu dianalisis (BPM, kunci, chord)"
             sibuk={sibukImpor || sibukAnalisis}
             onFile={imporLagu}
           />
@@ -338,16 +348,62 @@ export function StudioMusik({
               <Loader2 className="h-3.5 w-3.5 animate-spin" /> Menganalisis lagu…
             </p>
           )}
+          {sibukImpor && (
+            <p className="mt-2 flex items-center gap-2 text-xs text-cyan-300">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Mengunggah (video sedang diekstrak audionya — bisa agak lama)…
+            </p>
+          )}
           {lagu && (
             <div className="mt-3 space-y-2">
               <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-3">
                 <p className="truncate text-sm font-medium text-slate-100" title={lagu.nama}>{lagu.nama}</p>
-                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
+                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-400">
                   <span>{fmtUkuran(lagu.ukuran)}</span>
                   <span>{fmtMenit(lagu.durasi)}</span>
-                  <span className="text-amber-300">{Math.round(lagu.bpm)} BPM</span>
+                  {lagu.ekstrak && (
+                    <span className="rounded bg-cyan-400/10 px-1.5 py-0.5 text-cyan-300">audio dari video</span>
+                  )}
                   <span>Kunci ≈ {lagu.kunci}</span>
                   <span>{lagu.chord.length} chord terdeteksi</span>
+                </div>
+                {/* v0.18.0 — BPM bisa diubah manual: angka deteksi dipakai sebagai titik awal */}
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px]">
+                  <label className="flex items-center gap-1.5 text-slate-400">
+                    BPM
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={30}
+                      max={300}
+                      step={0.1}
+                      value={bpmTeks !== "" ? bpmTeks : Math.round(bpmEfe * 10) / 10}
+                      onChange={(e) => setBpmTeks(e.target.value)}
+                      onBlur={() => {
+                        if (bpmTeks.trim() === "") { setBpmTeks(""); return; }
+                        const n = bpmAman(bpmTeks, lagu.bpm);
+                        setBpmManual(n);
+                        setBpmTeks(""); // kosongkan → input kembali menampilkan nilai efektif
+                      }}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      className="w-20 rounded-lg border border-slate-600 bg-slate-900 px-2 py-1 text-sm font-semibold text-amber-300 outline-none focus:border-amber-400"
+                      title="Ketik BPM lalu Enter — 30 sampai 300, boleh desimal"
+                    />
+                  </label>
+                  {bpmManual !== null && Math.abs(bpmManual - lagu.bpm) > 0.05 ? (
+                    <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-300">
+                      manual (deteksi {Math.round(lagu.bpm * 10) / 10})
+                    </span>
+                  ) : (
+                    <span className="text-slate-500">deteksi otomatis</span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setBpmManual(null); setBpmTeks(""); }}
+                    disabled={bpmManual === null}
+                    className="rounded-lg border border-slate-700 px-2 py-1 text-[11px] text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 disabled:opacity-40"
+                  >
+                    Pakai deteksi otomatis
+                  </button>
                 </div>
                 {(faktorWaktu !== 1 || atur.mode === "penuh" || (atur.mode === "remake" && transposeEfe !== 0)) && (
                   <p className="mt-1 text-[11px] text-cyan-300/90">

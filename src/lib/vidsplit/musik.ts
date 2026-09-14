@@ -44,6 +44,24 @@ export type ModeTransformasi = "remake" | "lapisan" | "penuh";
 export const PILIHAN_KECEPATAN = [0.5, 1, 1.1, 1.2, 1.3, 1.4, 1.5] as const;
 export type Kecepatan = (typeof PILIHAN_KECEPATAN)[number];
 
+// v0.18.0 — BPM MANUAL + SUMBER VIDEO
+/** Ekstensi file VIDEO yang diterima Mode Musik — audionya diekstrak otomatis jadi FLAC lossless. */
+export const EKSTENSI_VIDEO_MUSIK = [".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"] as const;
+
+/** Apakah nama file berakhiran ekstensi video tsb (case-insensitive). */
+export function adalahVideoMusik(nama: string): boolean {
+  const ext = (nama.split(".").pop() || "").toLowerCase();
+  return ext.length > 0 && (EKSTENSI_VIDEO_MUSIK as readonly string[]).includes(`.${ext}`);
+}
+
+/** v0.18.0 — BPM manual: rapikan masukan user (30–300; di luar itu / bukan angka → bawaan deteksi).
+ * Dipakai UI input BPM manual & clampStudio agar tampilan = hasil. */
+export function bpmAman(nilai: unknown, bawaan: number): number {
+  const n = Number(nilai);
+  if (!Number.isFinite(n) || n <= 0) return bpmAman(bawaan, 120);
+  return Math.min(300, Math.max(30, Math.round(n * 10) / 10));
+}
+
 /** Pola layer instrumen tersintesis (dibuat di musikLayer.ts) */
 export type PolaLayer =
   | "pop" | "rock" | "skank" | "onedrop" | "dangdut" | "boombap" | "disco"
@@ -705,7 +723,7 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
     genre,
     layerLevel: Math.min(100, Math.max(0, Math.round(Number(o.layerLevel ?? 0)))),
     karaoke: o.karaoke === "karaoke" || o.karaoke === "vokal" ? o.karaoke : "asli",
-    bpm: Math.min(220, Math.max(50, Number(o.bpm) || 120)),
+    bpm: bpmAman(o.bpm, 120), // v0.18.0: clamp 30–300 (dulu 50–220 — lagu lambat < 50 BPM terpotong)
     fase: Math.max(0, Number(o.fase) || 0),
     mode: o.mode === "penuh" || o.mode === "lapisan" ? o.mode : "remake",
     kecepatan: (PILIHAN_KECEPATAN as readonly number[]).includes(kec) ? kec : 1,

@@ -4,7 +4,8 @@
 // Jalankan: bun scripts/uji-musik.ts
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
-  bangunAss, bangunFilterAudio, bangunRantaiVisual, cariReferensiVokal, clampStudio, faktorAtempo,
+  bangunAss, bangunFilterAudio, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
+  clampStudio, faktorAtempo,
   faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
   REFERENSI_VOKAL, RESEP_VOKAL_GENRE,
@@ -142,8 +143,18 @@ cek(cepat.length === lambat.length && cepat.length > 0, "BPM di-lclamp 50–220,
 console.log("== 7. clampStudio ==");
 const cl = clampStudio({ file: "x", judul: "  ".repeat(300), genre: "hantu" as never, layerLevel: 900, karaoke: "aneh" as never, bpm: 9999, fase: -5 });
 cek(cl.genre === "asli" && cl.karaoke === "asli", "nilai aneh → jatuh ke default aman");
-cek(cl.layerLevel === 100 && cl.bpm === 220, "layerLevel 100 & bpm ≤ 220");
+cek(cl.layerLevel === 100 && cl.bpm === 300, "layerLevel 100 & bpm ≤ 300 (v0.18 dulu 220)");
+cek(clampStudio({ file: "x", bpm: 5 }).bpm === 30, "bpm 5 → floor 30 (v0.18 — lagu lambat tak terpotong lagi)");
+cek(clampStudio({ file: "x", bpm: 128.44 }).bpm === 128.4, "bpm desimal dipertahankan 1 tempat desimal");
 cek(cl.judul.length <= 200, "judul dipotong 200");
+
+console.log("== 7b. v0.18.0 — BPM manual & video sumber ==");
+cek(bpmAman("123.45", 120) === 123.4 || bpmAman("123.45", 120) === 123.5, "bpmAman string desimal → angka valid");
+cek(bpmAman(10, 100) === 30 && bpmAman(9999, 100) === 300, "bpmAman clamp 30–300");
+cek(bpmAman("abc", 117.5) === 117.5 && bpmAman(NaN, 96) === 96 && bpmAman(0, 81) === 81, "bpmAman masukan rusak → bawaan deteksi");
+cek(bpmAman(-40, 120) === 120, "bpmAman negatif → bawaan");
+cek(adalahVideoMusik("lagu.MP4") && adalahVideoMusik("x.mkv") && adalahVideoMusik("konsert.webm") && adalahVideoMusik("a.m4v"), "ekstensi video dikenali (case-insensitive)");
+cek(!adalahVideoMusik("lagu.mp3") && !adalahVideoMusik("x.flac") && !adalahVideoMusik("noext"), "ekstensi audio / tanpa ekstensi → bukan video");
 
 console.log("== 8. Bangun filter tidak menghasilkan label ganda ==");
 const grafR = bangunRantaiVisual("cqt-gelombang", { w: 1280, h: 720, fps: 30, durasi: 60, o: VIS });
