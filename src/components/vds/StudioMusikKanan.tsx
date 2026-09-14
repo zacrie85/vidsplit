@@ -1,12 +1,12 @@
 "use client";
 
-// VidSplit v0.14.0 — STUDIO MUSIK: panel kolom KANAN
+// VidSplit v0.15.0 — STUDIO MUSIK: panel kolom KANAN
 // 2. Pengubah genre (17 genre, mode VERSI GENRE ala Suno / MUSIK BARU DARI CHORD / LAPISAN)
-// 3. Tempo (0.5×/1×/1.5×) · 4. Vokal & karaoke · 5. Visual musik (15 gaya + kustom)
+// 3. Tempo (0.5×–1.5×, langkah halus 1.1–1.5) · 4. Vokal & karaoke · 5. Visual musik (15 gaya)
 import { BarisSlider, ChipPilihan, Kartu, PilihWarna } from "@/components/vds/bits";
 import { Mic, Palette, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import {
-  DAFTAR_GENRE, INFO_GENRE, RESEP_GENRE, VISUAL_MUSIK, transposeAuto,
+  DAFTAR_GENRE, INFO_GENRE, RESEP_GENRE, VISUAL_MUSIK, transposeAuto, transposDgnPerubahan,
   type GenreMusik, type IdVisual, type KaraokeMode, type ModeTransformasi, type OpsiVisual,
 } from "@/lib/vidsplit/musik";
 import { INFO_FONT, type NamaFont } from "@/lib/vidsplit/types";
@@ -28,8 +28,11 @@ export interface AturMusik {
   transpose: number | null;
   /** v0.14.0 (remake) 0–100 tingkat rasa genre — warna suara tanpa nada tambahan */
   tingkatGenre: number;
+  /** v0.15.0 (remake) 0–100 tingkat perubahan musik — campuran asli ↔ genre:
+   *  0% = lagu asli apa adanya, 100% = versi genre penuh */
+  tingkatMusik: number;
   visual: IdVisual;
-  resolusi: "720" | "1080";
+  resolusi: "916" | "720" | "1080";
   vis: OpsiVisual;
 }
 
@@ -38,6 +41,8 @@ export const aturMusikDefault: AturMusik = {
   // v0.14.0 — lapisan sintesis bawaan MATI (sumber bentrok irama); warna genre 55%
   layerLevel: 0,
   tingkatGenre: 55,
+  // v0.15.0 — perubahan musik bawaan 65% (35% tetap bunyi asli)
+  tingkatMusik: 65,
   karaoke: "asli",
   mode: "remake",
   kecepatan: 1,
@@ -49,7 +54,8 @@ export const aturMusikDefault: AturMusik = {
   kemiripan: 80,
   transpose: null,
   visual: "cqt-klasik",
-  resolusi: "720",
+  // v0.15.0 — 9:16 1080×1920 jadi bawaan (Reels/TikTok/Shorts)
+  resolusi: "916",
   vis: {
     warna1: "#22d3ee",
     warna2: "#fbbf24",
@@ -60,6 +66,7 @@ export const aturMusikDefault: AturMusik = {
     tampilJudul: true,
     tampilChord: true,
     tampilLirik: true,
+    ukuranTeks: 25,
   },
 };
 
@@ -74,7 +81,9 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
     const bawaan = atur.mode === "lapisan" && g !== "asli" ? RESEP_GENRE[g].layerBawaan : 0;
     ubah({ genre: g, layerLevel: bawaan });
   };
-  const transposeEfe = atur.transpose ?? transposeAuto(atur.kemiripan, "pratinjau");
+  const transposeEfe = transposDgnPerubahan(
+    atur.transpose ?? transposeAuto(atur.kemiripan, "pratinjau"), atur.tingkatMusik,
+  );
   return (
     <Kartu
       judul="2. Pengubah genre musik"
@@ -148,6 +157,17 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
       </div>
       {atur.mode === "remake" ? (
         <div className="mt-3 space-y-2 rounded-xl border border-emerald-400/25 bg-slate-800/40 p-3">
+          {atur.genre !== "asli" && (
+            <BarisSlider
+              label="Perubahan musik (asli ↔ genre)"
+              nilai={atur.tingkatMusik}
+              min={0}
+              max={100}
+              step={5}
+              fmt={(n) => (n === 0 ? "100% asli" : n === 100 ? "100% genre" : `${n}% genre · ${100 - n}% asli`)}
+              onChange={(n) => ubah({ tingkatMusik: n })}
+            />
+          )}
           <BarisSlider
             label="Tingkat kemiripan dengan lagu asli"
             nilai={atur.kemiripan}
@@ -198,10 +218,10 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
           )}
           <p className="text-[11px] leading-relaxed text-slate-500">
             {atur.transpose === null
-              ? `Auto: nada dasar ${transposeEfe === 0 ? "tetap (100% mirip)" : `digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`}`
+              ? `Auto: nada dasar ${transposeEfe === 0 ? "tetap" : `digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`}`
               : `Nada dasar digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone (manual)`}
             {atur.genre !== "asli"
-              ? `, warna ${INFO_GENRE[atur.genre].label} ${atur.tingkatGenre}% (tanpa nada tambahan — dijamin seirama)`
+              ? `, warna ${INFO_GENRE[atur.genre].label} ${atur.tingkatGenre}% dari perubahan musik ${atur.tingkatMusik}% (tanpa nada tambahan — dijamin seirama)`
               : ""}
             {atur.layerLevel > 0 && atur.genre !== "asli"
               ? ` + lapisan eksperimental ${atur.layerLevel}%`
@@ -304,7 +324,7 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
   );
 }
 
-// ============ 3. TEMPO (0.5× / 1× / 1.5×) ============
+// ============ 3. TEMPO (0.5×–1.5×, v0.15: 1.1/1.2/1.3/1.4/1.5) ============
 
 export function PanelTempo({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik }) {
   return (
@@ -319,6 +339,10 @@ export function PanelTempo({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
         pilihan={[
           { v: "0.5", label: "Perlambat 0.5×", hint: "2× lebih lama" },
           { v: "1", label: "Normal 1×", hint: "tempo asli" },
+          { v: "1.1", label: "1.1×", hint: "halus" },
+          { v: "1.2", label: "1.2×", hint: "ringan" },
+          { v: "1.3", label: "1.3×", hint: "ceria" },
+          { v: "1.4", label: "1.4×", hint: "cepat" },
           { v: "1.5", label: "Percepat 1.5×", hint: "⅓ lebih cepat" },
         ]}
       />
@@ -365,8 +389,11 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
         ]}
       />
       <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-        Metode DSP kanal-tengah/samping: paling efektif untuk MP3 <b>stereo</b> dgn vokal
-        di tengah (umum di lagu komersial). Hasilnya langsung terdengar di pratinjau audio.
+        <b className="text-slate-400">v0.15 — penghapus vokal diperkuat:</b> kanal tengah
+        (tempat vokal) dihapus per pita frekuensi, bass &amp; kilau simbal dikembalikan,
+        lalu kepadatan dinaikkan otomatis — hasil <b>nyaring</b>, tidak lagi terpendam.
+        Paling efektif utk MP3 <b>stereo</b> dgn vokal di tengah (umum di lagu komersial);
+        sisa gema vokal yang lebar mungkin masih samar — itu batas DSP offline tanpa AI.
       </p>
     </Kartu>
   );
@@ -423,6 +450,13 @@ export function PanelVisual({
           min={1}
           max={10}
           onChange={(n) => setVis({ sensitivitas: n })}
+        />
+        <BarisSlider
+          label="Ukuran teks judul/chord/lirik (bawaan 25)"
+          nilai={vis.ukuranTeks}
+          min={12}
+          max={60}
+          onChange={(n) => setVis({ ukuranTeks: n })}
         />
         <div>
           <p className="mb-1 text-xs text-slate-400">Latar belakang</p>

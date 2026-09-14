@@ -268,5 +268,75 @@ const vol8 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j8.fileM
 const mean8 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol8)?.[1] || 0);
 cek(mean8 > -40, `edm pump tidak bisu (mean_volume ${mean8} dB)`);
 
+console.log("== 15. v0.15.0 — PERUBAHAN MUSIK 0%: benar-benar lagu asli (transpos ikut 0) ==");
+const p9 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Perubahan 0 Uji", genre: "dangdut", layerLevel: 0,
+  tingkatGenre: 80, tingkatMusik: 0, kemiripan: 60,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  mode: "remake", kecepatan: 1.3,
+});
+cek(p9.ok && p9.id, `job perubahan 0% + tempo 1.3× mulai: ${p9.id}`);
+const j9 = await pollJob(p9.id);
+cek(!j9.error && j9.fileMp3, "perubahan 0% selesai tanpa error (warna genre dilepas, nada tetap)");
+const pr9 = ffprobe(path.join(WORK, j9.fileMp3));
+// transpos auto ±4 × perubahan 0% → 0 semitone; durasi hanya mengikuti tempo 1.02 × 1.3
+cek(Math.abs(pr9.durasi - 16 / (1.02 * 1.3)) < 1.2,
+  `durasi perubahan 0% + 1.3× ≈ ${(16 / (1.02 * 1.3)).toFixed(2)} dtk (${pr9.durasi.toFixed(2)})`);
+
+console.log("== 16. v0.15.0 — KARAOKE NYARING: lagu stereo nyata tidak terpendam ==");
+const STEREO = path.join(WORK, "sample", "musik-uji-stereo.mp3");
+execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error",
+  "-f", "lavfi", "-i", "sine=frequency=440:duration=12",
+  "-f", "lavfi", "-i", "sine=frequency=554.37:duration=12",
+  "-f", "lavfi", "-i", "sine=frequency=220:duration=12",
+  "-filter_complex",
+  "[0:a][1:a][2:a]join=inputs=3:channel_layout=3.0:map=0.0-FL|1.0-FR|2.0-FC[j];[j]volume=0.7",
+  "-c:a", "libmp3lame", "-b:a", "192k", STEREO], { stdio: "inherit" });
+const upS = await (async () => {
+  const r = await fetch(`${BASE}/api/upload?kind=audio&nama=musik-uji-stereo.mp3`, {
+    method: "POST", headers: { "Content-Type": "application/octet-stream" },
+    body: readFileSync(STEREO),
+  });
+  return r.json();
+})();
+cek(upS.ok && upS.file, `lagu stereo terunggah: ${upS.file}`);
+const p10 = await POST("/api/musik/proses", {
+  file: upS.file, judul: "Karaoke Nyaring", genre: "asli", layerLevel: 0,
+  karaoke: "karaoke", bpm: 120, fase: 0,
+});
+const j10 = await pollJob(p10.id);
+cek(!j10.error && j10.fileMp3, "karaoke 3-pita selesai tanpa error");
+const vol10 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j10.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean10 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol10)?.[1] || 0);
+cek(mean10 > -30, `karaoke tidak terpendam — mean_volume ${mean10} dB (harapan > -30; dulu bisa < -40)`);
+
+console.log("== 17. v0.15.0 — RENDER 9:16 (1080×1920) + ukuran teks 25 ==");
+const r2 = await POST("/api/musik/render", {
+  file: up.file, judul: "Vertikal Uji VidSplit", genre: "rock", layerLevel: 0,
+  tingkatGenre: 60, tingkatMusik: 70, kemiripan: 100, transpose: 0,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  mode: "remake", kecepatan: 1.2,
+  visual: "cqt-klasik", resolusi: "916",
+  opsiVisual: { warna1: "#22d3ee", warna2: "#fbbf24", sensitivitas: 5, bgMode: "gelap",
+    fontJudul: "bebas", teksJudul: "UJI VERTIKAL 9:16", ukuranTeks: 25,
+    tampilJudul: true, tampilChord: true, tampilLirik: true },
+  lirik: [{ mulai: 1, teks: "baris vertikal satu" }, { mulai: 6, teks: "baris vertikal dua" }],
+  chord: an.chord,
+  audioSudahProses: false, wavSiap: null, fileMp3Siap: null,
+});
+cek(r2.ok && r2.id, `job render 9:16 mulai: ${r2.id}`);
+const jv = await pollJob(r2.id, 600_000);
+cek(!jv.error, `render 9:16 selesai tanpa error (${jv.outputs.length} berkas)`);
+const mp4Vert = jv.outputs.map((o) => o.file).find((f) => f.endsWith(".mp4"));
+cek(!!mp4Vert, "ada MP4 vertikal");
+const pv = ffprobe(path.join(WORK, "output", jv.id, mp4Vert));
+cek(pv.v.width === 1080 && pv.v.height === 1920, `resolusi vertikal ${pv.v.width}x${pv.v.height} (harapan 1080x1920)`);
+cek(!!pv.a, "jalur audio ada di MP4 vertikal");
+// probe file via /api/probe seperti yang dilakukan tombol "Buka di Mode Video"
+const prb = await POST("/api/probe", { file: `output/${jv.id}/${mp4Vert}` });
+cek(prb.ok && prb.lebar === 1080 && prb.tinggi === 1920 && prb.durasi > 0,
+  `/api/probe membaca MP4 musik (lulus prasyarat tombol Buka di Mode Video)`);
+
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

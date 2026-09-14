@@ -6,6 +6,7 @@ import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorAtempo,
   faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, rantaiWarna,
+  transposDgnPerubahan, PILIHAN_KECEPATAN,
   RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
   skalaLirik, transposeAuto, WARNA_GENRE, type GenreMusik, type PolaLayer, type SegmenChord,
 } from "../src/lib/vidsplit/musik";
@@ -44,7 +45,7 @@ const fp = bangunFilterAudio({ ...dasar, genre: "punk" });
 cek(fp.tempo > 1 && fp.graf.includes(`atempo`) === false ? true : true, "tempo punk > 1 (diterapkan lewat durasi keluar)");
 const fk = bangunFilterAudio({ ...dasar, karaoke: "karaoke" });
 cek(fk.graf.includes("c0=0.5*c0+-0.5*c1"), "karaoke memuat pembatalan tengah (L-R)");
-cek(fk.graf.includes("lowpass=f=140"), "karaoke mengembalikan bass mono");
+cek(fk.graf.includes("lowpass=f=160"), "karaoke v0.15 mengembalikan bass mono <160 Hz");
 const fv = bangunFilterAudio({ ...dasar, karaoke: "vokal" });
 cek(fv.graf.includes("highpass=f=180") && fv.graf.includes("lowpass=f=5200"), "mode vokal pita 180–5200 Hz");
 const fa = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0 });
@@ -136,7 +137,7 @@ console.log("== 9. v0.11.0 — clampStudio field baru (mode/kecepatan/groove/mel
 const cl11 = clampStudio({ file: "x", mode: "penuh", kecepatan: 1.5, grooveLevel: 999, melodiLevel: -5, vokalLevel: 42 });
 cek(cl11.mode === "penuh" && cl11.kecepatan === 1.5, "mode penuh + kecepatan 1.5 diterima");
 cek(cl11.grooveLevel === 100 && cl11.melodiLevel === 0 && cl11.vokalLevel === 42, "groove/melodi/vokal di-clamp 0–100");
-const cl12 = clampStudio({ file: "x", mode: "aneh" as never, kecepatan: 1.3 as never });
+const cl12 = clampStudio({ file: "x", mode: "aneh" as never, kecepatan: 1.7 as never });
 cek(cl12.mode === "remake" && cl12.kecepatan === 1, "mode/kecepatan aneh → default aman (remake v0.13)");
 cek(clampStudio({ file: "x" }).mode === "remake", "tanpa mode → remake (bawaan baru v0.13)");
 
@@ -439,6 +440,60 @@ cek(gA14.graf.includes("anull") && !gA14.graf.includes("tremolo"), "remake genre
 // lapisan opsional masih bekerja saat dinaikkan manual
 const gL14 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "rock", layerLevel: 40, tingkatGenre: 60 });
 cek(gL14.adaLayer && gL14.graf.includes("amix=inputs=2"), "lapisan eksperimental masih bisa diaktifkan manual");
+
+console.log("== 28. v0.15.0 — tempo 1.1×–1.5×, perubahan musik, karaoke 3-pita, ASS ukuranTeks ==");
+// --- PILIHAN_KECEPATAN 7 nilai sesuai permintaan user ---
+cek(JSON.stringify(PILIHAN_KECEPATAN) === JSON.stringify([0.5, 1, 1.1, 1.2, 1.3, 1.4, 1.5]),
+  `PILIHAN_KECEPATAN = ${PILIHAN_KECEPATAN.join(", ")} (0.5, 1, 1.1–1.5)`);
+cek(clampStudio({ file: "x", kecepatan: 1.2 }).kecepatan === 1.2, "kecepatan 1.2 diterima");
+cek(clampStudio({ file: "x", kecepatan: 1.4 }).kecepatan === 1.4, "kecepatan 1.4 diterima");
+const gTempo15 = bangunFilterAudio({ ...dasar, kecepatan: 1.3, mode: "lapisan" });
+cek(gTempo15.graf.includes("atempo=1.3"), "tempo 1.3× → atempo=1.3 di graf");
+// --- transposDgnPerubahan ---
+cek(transposDgnPerubahan(4, 0) === 0, "perubahan 0% → transpos 0 (benar-benar lagu asli)");
+cek(transposDgnPerubahan(4, 100) === 4, "perubahan 100% → transpos penuh");
+cek(transposDgnPerubahan(-4, 50) === -2, "perubahan 50% dari −4 → −2 (dibulatkan)");
+cek(transposDgnPerubahan(9, 100) === 5, "transpos dasar di-clamp ±5 (skala 100%)");
+// --- campuran paralel asli↔genre (tingkatMusik) ---
+const cl15 = clampStudio({ file: "x", tingkatMusik: 500 });
+cek(cl15.tingkatMusik === 100, "tingkatMusik di-clamp ≤100");
+cek(clampStudio({ file: "x" }).tingkatMusik === 65, "bawaan tingkatMusik = 65");
+const gB65 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "rock", layerLevel: 0, tingkatGenre: 70, kemiripan: 100, transpose: 0 });
+cek(gB65.graf.includes("[ksrc]asplit=2[blA][blB]") && gB65.graf.includes("volume=0.350") && gB65.graf.includes("volume=0.650"),
+  "bawaan 65% → cabang asli 0.350 + cabang genre 0.650");
+cek(gB65.graf.includes("amix=inputs=2:duration=first:normalize=0"), "campuran paralel pakai amix normalize=0 (bobot berjumlah 1, tanpa clip)");
+cek(gB65.graf.includes("tremolo") === false || gB65.graf.includes("[blGaya0]"), "warna genre hidup di cabang gaya");
+const gB100 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "rock", layerLevel: 0, tingkatGenre: 70, kemiripan: 100, transpose: 0, tingkatMusik: 100 });
+cek(!gB100.graf.includes("[blA]"), "perubahan 100% → tanpa split campuran (jalur penuh)");
+const gB0 = bangunFilterAudio({ ...dasar, mode: "remake", genre: "rock", layerLevel: 0, tingkatGenre: 70, kemiripan: 100, transpose: 0, tingkatMusik: 0 });
+cek(gB0.graf.includes("[ksrc]anull[g]") && !gB0.graf.includes("tremolo") && !gB0.graf.includes("crystalizer"),
+  "perubahan 0% → warna genre dilepas total (apa adanya)");
+const gBL = bangunFilterAudio({ ...dasar, kecepatan: 1 }); // lapisan: tak terpengaruh
+cek(!gBL.graf.includes("[blA]"), "mode lapisan tidak memakai campuran paralel");
+// --- karaoke 3-pita + loudness ---
+const fk15 = bangunFilterAudio({ ...dasar, karaoke: "karaoke", layerLevel: 0 });
+cek(fk15.graf.includes("highpass=f=11000") && fk15.graf.includes("volume=0.45[air]"),
+  "karaoke: pita udara simbal >11 kHz dikembalikan tipis");
+cek(fk15.graf.includes("volume=2.0[side]"), "karaoke: sisi dikuatkan 2× (dulu bisu)");
+cek(fk15.graf.includes("amix=inputs=3:duration=first:normalize=0") && fk15.graf.includes("acompressor=threshold=-21dB:ratio=2.2:attack=10:release=200:makeup=4.5"),
+  "karaoke: 3 pita digabung penuh + kompresor makeup 4,5 dB (tidak terpendam)");
+cek(fk15.graf.includes("volume=1.3[mix]"), "gain akhir sadar-karaoke (1.3, bukan 1.9)");
+const fk15l = bangunFilterAudio({ ...dasar, karaoke: "karaoke", layerLevel: 40 });
+cek(fk15l.graf.includes("volume=1.6[g2]"), "gain akhir karaoke+bapisan 1.6");
+// --- ASS ukuranTeks (bawaan 25 @9:16) ---
+const lirik15 = [{ mulai: 1, teks: "uji" }];
+const chord15 = [{ mulai: 1, durasi: 2, chord: "Am" }];
+const ass916 = bangunAss({ w: 1080, h: 1920, durasi: 30, vis: { ...opsiVisualDefault, teksJudul: "V" }, lirik: lirik15, chord: chord15 });
+cek(ass916.includes("Style: Lirik,DejaVu Sans,48,"), "ASS 9:16 ukuranTeks 25 → lirik 48 px");
+cek(ass916.includes("Style: Chord,DejaVu Sans,55,"), "ASS 9:16 chord 55 px (di atas lirik, tetap tampil)");
+cek(ass916.includes("Style: Judul,Bebas Neue,65,"), "ASS 9:16 judul 65 px");
+cek(ass916.includes("MarginL, MarginR, MarginV") || ass916.includes("[Events]"), "ASS 9:16 struktur utuh");
+const assBesar = bangunAss({ w: 1080, h: 1920, durasi: 30, vis: { ...opsiVisualDefault, ukuranTeks: 40, teksJudul: "V" }, lirik: lirik15, chord: chord15 });
+cek(assBesar.includes("Style: Lirik,DejaVu Sans,76,"), "ukuranTeks 40 → lirik 76 px (bisa diperbesar)");
+const assKecil = bangunAss({ w: 1080, h: 1920, durasi: 30, vis: { ...opsiVisualDefault, ukuranTeks: 12, teksJudul: "V" }, lirik: lirik15, chord: chord15 });
+cek(assKecil.includes("Style: Lirik,DejaVu Sans,23,"), "ukuranTeks 12 → lirik 23 px (bisa diperkecil)");
+const ass169 = bangunAss({ w: 1280, h: 720, durasi: 30, vis: { ...opsiVisualDefault, teksJudul: "V" }, lirik: lirik15, chord: chord15 });
+cek(ass169.includes("Style: Lirik,DejaVu Sans,32,"), "16:9 720p: skala sisi-pendek (lirik 32 px) — proporsional dgn 9:16");
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

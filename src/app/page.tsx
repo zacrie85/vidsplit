@@ -358,6 +358,22 @@ export default function Halaman() {
     );
   };
 
+  // v0.15.0 — terima hasil MP4 dari Studio Musik → masuk antrean video → lompat ke Mode
+  // Video dgn video tsb terpilih, siap diedit (judul/part/split/ekspor) seperti biasa.
+  const kirimKeVideo = async (file: string, nama: string, ukuran: number) => {
+    if (daftar.length >= BATAS_VIDEO) {
+      toast.error(`Antrean penuh — maksimal ${BATAS_VIDEO} video. Bersihkan dulu antreannya.`);
+      return;
+    }
+    try {
+      await pasangVideo(file, nama, ukuran);
+      setAktif(daftar.length);
+      gantiMode("video");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal memindahkan video musik");
+    }
+  };
+
   const terapkanKeSemua = () => {
     if (!videoAktif) return;
     setDaftar((d) => d.map((v) => ({ ...v, pengaturan: { ...videoAktif.pengaturan } })));
@@ -390,7 +406,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.14.0
+            v0.15.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -423,7 +439,7 @@ export default function Halaman() {
       </header>
 
       {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
-      {mode === "musik" && <StudioMusik />}
+      {mode === "musik" && <StudioMusik onKirimKeVideo={kirimKeVideo} />}
 
       {/* v0.9.1 — DASBOR 3 KOLOM 25% / 50% / 25%:
           KIRI = antrean (muat 15 video) + menu 1 + Ringkasan + Riwayat ekspor ·

@@ -4,6 +4,12 @@
 // v0.12.0 "MUSIK BARU DARI CHORD": mode penuh kini MURNI musik baru — audio asli tidak
 // ikut (vokal bawaan 0%), melodi DICPTAKAN dari chord dgn gaya khas genre (variasi bisa
 // diganti), melodi asli jadi opsi pegangan bawaan mati. Semua 100% ffmpeg + JS murni.
+// v0.15.0: (a) TINGKAT PERUBAHAN MUSIK 0–100% — campuran paralel asli↔genre (dry/wet
+// dgn bobot berjumlah 1, tak mungkin bentrok karena pitch kedua cabang SAMA);
+// (b) KARAOKE 3-PITA: sisi (L−R) dibatasi pita, bass mono <160 Hz + "udara" simbal
+// >11 kHz dikembalikan, kompensasi loudness (kompresor makeup) — musik karaoke tidak
+// lagi terpendam; (c) RESOLUSI 9:16 (1080×1920) bawaan utk video musik + ukuran teks
+// overlay bisa diatur (bawaan 25); (d) TEMPO 1.1×–1.5× langkah halus.
 import type { NamaFont } from "./types";
 
 // ============ TIPE DASAR ============
@@ -33,8 +39,9 @@ export type KaraokeMode = "asli" | "karaoke" | "vokal";
  *                vokal asli opsional (DSP kanal tengah) bila ingin dinyanyikan. */
 export type ModeTransformasi = "remake" | "lapisan" | "penuh";
 
-/** pilihan kecepatan tempo — 0.5 = perlambat 2× lebih lama, 1.5 = percepat ⅓ lebih cepat */
-export const PILIHAN_KECEPATAN = [0.5, 1, 1.5] as const;
+/** pilihan kecepatan tempo — 0.5 = perlambat 2× lebih lama; v0.15.0: langkah halus
+ *  1.1×–1.5× utk percepatan (permintaan user: 1.1-1.2-1.3-1.4-1.5) */
+export const PILIHAN_KECEPATAN = [0.5, 1, 1.1, 1.2, 1.3, 1.4, 1.5] as const;
 export type Kecepatan = (typeof PILIHAN_KECEPATAN)[number];
 
 /** Pola layer instrumen tersintesis (dibuat di musikLayer.ts) */
@@ -313,6 +320,11 @@ export interface OpsiStudioMusik {
   /** v0.14.0 (mode remake) 0–100 — tingkat RASA GENRE: seberapa kuat warna genre
    *  (EQ/karakter/ruang/lebar/gerak terkunci-BPM) diterapkan ke lagu asli. Bawaan 55. */
   tingkatGenre: number;
+  /** v0.15.0 (mode remake) 0–100 — TINGKAT PERUBAHAN MUSIK: campuran paralel
+   *  asli↔genre. 0 = lagu asli apa adanya (transpos pun ikut 0); 100 = versi genre
+   *  penuh. Kedua cabang punya pitch TEMPO SAMA (transpos diterapkan sebelum split)
+   *  → campuran tak mungkin saling bertentangan. Bawaan 65. */
+  tingkatMusik: number;
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -339,7 +351,16 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
         ? null
         : Math.min(5, Math.max(-5, Math.round(Number(o.transpose)))),
     tingkatGenre: Math.min(100, Math.max(0, Math.round(Number(o.tingkatGenre ?? 55)))),
+    tingkatMusik: Math.min(100, Math.max(0, Math.round(Number(o.tingkatMusik ?? 65)))),
   };
+}
+
+/** v0.15.0 — transpos efektif remake = transpos dasar × tingkat perubahan musik.
+ *  perubahan 0 → 0 semitone (benar-benar lagu asli); 100 → transpos penuh.
+ *  Dipakai bersama oleh musikJobs (render) & UI agar tampilan = hasil. */
+export function transposDgnPerubahan(transposDasar: number, tingkatMusik: number): number {
+  const p = Math.min(100, Math.max(0, Number(tingkatMusik) || 0)) / 100;
+  return Math.round(Math.min(5, Math.max(-5, Number(transposDasar) || 0)) * p);
 }
 
 /** v0.13.0 — geser nada dasar OTOMATIS utk mode REMAKE, dari tingkat kemiripan.
@@ -452,30 +473,65 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
     // lapisan: rantai = resep genre klasik + lapisan bawaan aktif
     // pemisahan vokal (DSP tengah/samping) SEBELUM efek genre
     if (o.karaoke === "karaoke") {
+      // v0.15.0 — KARAOKE 3-PITA + KOMPENSASI LOUDNESS:
+      //  · pita sisi (L−R) = vokal tengah DIHAPUS, dibatasi highpass 110 Hz & dikuatkan
+      //    2× (sisi alami setengah amplitudo → dulu hasilnya bisu/terpendam);
+      //  · bass mono <160 Hz dikembalikan penuh (dentum kick/bass tak ikut hilang);
+      //  · "udara" simbal >11 kHz dari kanal tengah dikembalikan tipis (kilau musik);
+      //  · acompressor makeup menaikkan kepadatan → hasil NYARING, bukan terpendam.
       baris.push(
-        "[base]asplit=2[k1][k2]",
-        "[k1]pan=stereo|c0=0.5*c0+-0.5*c1|c1=0.5*c1+-0.5*c0[side]",
-        "[k2]pan=mono|c0=0.5*c0+0.5*c1,lowpass=f=140[bass0]",
-        "[bass0]pan=stereo|c0=c0|c1=c0[bass]",
-        "[side][bass]amix=inputs=2:duration=first[ksrc]",
+        "[base]asplit=3[k1][k2][k3]",
+        "[k1]pan=stereo|c0=0.5*c0+-0.5*c1|c1=0.5*c1+-0.5*c0,highpass=f=110,volume=2.0[side]",
+        "[k2]pan=mono|c0=0.5*c0+0.5*c1,lowpass=f=160[bass0]",
+        "[bass0]pan=stereo|c0=c0|c1=c0,volume=1.6[bass]",
+        "[k3]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=11000[air0]",
+        "[air0]pan=stereo|c0=c0|c1=c0,volume=0.45[air]",
+        "[bass][side][air]amix=inputs=3:duration=first:normalize=0[ksrcRaw]",
+        "[ksrcRaw]acompressor=threshold=-21dB:ratio=2.2:attack=10:release=200:makeup=4.5[ksrc]",
       );
     } else if (o.karaoke === "vokal") {
       baris.push(
-        "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200[voc0]",
+        "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200,volume=1.45[voc0]",
         "[voc0]pan=stereo|c0=c0|c1=c0[ksrc]",
       );
     } else {
       baris.push("[base]anull[ksrc]");
     }
-    baris.push(`[ksrc]${rantai}[g]`);
+    // v0.15.0 — TINGKAT PERUBAHAN MUSIK (remake + genre): campuran paralel asli↔genre.
+    // Transpos diterapkan di [base] SEBELUM split → kedua cabang pitch & tempo SAMA,
+    // bobot volume berjumlah 1 → campuran tak mungkin bentrok/lain-kunci; slider hanya
+    // menentukan "seberapa jauh warna genre masuk". 0% = apa adanya, 100% = penuh.
+    const perubahan = remake && o.genre !== "asli"
+      ? Math.min(100, Math.max(0, Number(o.tingkatMusik ?? 65))) / 100
+      : 1;
+    if (remake && warna.length && perubahan <= 0.005) {
+      baris.push("[ksrc]anull[g]");
+    } else if (remake && warna.length && perubahan < 0.995) {
+      const wAsli = (1 - perubahan).toFixed(3);
+      const wGaya = perubahan.toFixed(3);
+      baris.push(
+        "[ksrc]asplit=2[blA][blB]",
+        `[blA]volume=${wAsli}[blAsli]`,
+        `[blB]volume=${wGaya}[blGaya0]`,
+        `[blGaya0]${rantai}[blGaya]`,
+        "[blAsli][blGaya]amix=inputs=2:duration=first:normalize=0[g]",
+      );
+    } else {
+      baris.push(`[ksrc]${rantai}[g]`);
+    }
     adaLayer = !!resep && o.layerLevel > 0 && !!resep.layer;
+    // v0.15.0 — gain akhir sadar-karaoke: jalur karaoke sudah membawa kompensasi
+    // loudness sendiri (makeup 4,5 dB) → penguatan akhir diturunkan agar limiter
+    // tidak bekerja terus-menerus (dulu: karaoke terpendam lalu dipaksa 1.9×).
+    const gAkhir = o.karaoke === "asli" ? "1.9" : "1.3";
+    const gLayer = o.karaoke === "asli" ? "2.0" : "1.6";
     if (adaLayer) {
       const lv = (o.layerLevel / 100) * 2;
-      baris.push("[g]volume=2.0[g2]");
+      baris.push(`[g]volume=${gLayer}[g2]`);
       baris.push(`[1:a]volume=${lv.toFixed(3)}[lay]`);
       baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
     } else {
-      baris.push("[g]volume=1.9[mix]");
+      baris.push(`[g]volume=${gAkhir}[mix]`);
     }
   } else {
     // ========== MODE PENUH v0.12.0 — MUSIK BARU DARI CHORD ==========
@@ -534,6 +590,9 @@ export interface OpsiVisual {
   tampilJudul: boolean;
   tampilChord: boolean;
   tampilLirik: boolean;
+  /** v0.15.0 — ukuran teks overlay (judul/chord/lirik), skala 12–60, bawaan 25.
+   *  Di-referensikan ke sisi-pendek 1080 px: cocok utk 9:16 maupun 16:9. */
+  ukuranTeks: number;
 }
 
 export const opsiVisualDefault: OpsiVisual = {
@@ -546,6 +605,7 @@ export const opsiVisualDefault: OpsiVisual = {
   tampilJudul: true,
   tampilChord: true,
   tampilLirik: true,
+  ukuranTeks: 25,
 };
 
 export type IdVisual =
@@ -712,20 +772,24 @@ function bersihTeksAss(t: string): string {
   return (t || "").replace(/[{}]/g, "").replace(/\\/g, " ").replace(/\r?\n/g, " ").trim();
 }
 
-/** Bangun isi berkas .ass overlay: judul (atas), chord (di atas lirik), lirik (bawah). */
+/** Bangun isi berkas .ass overlay: judul (atas), chord (di atas lirik), lirik (bawah).
+ *  v0.15.0 — ukuran teks dikendalikan vis.ukuranTeks (bawaan 25, 12–60), di-referensikan
+ *  ke sisi PENDEK frame = 1080 px, sehingga 9:16 (1080×1920) dan 16:9 sama proporsinya;
+ *  margin vertikal mengikuti tinggi frame → chord & lirik tetap rapi di video vertikal. */
 export function bangunAss(opsi: {
   w: number; h: number; durasi: number; vis: OpsiVisual;
   lirik: BarisLirik[]; chord: SegmenChord[];
 }): string {
   const { w, h, durasi, vis, lirik, chord } = opsi;
-  const skala = h / 720;
-  const fsJudul = Math.max(20, Math.round(48 * skala));
-  const fsChord = Math.max(18, Math.round(42 * skala));
-  const fsLirik = Math.max(16, Math.round(36 * skala));
+  const skala = Math.min(w, h) / 1080;
+  const ut = Math.min(60, Math.max(12, Math.round(Number(vis.ukuranTeks) || 25)));
+  const fsJudul = Math.max(20, Math.round(ut * 2.6 * skala));
+  const fsChord = Math.max(16, Math.round(ut * 2.2 * skala));
+  const fsLirik = Math.max(14, Math.round(ut * 1.9 * skala));
   const fam = FONT_ASS[vis.fontJudul] || "DejaVu Sans";
-  const mvLirik = Math.round(54 * skala);
-  const mvChord = Math.round(126 * skala);
-  const mvJudul = Math.round(40 * skala);
+  const mvLirik = Math.round(h * 0.055);
+  const mvChord = Math.round(h * 0.13);
+  const mvJudul = Math.round(h * 0.045);
   const kepala = [
     "[Script Info]",
     "; VidSplit Studio Musik v0.11.0",

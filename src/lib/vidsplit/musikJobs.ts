@@ -15,8 +15,9 @@ import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
-  formatChordSheet, formatLrc, skalaChord, skalaLirik, RESEP_GENRE, transposeAuto,
-  type BarisLirik, type IdVisual, type OpsiVisual, type OpsiStudioMusik, type SegmenChord,
+  formatChordSheet, formatLrc, skalaChord, skalaLirik, transposDgnPerubahan,
+  RESEP_GENRE, transposeAuto, type BarisLirik, type IdVisual, type OpsiVisual,
+  type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
 import { buatLayerWav } from "./musikLayer";
 import { buatIringanWav } from "./musikTransformasi";
@@ -110,9 +111,13 @@ async function prosesAudio(
   if (!srcAbs || !existsSync(srcAbs)) throw new Error("Berkas sumber tidak ditemukan");
   const info = await probeAudio(srcAbs);
   if (!info.adaAudio) throw new Error("Berkas tidak punya jalur audio");
-  // v0.13.0 — REMAKE: transpos efektif (null = otomatis dari tingkat kemiripan + nama berkas)
-  const transposeEfe =
+  // v0.13.0 — REMAKE: transpos dasar (null = otomatis dari tingkat kemiripan + nama berkas);
+  // v0.15.0 — transpos efektif = dasar × tingkat perubahan musik (0% → nada tetap,
+  // benar-benar lagu asli) — dipakai juga oleh graf filter & tampilan UI agar konsisten.
+  const transposeDasar =
     o.mode === "remake" ? (o.transpose ?? transposeAuto(o.kemiripan, o.file)) : 0;
+  const transposeEfe =
+    o.mode === "remake" ? transposDgnPerubahan(transposeDasar, o.tingkatMusik ?? 65) : 0;
   const { graf, adaLayer, tempo } = bangunFilterAudio(
     { ...o, transpose: transposeEfe },
     info.sr || 44100,
@@ -175,15 +180,18 @@ async function renderVid(
   o: OpsiStudioMusik,
   wavRel: string,
   folderOut: string,
-  vis: { id: IdVisual; opsi: OpsiVisual; resolusi: "720" | "1080"; lirik: BarisLirik[]; chord: SegmenChord[] },
+  vis: { id: IdVisual; opsi: OpsiVisual; resolusi: "916" | "720" | "1080"; lirik: BarisLirik[]; chord: SegmenChord[] },
   durasi: number,
   ktx: KtxRahasia,
 ): Promise<string> {
   const ff = await pilihFfmpeg();
   const wavAbs = pathAman(wavRel);
   if (!wavAbs || !existsSync(wavAbs)) throw new Error("Audio terproses hilang — proses ulang dulu");
-  const H = vis.resolusi === "1080" ? 1080 : 720;
-  const W = Math.round((H * 16) / 9 / 2) * 2; // 1920 / 1280
+  // v0.15.0 — "916" = 9:16 vertikal 1080×1920 (BAWAAN — Reels/TikTok/Shorts);
+  // "1080" = 16:9 1920×1080; "720" = 16:9 1280×720.
+  const [H, W] = vis.resolusi === "916"
+    ? [1920, 1080]
+    : vis.resolusi === "1080" ? [1080, 1920] : [720, 1280];
   const fps = 30;
   const sensDb = ((vis.opsi.sensitivitas - 5) * 1.6).toFixed(1);
   const grafVisual = bangunRantaiVisual(vis.id, {
@@ -226,7 +234,7 @@ function ukuran(abs: string): number {
 interface OpsiRenderLengkap extends OpsiStudioMusik {
   visual: IdVisual;
   opsiVisual: OpsiVisual;
-  resolusi: "720" | "1080";
+  resolusi: "916" | "720" | "1080";
   lirik: BarisLirik[];
   chord: SegmenChord[];
   /** true bila sumber = proses.wav hasil job proses sebelumnya */
@@ -440,13 +448,15 @@ export function mulaiRenderMusik(opsi: OpsiRenderMasuk): string {
   return id;
 }
 
-/** Pratinjau visual 10 detik 640×360 — berjalan SERENTAK (await) di route.
+/** Pratinjau visual 10 detik — 640×360 (16:9) atau 360×640 (9:16, resolusi "916")
+ *  — berjalan SERENTAK (await) di route.
  *  faktor = faktor waktu proses (resep genre × kecepatan) — lirik/chord di-skala
  *  dari linimasa asli ke linimasa HASIL agar sejajar dgn audio terproses. */
 export async function pratinjauVisual(opsi: {
   wavRel: string; judul: string;
   visual: IdVisual; opsiVisual: OpsiVisual;
   mulai: number; lirik: BarisLirik[]; chord: SegmenChord[]; faktor?: number;
+  resolusi?: "916" | "720" | "1080";
 }): Promise<string> {
   pangkasPratinjau();
   const id = randomBytes(4).toString("hex");
@@ -468,17 +478,18 @@ export async function pratinjauVisual(opsi: {
     }
   }
   const filePratinjau = path.join(folderOut, `pratinjau-${id}.mp4`);
-  // render manual singkat: 10 dtk 640x360
+  // render manual singkat: 10 dtk — 640×360 landscape / 360×640 vertikal (9:16)
+  const [pw, ph] = opsi.resolusi === "916" ? [360, 640] : [640, 360];
   const ff = await pilihFfmpeg();
   const wavAbs = pathAman(opsi.wavRel);
   if (!wavAbs || !existsSync(wavAbs)) throw new Error("Audio terproses tidak ada — proses dulu");
   const sensDb = ((opsi.opsiVisual.sensitivitas - 5) * 1.6).toFixed(1);
   const grafVisual = bangunRantaiVisual(opsi.visual, {
-    w: 640, h: 360, fps: 30, durasi: 10, o: opsi.opsiVisual,
+    w: pw, h: ph, fps: 30, durasi: 10, o: opsi.opsiVisual,
   }).replace("[av]", "[av2]");
   const baris: string[] = [`[0:a]asplit=2[ae][av]`, `[av]volume=${sensDb}dB[av2]`, grafVisual];
   const ass = bangunAss({
-    w: 640, h: 360, durasi: 10, vis: opsi.opsiVisual, lirik: potongLirik, chord: potongChord,
+    w: pw, h: ph, durasi: 10, vis: opsi.opsiVisual, lirik: potongLirik, chord: potongChord,
   });
   const fileAss = path.join(dirWork("tmp"), `pratinjau-${id}.ass`);
   if (ass) {

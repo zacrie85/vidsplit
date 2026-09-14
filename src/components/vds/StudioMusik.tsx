@@ -1,22 +1,23 @@
 "use client";
 
-// VidSplit v0.14.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
+// VidSplit v0.15.0 — STUDIO MUSIK: mode aplikasi kedua (selain Mode Video).
 // Kolom KIRI  = 1. Impor musik + info lagu (BPM/kunci/chord + BPM & durasi HASIL) + gelombang
 // Kolom TENGAH= Pratinjau audio & visual + 6. Lirik & chord + 7. Ekspor (MP4/MP3/chord/lirik)
 // Kolom KANAN= 2. Genre (lapisan/penuh) · 3. Tempo · 4. Karaoke · 5. Visual (di StudioMusikKanan.tsx)
+// v0.15.0: slider PERUBAHAN MUSIK (asli ↔ genre), resolusi 9:16 bawaan, tombol kirim
+// hasil MP4 ke Mode Video (edit judul/part/split), ukuran teks overlay bisa diatur.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Download, FileMusic, ListMusic, Loader2, Music, Play, RefreshCw, Square, Trash2,
+  Download, FileMusic, ListMusic, Loader2, MonitorPlay, Music, Play, RefreshCw, Square, Trash2,
 } from "lucide-react";
 import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
 import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
-import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto } from "@/lib/vidsplit/musik";
+import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-// v3 (v0.14.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
-// mendapat jalur baru "versi genre": lapisan sintesis MATI (sumber bentrok irama) +
-// tingkat rasa genre 55% (warna suara tanpa nada tambahan).
-const KUNCI_ATUR = "vidsplit-musik-v3";
+// v4 (v0.15.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
+// mendapat resolusi 9:16 (1080×1920) + slider perubahan musik 65% + ukuran teks 25.
+const KUNCI_ATUR = "vidsplit-musik-v4";
 
 interface InfoLagu {
   file: string;
@@ -50,7 +51,12 @@ function urlMedia(rel: string, unduh = false): string {
   return `/api/file?p=${encodeURIComponent(rel)}${unduh ? "&dl=1" : ""}`;
 }
 
-export function StudioMusik() {
+export function StudioMusik({
+  onKirimKeVideo,
+}: {
+  /** v0.15.0 — kirim hasil MP4 ekspor musik ke antrean Mode Video (judul/part/split) */
+  onKirimKeVideo?: (file: string, nama: string, ukuran: number) => void;
+}) {
   const [atur, setAtur] = useState<AturMusik>(aturMusikDefault);
   const [lagu, setLagu] = useState<InfoLagu | null>(null);
   const [sibukImpor, setSibukImpor] = useState(false);
@@ -164,7 +170,7 @@ export function StudioMusik() {
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
         variasi: atur.variasi,
         kemiripan: atur.kemiripan, transpose: atur.transpose,
-        tingkatGenre: atur.tingkatGenre,
+        tingkatGenre: atur.tingkatGenre, tingkatMusik: atur.tingkatMusik,
       }),
     })
       .then((r) => r.json())
@@ -192,7 +198,7 @@ export function StudioMusik() {
         body: JSON.stringify({
           wavRel: hasilProses.wav, judul: judulOverlay(), visual: atur.visual,
           opsiVisual: atur.vis, mulai: pratinjauMulai, lirik,
-          chord: lagu?.chord || [],
+          chord: lagu?.chord || [], resolusi: atur.resolusi,
           faktor: faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }),
         }),
       });
@@ -263,7 +269,7 @@ export function StudioMusik() {
         melodiAsliLevel: atur.melodiAsliLevel, vokalLevel: atur.vokalLevel,
         variasi: atur.variasi,
         kemiripan: atur.kemiripan, transpose: atur.transpose,
-        tingkatGenre: atur.tingkatGenre,
+        tingkatGenre: atur.tingkatGenre, tingkatMusik: atur.tingkatMusik,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,
@@ -298,9 +304,12 @@ export function StudioMusik() {
   const faktorWaktu = lagu ? faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }) : 1;
   const bpmHasil = lagu ? Math.round(lagu.bpm * faktorWaktu) : 0;
   const durasiHasil = lagu ? lagu.durasi / faktorWaktu : 0;
-  // v0.13.0 — transpos efektif mode remake (null = otomatis dari kemiripan + nama berkas)
+  // v0.13.0 — transpos efektif mode remake (null = otomatis dari kemiripan + nama berkas);
+  // v0.15.0 — dikalikan tingkat perubahan musik (0% → nada tetap, benar-benar asli)
   const transposeEfe = atur.mode === "remake"
-    ? (atur.transpose ?? transposeAuto(atur.kemiripan, lagu?.file || ""))
+    ? transposDgnPerubahan(
+        atur.transpose ?? transposeAuto(atur.kemiripan, lagu?.file || ""), atur.tingkatMusik,
+      )
     : 0;
   const fmtMenit = (d: number) => `${Math.floor(d / 60)}:${String(Math.max(0, Math.round(d % 60))).padStart(2, "0")}`;
 
@@ -343,7 +352,7 @@ export function StudioMusik() {
                       ? ` · versi genre: nada dasar ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`
                       : ""}
                     {atur.mode === "remake" && atur.genre !== "asli"
-                      ? ` · rasa genre ${atur.tingkatGenre}% (tanpa nada tambahan)`
+                      ? ` · perubahan musik ${atur.tingkatMusik}% / asli ${100 - atur.tingkatMusik}% · rasa genre ${atur.tingkatGenre}% (tanpa nada tambahan)`
                       : ""}
                     {atur.mode === "penuh" && atur.genre !== "asli" ? " · musik baru dari chord" : ""}
                     {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
@@ -592,13 +601,14 @@ export function StudioMusik() {
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
               <div>
-                <p className="mb-1 text-xs text-slate-400">Resolusi</p>
-                <ChipPilihan<"720" | "1080">
+                <p className="mb-1 text-xs text-slate-400">Resolusi &amp; rasio</p>
+                <ChipPilihan<"916" | "720" | "1080">
                   nilai={atur.resolusi}
                   onChange={(v) => ubah({ resolusi: v })}
                   pilihan={[
-                    { v: "720", label: "HD 720p", hint: "cepat" },
-                    { v: "1080", label: "Full HD 1080p", hint: "tajam" },
+                    { v: "916", label: "9:16 · 1080×1920", hint: "Reels/TikTok/Shorts (bawaan)" },
+                    { v: "720", label: "16:9 · 720p", hint: "YouTube cepat" },
+                    { v: "1080", label: "16:9 · 1080p", hint: "YouTube tajam" },
                   ]}
                 />
               </div>
@@ -653,6 +663,22 @@ export function StudioMusik() {
                 >
                   <Download className="h-3.5 w-3.5" /> Unduh semua (ZIP)
                 </a>
+                {(() => {
+                  const mp4 = jobR.outputs.find((o) => o.file.toLowerCase().endsWith(".mp4"));
+                  if (!mp4 || !onKirimKeVideo) return null;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onKirimKeVideo(`output/${jobR.id}/${mp4.file}`, mp4.file, mp4.ukuran)
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-amber-300"
+                    >
+                      <MonitorPlay className="h-3.5 w-3.5" />
+                      Buka di Mode Video — edit judul, part, split &amp; ekspor
+                    </button>
+                  );
+                })()}
               </div>
             )}
             {jobR?.dibatalkan && (

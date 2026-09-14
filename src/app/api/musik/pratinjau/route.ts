@@ -1,6 +1,6 @@
-// POST /api/musik/pratinjau — render SINGKAT 10 detik 640×360 utk mengintip gaya visual
-// + overlay judul/chord/lirik sebelum ekspor penuh. Berjalan serentak (await) — biasanya
-// 3–8 detik utk 300 frame.
+// POST /api/musik/pratinjau — render SINGKAT 10 detik (640×360 atau 360×640 utk 9:16)
+// utk mengintip gaya visual + overlay judul/chord/lirik sebelum ekspor penuh. Berjalan
+// serentak (await) — biasanya 3–8 detik utk 300 frame.
 import { NextRequest, NextResponse } from "next/server";
 import { VISUAL_MUSIK, opsiVisualDefault } from "@/lib/vidsplit/musik";
 import type { BarisLirik, IdVisual, OpsiVisual, SegmenChord } from "@/lib/vidsplit/musik";
@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
       wavRel?: string; judul?: string; visual?: string;
       opsiVisual?: Partial<OpsiVisual>; mulai?: number;
       lirik?: BarisLirik[]; chord?: SegmenChord[]; faktor?: number;
+      resolusi?: string;
     };
     if (!body.wavRel) {
       return NextResponse.json(
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
       lirik: Array.isArray(body.lirik) ? body.lirik.slice(0, 900) : [],
       chord: Array.isArray(body.chord) ? body.chord.slice(0, 900) : [],
       faktor: Number(body.faktor) || 1,
+      resolusi: body.resolusi === "916" ? "916" as const : "720" as const,
     });
     return NextResponse.json({ ok: true, file });
   } catch (e) {

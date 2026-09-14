@@ -22,6 +22,7 @@ function rapiVisual(v: Partial<OpsiVisual> | undefined): OpsiVisual {
     tampilJudul: v.tampilJudul !== false,
     tampilChord: v.tampilChord !== false,
     tampilLirik: v.tampilLirik !== false,
+    ukuranTeks: Math.min(60, Math.max(12, Math.round(Number(v.ukuranTeks) || 25))),
   };
 }
 
@@ -32,6 +33,7 @@ export async function POST(req: NextRequest) {
       karaoke?: string; bpm?: number; fase?: number;
       mode?: string; kecepatan?: number; grooveLevel?: number;
       melodiLevel?: number; vokalLevel?: number;
+      tingkatGenre?: number; tingkatMusik?: number;
       visual?: string; opsiVisual?: Partial<OpsiVisual>;
       resolusi?: string; lirik?: BarisLirik[]; chord?: SegmenChord[];
       audioSudahProses?: boolean; wavSiap?: string | null; fileMp3Siap?: string | null;
@@ -54,10 +56,12 @@ export async function POST(req: NextRequest) {
         grooveLevel: body.grooveLevel,
         melodiLevel: body.melodiLevel,
         vokalLevel: body.vokalLevel,
+        tingkatGenre: body.tingkatGenre,
+        tingkatMusik: body.tingkatMusik,
       }),
       visual,
       opsiVisual: rapiVisual(body.opsiVisual),
-      resolusi: body.resolusi === "720" ? "720" as const : "1080" as const,
+      resolusi: body.resolusi === "916" ? "916" as const : body.resolusi === "1080" ? "1080" as const : "720" as const,
       lirik: Array.isArray(body.lirik)
         ? body.lirik
           .filter((b) => b && typeof b.teks === "string" && Number.isFinite(b.mulai))
