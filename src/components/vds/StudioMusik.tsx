@@ -15,9 +15,9 @@ import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, ty
 import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-// v5 (v0.16.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
+// v6 (v0.17.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
 // mendapat harmoni terkunci-akor 30% + genre vokal terpisah dgn referensi penyanyi.
-const KUNCI_ATUR = "vidsplit-musik-v5";
+const KUNCI_ATUR = "vidsplit-musik-v6";
 
 interface InfoLagu {
   file: string;

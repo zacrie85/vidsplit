@@ -5,7 +5,7 @@
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, cariReferensiVokal, clampStudio, faktorAtempo,
-  faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
+  faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
   REFERENSI_VOKAL, RESEP_VOKAL_GENRE,
   RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
@@ -522,17 +522,34 @@ for (const g of DAFTAR_GENRE) {
   if (!RESEP_VOKAL_GENRE[g]) cek(false, `RESEP_VOKAL_GENRE ${g} hilang`);
 }
 cek(DAFTAR_GENRE.every((g) => !!RESEP_VOKAL_GENRE[g]), "RESEP_VOKAL_GENRE 17 lengkap");
-// --- rantaiVokal: skala, karakter, fallback ---
+// --- rantaiVokal: skala, karakter, fallback (v0.17 VokalGen-2) ---
 cek(rantaiVokal("dangdut", "dangdut-p1", 0).length === 0, "tingkat vokal 0 → rantai kosong (apa adanya)");
 const rvDut = rantaiVokal("dangdut", "dangdut-p1", 100);
 cek(rvDut.some((x) => x.startsWith("vibrato=f=5.5")), "dangdut Rhoma: vibrato hio 5,5 Hz");
 cek(rvDut.some((x) => x.startsWith("bass=g=")), "dangdut: kehangatan dada");
 cek(rantaiVokal("rock", "rock-p1", 100).some((x) => x.startsWith("acrusher")), "rock Albar: serak acrusher");
-cek(rantaiVokal("lofi", "lofi-p1", 100).some((x) => x.startsWith("lowpass")), "lofi: lowpass memudarkan");
+cek(rantaiVokal("lofi", "lofi-p1", 100).every((x) => !x.startsWith("lowpass")), "lofi: lowpass pindah ke pita atas (bukan rantai tengah)");
+cek(rantaiVokal("pop", "pop-w1", 100).some((x) => x.startsWith("deesser")), "pop: deesser penghalus sibilan");
 cek(!rantaiVokal("dangdut", "id-palsu", 50).some((x) => x.includes("NaN")), "id palsu → fallback pria[0], tanpa NaN");
 const rv50 = rantaiVokal("dangdut", "dangdut-p1", 50);
 const rv100 = rantaiVokal("dangdut", "dangdut-p1", 100);
 cek(rv50.length > 0 && rv50.length <= rv100.length, "tingkat 50 ≤ jumlah filter tingkat 100 (skala)");
+// --- v0.17 geserVokal: lapisan pitch dada/kepala, SETIAP penyanyi terdengar ---
+cek(geserVokal("dangdut", "dangdut-p1", 0) === null, "geserVokal tingkat 0 → null");
+const gRhoma = geserVokal("dangdut", "dangdut-p1", 55);
+cek(!!gRhoma && gRhoma.st === -2 && gRhoma.gain > 0 && gRhoma.gain <= 0.5, `Rhoma dada −2 st @55% (gain ${gRhoma?.gain.toFixed(3)})`);
+const gInul = geserVokal("dangdut", "dangdut-w2", 100);
+cek(!!gInul && gInul.st === 2, "Inul kepala +2 st");
+const gCash = geserVokal("country", "country-p1", 100);
+cek(!!gCash && gCash.st === -2.5 && gCash.gain <= 0.5, "Johnny Cash dada −2,5 st, gain ≤ 0,5");
+cek(geserVokal("dangdut", "id-palsu", 55) !== null, "id palsu → fallback pria[0] tetap ada karakter");
+let semuaTerdengar = true;
+for (const g of DAFTAR_GENRE) {
+  for (const r of [...REFERENSI_VOKAL[g].pria, ...REFERENSI_VOKAL[g].wanita]) {
+    if (!geserVokal(g, r.id, 55)) { semuaTerdengar = false; cek(false, `referensi ${r.id} tanpa karakter pitch`); }
+  }
+}
+cek(semuaTerdengar, "68/68 penyanyi punya karakter pitch terdengar @55%");
 // --- clampStudio field v0.16 ---
 const cl16 = clampStudio({ file: "x" });
 cek(cl16.nadaLevel === 30, "bawaan nadaLevel = 30");
@@ -541,18 +558,22 @@ cek(cl16.refVokal === "" && cl16.tingkatVokal === 55, "bawaan refVokal kosong + 
 cek(clampStudio({ file: "x", nadaLevel: 500 }).nadaLevel === 100, "nadaLevel di-clamp ≤100");
 cek(clampStudio({ file: "x", genreVokal: "punk" }).genreVokal === "punk", "genreVokal punk diterima");
 cek(clampStudio({ file: "x", genreVokal: "aneh" }).genreVokal === "mati", "genreVokal tak dikenal → mati");
-// --- graf GENRE VOKAL ---
+// --- graf GENRE VOKAL (v0.17 VokalGen-2 substitusi pita) ---
 const gVok16 = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 70 });
-cek(gVok16.graf.includes("[base]asplit=2[vbA][vbB]"), "genre vokal: bed asli di-split (lagu tetap utuh)");
-cek(gVok16.graf.includes("highpass=f=180") && gVok16.graf.includes("lowpass=f=5200"), "genre vokal: pita vokal tengah 180–5200 Hz diekstrak");
+cek(gVok16.graf.includes("[base]acrossover=split=180|3800:order=4th"), "vokalgen-2: crossover 3-pita Linkwitz-Riley 180|3800 Hz");
+cek(gVok16.graf.includes("[vokLow][vmMix][vokHigh]amix=inputs=3:duration=first:normalize=0"), "vokalgen-2: pita disusun kembali (bawah+suara+atas)");
+cek(gVok16.graf.includes("asetrate=39289") && gVok16.graf.includes("atempo=1.12246"), "Rhoma dada −2 st: lapisan pitch terkompensasi tempo (tetap sinkron)");
 cek(gVok16.graf.includes("vibrato=f=5.5"), "genre vokal: karakter dangdut masuk graf");
-cek(gVok16.graf.includes("[vokBed][vokWet]amix=inputs=2:duration=first:normalize=0"), "genre vokal: vokal terwarnai diaduk kembali (normalize=0)");
+cek(gVok16.graf.includes("highpass=f=260,lowpass=f=3200"), "lapisan pitch difokuskan ke area suara 260–3200 Hz");
+const gVokLofi = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, genreVokal: "lofi", refVokal: "lofi-p1", tingkatVokal: 70 });
+cek(gVokLofi.graf.includes("[vxh]lowpass=f=6800"), "lofi: udara pita atas diremam (lowpass 6800)");
 const gVok0 = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, genreVokal: "dangdut", tingkatVokal: 0 });
 cek(gVok0.graf.includes("[base]anull[ksrc]"), "tingkat vokal 0 → passthrough");
 const gVokK = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, karaoke: "karaoke", genreVokal: "dangdut" });
-cek(!gVokK.graf.includes("[vbA]"), "karaoke aktif → genre vokal dilewati (vokal sudah dihapus)");
+cek(!gVokK.graf.includes("[vxm]"), "karaoke aktif → genre vokal dilewati (vokal sudah dihapus)");
 const gVokV = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, karaoke: "vokal", genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 60 });
 cek(gVokV.graf.includes("[voc0b]pan=stereo"), "genre vokal di mode 'vokal saja' menyusup ke rantai vokal");
+cek(gVokV.graf.includes("asetrate=48091") && gVokV.graf.includes("atempo=0.91700"), "Elvi kepala +1,5 st di mode vokal saja (terkompensasi)");
 // --- graf HARMONI terkunci-akor ---
 const gH = bangunFilterAudio({ ...dasar, mode: "remake", layerLevel: 0, nadaLevel: 60 });
 cek(gH.adaNada === true && gH.graf.includes("[1:a]volume=1.260[nad]"), "remake + nada 60% → harmoni input 1 (level 0.6×2.1)");

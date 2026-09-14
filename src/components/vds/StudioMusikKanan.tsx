@@ -421,22 +421,27 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
       }`}
     >
       <span className="block font-medium">{r.nama}</span>
-      <span className="block truncate text-[10px] opacity-70">{r.ket}</span>
+      <span className="block truncate text-[10px] opacity-70">
+        {r.ket}{r.dada ? " · dada dalam" : r.tinggi ? " · terang" : ""}
+      </span>
     </button>
   );
   return (
     <Kartu
       judul="4. Vokal, genre vokal & karaoke"
-      deskripsi="Genre vokal terpisah dgn referensi penyanyi — plus karaoke 3-pita v0.15"
+      deskripsi="Mesin baru v0.17: pita suara DIGANTI sesuai genre + referensi penyanyi"
       ikon={<Mic className="h-4 w-4" />}
     >
-      {/* ===== v0.16.0 — GENRE VOKAL TERPISAH + REFERENSI PENYANYI ===== */}
+      {/* ===== v0.17.0 — GENRE VOKAL VOKALGEN-2 (substitusi pita suara) ===== */}
       <div className="rounded-xl border border-violet-400/25 bg-slate-800/40 p-3">
-        <p className="text-xs font-semibold text-violet-200">Genre vokal (baru v0.16)</p>
+        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin baru v0.17</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
           Terpisah dari genre musik: <b>musiknya</b> diubah lewat menu 2, <b>suara
-          vokalnya</b> diwarnai sesuai genre ini dgn karakter referensi penyanyi
-          (EQ timbre, getar, ruang, serak — diterapkan pada pita vokal lagu).
+          vokalnya</b> diganti karakternya sesuai genre ini. Mesin v0.17
+          <b> mengganti pita suara di tempatnya</b> (crossover 3-pita): EQ timbre
+          kuat, kompresor, getar, ruang, serak + lapisan dada-dalam/kepala-terang
+          dari referensi penyanyi — perubahan kini <b>jelas terdengar</b> dan tetap
+          sinkron 100% dgn musiknya.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <button
@@ -482,7 +487,7 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
               <div className="grid grid-cols-2 gap-1.5">{REFERENSI_VOKAL[gv].wanita.map(tombolPenyanyi)}</div>
             </div>
             <BarisSlider
-              label={`Tingkat rasa vokal ${INFO_GENRE[gv].label}${refAktif ? ` — ${refAktif.nama}` : ""}`}
+              label={`Kekuatan ganti suara ${INFO_GENRE[gv].label}${refAktif ? ` — ${refAktif.nama}` : ""}`}
               nilai={atur.tingkatVokal}
               min={0}
               max={100}
@@ -492,10 +497,12 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
             />
             <p className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[10px] leading-relaxed text-slate-500">
               Jujur &amp; transparan: referensi penyanyi = <b>karakter gaya</b> yang
-              terinspirasi ciri khas penyanyi itu (warna timbre, getar, ruang, serak) —
-              <b> bukan tiruan suara aslinya</b>. Mengganti suara menjadi penyanyi tertentu
-              butuh AI raksasa di server GPU, mustahil jalan 100% offline. Semua proses di
-              sini DSP audio murni di PC-mu.
+              terinspirasi ciri khas penyanyi itu (warna timbre, dada dalam/kepala
+              terang, getar, ruang, serak) — <b>bukan tiruan suara aslinya</b>.
+              Mengganti suara menjadi penyanyi tertentu butuh AI raksasa di server
+              GPU, mustahil jalan 100% offline. Semua proses di sini DSP audio murni
+              di PC-mu, dan karena pita suara diganti di tempatnya, hasilnya selalu
+              seirama dgn lagunya.
             </p>
           </div>
         )}
