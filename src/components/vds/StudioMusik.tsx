@@ -15,9 +15,9 @@ import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, ty
 import { faktorWaktuStudio, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-// v4 (v0.15.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
-// mendapat resolusi 9:16 (1080×1920) + slider perubahan musik 65% + ukuran teks 25.
-const KUNCI_ATUR = "vidsplit-musik-v4";
+// v5 (v0.16.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
+// mendapat harmoni terkunci-akor 30% + genre vokal terpisah dgn referensi penyanyi.
+const KUNCI_ATUR = "vidsplit-musik-v5";
 
 interface InfoLagu {
   file: string;
@@ -171,6 +171,8 @@ export function StudioMusik({
         variasi: atur.variasi,
         kemiripan: atur.kemiripan, transpose: atur.transpose,
         tingkatGenre: atur.tingkatGenre, tingkatMusik: atur.tingkatMusik,
+        nadaLevel: atur.nadaLevel,
+        genreVokal: atur.genreVokal, refVokal: atur.refVokal, tingkatVokal: atur.tingkatVokal,
       }),
     })
       .then((r) => r.json())
@@ -270,6 +272,8 @@ export function StudioMusik({
         variasi: atur.variasi,
         kemiripan: atur.kemiripan, transpose: atur.transpose,
         tingkatGenre: atur.tingkatGenre, tingkatMusik: atur.tingkatMusik,
+        nadaLevel: atur.nadaLevel,
+        genreVokal: atur.genreVokal, refVokal: atur.refVokal, tingkatVokal: atur.tingkatVokal,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,
@@ -352,8 +356,13 @@ export function StudioMusik({
                       ? ` · versi genre: nada dasar ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`
                       : ""}
                     {atur.mode === "remake" && atur.genre !== "asli"
-                      ? ` · perubahan musik ${atur.tingkatMusik}% / asli ${100 - atur.tingkatMusik}% · rasa genre ${atur.tingkatGenre}% (tanpa nada tambahan)`
+                      ? ` · perubahan musik ${atur.tingkatMusik}% / asli ${100 - atur.tingkatMusik}% · rasa genre ${atur.tingkatGenre}%`
                       : ""}
+                    {atur.mode === "remake" && atur.genre !== "asli" && atur.nadaLevel > 0
+                      ? ` · nada tambahan ikut akor ${atur.nadaLevel}%`
+                      : ""}
+                    {atur.genreVokal !== "mati" ? " · vokal " : ""}
+                    {atur.genreVokal !== "mati" ? `${atur.genreVokal} ${atur.tingkatVokal}%` : ""}
                     {atur.mode === "penuh" && atur.genre !== "asli" ? " · musik baru dari chord" : ""}
                     {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
                   </p>

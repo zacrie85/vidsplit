@@ -20,7 +20,7 @@ import {
   type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
 import { buatLayerWav } from "./musikLayer";
-import { buatIringanWav } from "./musikTransformasi";
+import { buatHarmoniWav, buatIringanWav } from "./musikTransformasi";
 import { analisisMusik } from "./musikAnalisis";
 
 export interface InfoJobMusik {
@@ -118,13 +118,29 @@ async function prosesAudio(
     o.mode === "remake" ? (o.transpose ?? transposeAuto(o.kemiripan, o.file)) : 0;
   const transposeEfe =
     o.mode === "remake" ? transposDgnPerubahan(transposeDasar, o.tingkatMusik ?? 65) : 0;
-  const { graf, adaLayer, tempo } = bangunFilterAudio(
+  const { graf, adaLayer, tempo, adaNada } = bangunFilterAudio(
     { ...o, transpose: transposeEfe },
     info.sr || 44100,
   );
   const durasiKeluar = info.durasi / tempo;
   const args: string[] = ["-y", "-hide_banner", "-i", srcAbs];
   let layerAbs: string | null = null;
+  let harmoniAbs: string | null = null;
+  // v0.16.0 — LAPISAN HARMONI TERKUNCI-AKOR: nada tambahan khas genre dari chord
+  // lagu sendiri (pad+bass+arp mengikuti BPM/fase hasil analisis). Input 1;
+  // lapisan ritme eksperimental (bila aktif) menjadi input 2 — urutan ini HARUS
+  // sama dgn indeks yang dipakai bangunFilterAudio di graf.
+  if (adaNada) {
+    const anH = await analisisMusik(o.file, ff.bin);
+    const harmoniWav = buatHarmoniWav(
+      { bpm: anH.bpm, fase: anH.fase, durasi: info.durasi, chord: anH.chord },
+      o.genre === "asli" ? "pop" : o.genre,
+      Math.min(1, Math.max(0, (o.nadaLevel ?? 30) / 100)),
+    );
+    harmoniAbs = path.join(dirWork("tmp"), `harmoni-${ktx.jobId}.wav`);
+    writeFileSync(harmoniAbs, harmoniWav);
+    args.push("-i", harmoniAbs);
+  }
   if (adaLayer) {
     if (o.mode === "penuh") {
       // ==== MUSIK BARU DARI CHORD: seluruh musik disintesis dari hasil analisis ====
@@ -170,6 +186,7 @@ async function prosesAudio(
   );
   await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(ktx.jobId, c));
   if (layerAbs) { try { unlinkSync(layerAbs); } catch { /* abaikan */ } }
+  if (harmoniAbs) { try { unlinkSync(harmoniAbs); } catch { /* abaikan */ } }
   const wavRel = `${path.basename(folderOut)}/proses.wav`;
   const mp3Rel = `${path.basename(folderOut)}/proses.mp3`;
   return { wavRel: `musik/${wavRel}`, mp3Rel: `musik/${mp3Rel}`, durasi: durasiKeluar };
@@ -291,7 +308,9 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     job.tahap = "berkas";
     job.pesan = "Menulis berkas chord & lirik…";
     const slug = slugify(o.judul) || "musik";
-    const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Mode: ${o.mode === "penuh" ? "transformasi penuh" : "lapisan"} · Tempo: ${o.kecepatan}× · BPM hasil ≈ ${Math.round(o.bpm * faktorWaktuStudio(o))} · Visual: ${o.visual}`;
+    const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Mode: ${o.mode === "penuh" ? "transformasi penuh" : "lapisan"} · Tempo: ${o.kecepatan}× · BPM hasil ≈ ${Math.round(o.bpm * faktorWaktuStudio(o))} · Visual: ${o.visual}`
+      + (o.mode === "remake" && (o.nadaLevel ?? 0) > 0 && o.genre !== "asli" ? ` · nada akor ${o.nadaLevel}%` : "")
+      + (o.genreVokal !== "mati" ? ` · vokal ${o.genreVokal}${o.refVokal ? ` (${o.refVokal})` : ""} ${o.tingkatVokal}%` : "");
     const txtAbs = path.join(folderOut, `${slug}-chord-lirik.txt`);
     writeFileSync(txtAbs, formatChordSheet(o.judul, meta, chordSkala, lirikSkala), "utf8");
     if (o.lirik.length) {

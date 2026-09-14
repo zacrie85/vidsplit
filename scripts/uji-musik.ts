@@ -4,14 +4,15 @@
 // Jalankan: bun scripts/uji-musik.ts
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
-  bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorAtempo,
-  faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, rantaiWarna,
+  bangunAss, bangunFilterAudio, bangunRantaiVisual, cariReferensiVokal, clampStudio, faktorAtempo,
+  faktorWaktuStudio, formatChordSheet, formatLrc, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
+  REFERENSI_VOKAL, RESEP_VOKAL_GENRE,
   RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
   skalaLirik, transposeAuto, WARNA_GENRE, type GenreMusik, type PolaLayer, type SegmenChord,
 } from "../src/lib/vidsplit/musik";
 import { beriReverb, buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
-import { buatIringanWav, buatMelodiBaru, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
+import { buatHarmoniWav, buatIringanWav, buatMelodiBaru, HARMONI_GENRE, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
 import { ekstrakMelodi } from "../src/lib/vidsplit/musikAnalisis";
 
 let lulus = 0;
@@ -494,6 +495,99 @@ const assKecil = bangunAss({ w: 1080, h: 1920, durasi: 30, vis: { ...opsiVisualD
 cek(assKecil.includes("Style: Lirik,DejaVu Sans,23,"), "ukuranTeks 12 → lirik 23 px (bisa diperkecil)");
 const ass169 = bangunAss({ w: 1280, h: 720, durasi: 30, vis: { ...opsiVisualDefault, teksJudul: "V" }, lirik: lirik15, chord: chord15 });
 cek(ass169.includes("Style: Lirik,DejaVu Sans,32,"), "16:9 720p: skala sisi-pendek (lirik 32 px) — proporsional dgn 9:16");
+
+console.log("== 29. v0.16.0 — genre vokal + 68 referensi penyanyi + harmoni terkunci-akor ==");
+// --- REFERENSI_VOKAL: 17 genre × (2 pria + 2 wanita), id unik global ---
+let nRef = 0;
+const idRef = new Set<string>();
+let idGanda = false;
+for (const g of DAFTAR_GENRE) {
+  const r = REFERENSI_VOKAL[g];
+  cek(!!r && r.pria.length === 2 && r.wanita.length === 2, `referensi vokal "${g}": 2 pria + 2 wanita`);
+  for (const x of [...r.pria, ...r.wanita]) {
+    nRef++;
+    if (idRef.has(x.id)) idGanda = true;
+    idRef.add(x.id);
+    if (!x.nama || !x.ket) cek(false, `referensi ${x.id} tanpa nama/ket`);
+  }
+}
+cek(nRef === 68, `total referensi penyanyi = ${nRef} (harapan 68)`);
+cek(!idGanda, "tidak ada id referensi ganda");
+cek(cariReferensiVokal("dangdut-p1")?.nama === "Rhoma Irama", "dangdut-p1 = Rhoma Irama");
+cek(cariReferensiVokal("dangdut-p2")?.nama === "Mansyur S", "dangdut-p2 = Mansyur S");
+cek(cariReferensiVokal("dangdut-w1")?.nama === "Elvi Sukaesih", "dangdut-w1 = Elvi Sukaesih");
+cek(cariReferensiVokal("dangdut-w2")?.nama === "Inul Daratista", "dangdut-w2 = Inul Daratista");
+cek(cariReferensiVokal("tidak-ada") === null, "id tak dikenal → null");
+for (const g of DAFTAR_GENRE) {
+  if (!RESEP_VOKAL_GENRE[g]) cek(false, `RESEP_VOKAL_GENRE ${g} hilang`);
+}
+cek(DAFTAR_GENRE.every((g) => !!RESEP_VOKAL_GENRE[g]), "RESEP_VOKAL_GENRE 17 lengkap");
+// --- rantaiVokal: skala, karakter, fallback ---
+cek(rantaiVokal("dangdut", "dangdut-p1", 0).length === 0, "tingkat vokal 0 → rantai kosong (apa adanya)");
+const rvDut = rantaiVokal("dangdut", "dangdut-p1", 100);
+cek(rvDut.some((x) => x.startsWith("vibrato=f=5.5")), "dangdut Rhoma: vibrato hio 5,5 Hz");
+cek(rvDut.some((x) => x.startsWith("bass=g=")), "dangdut: kehangatan dada");
+cek(rantaiVokal("rock", "rock-p1", 100).some((x) => x.startsWith("acrusher")), "rock Albar: serak acrusher");
+cek(rantaiVokal("lofi", "lofi-p1", 100).some((x) => x.startsWith("lowpass")), "lofi: lowpass memudarkan");
+cek(!rantaiVokal("dangdut", "id-palsu", 50).some((x) => x.includes("NaN")), "id palsu → fallback pria[0], tanpa NaN");
+const rv50 = rantaiVokal("dangdut", "dangdut-p1", 50);
+const rv100 = rantaiVokal("dangdut", "dangdut-p1", 100);
+cek(rv50.length > 0 && rv50.length <= rv100.length, "tingkat 50 ≤ jumlah filter tingkat 100 (skala)");
+// --- clampStudio field v0.16 ---
+const cl16 = clampStudio({ file: "x" });
+cek(cl16.nadaLevel === 30, "bawaan nadaLevel = 30");
+cek(cl16.genreVokal === "mati", "bawaan genreVokal = mati (vokal asli)");
+cek(cl16.refVokal === "" && cl16.tingkatVokal === 55, "bawaan refVokal kosong + tingkatVokal 55");
+cek(clampStudio({ file: "x", nadaLevel: 500 }).nadaLevel === 100, "nadaLevel di-clamp ≤100");
+cek(clampStudio({ file: "x", genreVokal: "punk" }).genreVokal === "punk", "genreVokal punk diterima");
+cek(clampStudio({ file: "x", genreVokal: "aneh" }).genreVokal === "mati", "genreVokal tak dikenal → mati");
+// --- graf GENRE VOKAL ---
+const gVok16 = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 70 });
+cek(gVok16.graf.includes("[base]asplit=2[vbA][vbB]"), "genre vokal: bed asli di-split (lagu tetap utuh)");
+cek(gVok16.graf.includes("highpass=f=180") && gVok16.graf.includes("lowpass=f=5200"), "genre vokal: pita vokal tengah 180–5200 Hz diekstrak");
+cek(gVok16.graf.includes("vibrato=f=5.5"), "genre vokal: karakter dangdut masuk graf");
+cek(gVok16.graf.includes("[vokBed][vokWet]amix=inputs=2:duration=first:normalize=0"), "genre vokal: vokal terwarnai diaduk kembali (normalize=0)");
+const gVok0 = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, genreVokal: "dangdut", tingkatVokal: 0 });
+cek(gVok0.graf.includes("[base]anull[ksrc]"), "tingkat vokal 0 → passthrough");
+const gVokK = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, karaoke: "karaoke", genreVokal: "dangdut" });
+cek(!gVokK.graf.includes("[vbA]"), "karaoke aktif → genre vokal dilewati (vokal sudah dihapus)");
+const gVokV = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, karaoke: "vokal", genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 60 });
+cek(gVokV.graf.includes("[voc0b]pan=stereo"), "genre vokal di mode 'vokal saja' menyusup ke rantai vokal");
+// --- graf HARMONI terkunci-akor ---
+const gH = bangunFilterAudio({ ...dasar, mode: "remake", layerLevel: 0, nadaLevel: 60 });
+cek(gH.adaNada === true && gH.graf.includes("[1:a]volume=1.260[nad]"), "remake + nada 60% → harmoni input 1 (level 0.6×2.1)");
+cek(gH.graf.includes("[g]volume=1.9[g2]") && gH.graf.includes("[g2][nad]amix=inputs=2:duration=first[mix]"), "harmoni diaduk setelah gain akhir (amix 2)");
+const gH2 = bangunFilterAudio({ ...dasar, mode: "remake", layerLevel: 40, nadaLevel: 50 });
+cek(gH2.graf.includes("[2:a]volume="), "harmoni + lapisan eksperimental: lapisan jadi input 2");
+cek(gH2.graf.includes("[g2][nad][lay]amix=inputs=3:duration=first[mix]"), "harmoni + lapisan → amix 3 input");
+const gH0 = bangunFilterAudio({ ...dasar, mode: "remake", layerLevel: 0, nadaLevel: 0 });
+cek(gH0.adaNada === false && !gH0.graf.includes("[nad]"), "nadaLevel 0 → tanpa harmoni (v0.15 utuh)");
+const gHL = bangunFilterAudio({ ...dasar, layerLevel: 40, nadaLevel: 50 });
+cek(!gHL.graf.includes("[nad]"), "mode lapisan klasik tidak memakai harmoni");
+const gHA = bangunFilterAudio({ ...dasar, mode: "remake", layerLevel: 0, nadaLevel: 50, genre: "asli" });
+cek(gHA.adaNada === false, "genre asli → harmoni tidak aktif");
+const gHK = bangunFilterAudio({ ...dasar, mode: "remake", layerLevel: 0, nadaLevel: 50, karaoke: "karaoke" });
+cek(gHK.adaNada === true && gHK.graf.includes("[nad]"), "harmoni tetap hidup di karaoke (pengiring lagu)");
+// --- buatHarmoniWav: deterministik, berbunyi, senyap di 0 ---
+const ktxH = { bpm: 120, fase: 0, durasi: 16, chord: [
+  { mulai: 0, durasi: 4, chord: "Am" }, { mulai: 4, durasi: 4, chord: "F" },
+  { mulai: 8, durasi: 4, chord: "C" }, { mulai: 12, durasi: 4, chord: "G" },
+] as SegmenChord[] };
+const h1 = buatHarmoniWav(ktxH, "dangdut", 0.5);
+const h2 = buatHarmoniWav(ktxH, "dangdut", 0.5);
+cek(h1.length > 44100 * 16 * 2 && h1.equals(h2), `harmoni WAV deterministik & sepanjang lagu (${(h1.length / 44100 / 2).toFixed(1)} dtk)`);
+const rmsDari = (b: Buffer) => {
+  let j = 0; const n = Math.min(b.length, 44 + 44100 * 2 * 2);
+  for (let i = 44; i < n; i += 2) { const v = b.readInt16LE(i) / 32768; j += v * v; }
+  return Math.sqrt(j / Math.max(1, (n - 44) / 2));
+};
+cek(rmsDari(h1) > 0.001, `harmoni berbunyi (RMS ${rmsDari(h1).toFixed(4)})`);
+const h0v = buatHarmoniWav(ktxH, "dangdut", 0);
+cek(rmsDari(h0v) < 1e-4, `harmoni tingkat 0 → senyap (RMS ${rmsDari(h0v).toFixed(6)})`);
+const hNoChord = buatHarmoniWav({ bpm: 120, fase: 0, durasi: 4, chord: [] }, "pop", 0.5);
+cek(hNoChord.length > 1000 && rmsDari(hNoChord) > 0.0005, "tanpa chord → fallback C sepanjang lagu tetap berbunyi");
+cek(DAFTAR_GENRE.every((g) => !!HARMONI_GENRE[g]), "HARMONI_GENRE 17 lengkap");
+cek(!Number.isNaN(rmsDari(buatHarmoniWav(ktxH, "gamelan", 0.8))), "harmoni gamelan finite");
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

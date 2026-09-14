@@ -6,7 +6,7 @@
 import { BarisSlider, ChipPilihan, Kartu, PilihWarna } from "@/components/vds/bits";
 import { Mic, Palette, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import {
-  DAFTAR_GENRE, INFO_GENRE, RESEP_GENRE, VISUAL_MUSIK, transposeAuto, transposDgnPerubahan,
+  DAFTAR_GENRE, INFO_GENRE, REFERENSI_VOKAL, RESEP_GENRE, VISUAL_MUSIK, transposeAuto, transposDgnPerubahan,
   type GenreMusik, type IdVisual, type KaraokeMode, type ModeTransformasi, type OpsiVisual,
 } from "@/lib/vidsplit/musik";
 import { INFO_FONT, type NamaFont } from "@/lib/vidsplit/types";
@@ -31,6 +31,15 @@ export interface AturMusik {
   /** v0.15.0 (remake) 0–100 tingkat perubahan musik — campuran asli ↔ genre:
    *  0% = lagu asli apa adanya, 100% = versi genre penuh */
   tingkatMusik: number;
+  /** v0.16.0 (remake) 0–100 lapisan harmoni terkunci-akor — nada tambahan dari
+   *  chord lagu sendiri (pad+bass+arp). 0 = mati. Bawaan 30 */
+  nadaLevel: number;
+  /** v0.16.0 genre utk VOKAL (terpisah dari genre musik); "mati" = tanpa sentuhan */
+  genreVokal: GenreMusik | "mati";
+  /** v0.16.0 id referensi penyanyi (mis. "dangdut-p1" = Rhoma Irama) */
+  refVokal: string;
+  /** v0.16.0 0–100 tingkat rasa vokal (bawaan 55) */
+  tingkatVokal: number;
   visual: IdVisual;
   resolusi: "916" | "720" | "1080";
   vis: OpsiVisual;
@@ -43,6 +52,12 @@ export const aturMusikDefault: AturMusik = {
   tingkatGenre: 55,
   // v0.15.0 — perubahan musik bawaan 65% (35% tetap bunyi asli)
   tingkatMusik: 65,
+  // v0.16.0 — harmoni terkunci-akor bawaan 30% (nada dari chord lagu sendiri);
+  // genre vokal terpisah bawaan mati, tingkat rasa vokal 55%
+  nadaLevel: 30,
+  genreVokal: "mati",
+  refVokal: "",
+  tingkatVokal: 55,
   karaoke: "asli",
   mode: "remake",
   kecepatan: 1,
@@ -102,12 +117,13 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
       {atur.mode === "remake" && (
         <p className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/5 p-2 text-[11px] leading-relaxed text-emerald-200/90">
           <b>Versi genre (prinsip Suno, offline)</b> — lagu asli dipertahankan 100%:
-          melodi, vokal dan groove persis rekaman asli, <b>tanpa satu pun nada tambahan</b>
-          (sumber bentrok irama dihapus). Gaya diubah lewat transformasi yang
-          <b> terkunci ke lagu</b>: warna genre (EQ/karakter/ruang/lebar stereo), gerak
-          yang lajunya dihitung dari BPM lagu sendiri, dan geser nada dasar. Karena itu
-          hasilnya <b>mustahil saling bertentangan</b> dgn irama asli — tinggal atur
-          seberapa kuat rasa genrenya.
+          melodi, vokal dan groove persis rekaman asli. Gaya diubah lewat transformasi
+          yang <b>terkunci ke lagu</b>: warna genre (EQ/karakter/ruang/lebar stereo),
+          gerak yang lajunya dihitung dari BPM lagu sendiri, dan geser nada dasar —
+          hasilnya mustahil saling bertentangan dgn irama asli. <b>Baru v0.16:</b> bila
+          ingin lagu diberi <b>nada tambahan</b>, naikkan slider "Nada tambahan ikut
+          akor" — nada-nadanya diambil dari chord lagu sendiri (akor/bass/arpeggio di
+          kisi ketukan hasil analisis) sehingga tetap seirama.
         </p>
       )}
       {atur.mode === "penuh" && (
@@ -207,6 +223,17 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
           )}
           {atur.genre !== "asli" && (
             <BarisSlider
+              label="Nada tambahan ikut akor (harmoni)"
+              nilai={atur.nadaLevel}
+              min={0}
+              max={100}
+              step={5}
+              fmt={(n) => (n === 0 ? "Mati (tanpa nada tambahan)" : `${n}% — nada dari chord lagu sendiri`)}
+              onChange={(n) => ubah({ nadaLevel: n })}
+            />
+          )}
+          {atur.genre !== "asli" && (
+            <BarisSlider
               label={`Lapisan irama sintesis (EKSPERIMENTAL — bisa tidak sinkron)`}
               nilai={atur.layerLevel}
               min={0}
@@ -221,7 +248,7 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
               ? `Auto: nada dasar ${transposeEfe === 0 ? "tetap" : `digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`}`
               : `Nada dasar digeser ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone (manual)`}
             {atur.genre !== "asli"
-              ? `, warna ${INFO_GENRE[atur.genre].label} ${atur.tingkatGenre}% dari perubahan musik ${atur.tingkatMusik}% (tanpa nada tambahan — dijamin seirama)`
+              ? `, warna ${INFO_GENRE[atur.genre].label} ${atur.tingkatGenre}% dari perubahan musik ${atur.tingkatMusik}%`
               : ""}
             {atur.layerLevel > 0 && atur.genre !== "asli"
               ? ` + lapisan eksperimental ${atur.layerLevel}%`
@@ -354,7 +381,7 @@ export function PanelTempo({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
   );
 }
 
-// ============ 4. VOKAL & KARAOKE ============
+// ============ 4. VOKAL & KARAOKE + GENRE VOKAL (v0.16.0) ============
 
 export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik }) {
   if (atur.mode === "penuh") {
@@ -373,27 +400,130 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
       </Kartu>
     );
   }
+  const gv = atur.genreVokal;
+  const pilihGenreVokal = (g: GenreMusik | "mati") => {
+    if (g === "mati") ubah({ genreVokal: "mati", refVokal: "" });
+    else ubah({ genreVokal: g, refVokal: REFERENSI_VOKAL[g].pria[0].id });
+  };
+  const refAktif = gv !== "mati"
+    ? [...REFERENSI_VOKAL[gv].pria, ...REFERENSI_VOKAL[gv].wanita].find((r) => r.id === atur.refVokal) ?? null
+    : null;
+  const tombolPenyanyi = (r: (typeof REFERENSI_VOKAL)[GenreMusik]["pria"][number]) => (
+    <button
+      key={r.id}
+      type="button"
+      onClick={() => ubah({ refVokal: r.id })}
+      title={r.ket}
+      className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
+        atur.refVokal === r.id
+          ? "border-violet-400/80 bg-violet-400/15 text-violet-200"
+          : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+      }`}
+    >
+      <span className="block font-medium">{r.nama}</span>
+      <span className="block truncate text-[10px] opacity-70">{r.ket}</span>
+    </button>
+  );
   return (
     <Kartu
-      judul="4. Vokal & karaoke"
-      deskripsi="Pisahkan vokal dari musik — buat lagu karaoke atau batu vokal"
+      judul="4. Vokal, genre vokal & karaoke"
+      deskripsi="Genre vokal terpisah dgn referensi penyanyi — plus karaoke 3-pita v0.15"
       ikon={<Mic className="h-4 w-4" />}
     >
-      <ChipPilihan<KaraokeMode>
-        nilai={atur.karaoke}
-        onChange={(v) => ubah({ karaoke: v })}
-        pilihan={[
-          { v: "asli", label: "Asli", hint: "Tanpa dipisah" },
-          { v: "karaoke", label: "Karaoke", hint: "Vokal dihapus, instrumen tersisa" },
-          { v: "vokal", label: "Vokal saja", hint: "Instrumen diturunkan, vokal menonjol" },
-        ]}
-      />
+      {/* ===== v0.16.0 — GENRE VOKAL TERPISAH + REFERENSI PENYANYI ===== */}
+      <div className="rounded-xl border border-violet-400/25 bg-slate-800/40 p-3">
+        <p className="text-xs font-semibold text-violet-200">Genre vokal (baru v0.16)</p>
+        <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+          Terpisah dari genre musik: <b>musiknya</b> diubah lewat menu 2, <b>suara
+          vokalnya</b> diwarnai sesuai genre ini dgn karakter referensi penyanyi
+          (EQ timbre, getar, ruang, serak — diterapkan pada pita vokal lagu).
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => pilihGenreVokal("mati")}
+            className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
+              gv === "mati"
+                ? "border-amber-400/80 bg-amber-400/15 text-amber-200"
+                : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+            }`}
+          >
+            <span className="block font-medium">Mati</span>
+            <span className="block text-[10px] opacity-70">Vokal asli tanpa ubah</span>
+          </button>
+          {DAFTAR_GENRE.map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => pilihGenreVokal(g)}
+              title={`Warna vokal khas ${INFO_GENRE[g].label}`}
+              className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
+                gv === g
+                  ? "border-violet-400/80 bg-violet-400/15 text-violet-200"
+                  : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+              }`}
+            >
+              <span className="block font-medium">{INFO_GENRE[g].label}</span>
+              <span className="block truncate text-[10px] opacity-70">vokal khas genre</span>
+            </button>
+          ))}
+        </div>
+        {gv !== "mati" && atur.karaoke !== "karaoke" && (
+          <div className="mt-2.5 space-y-2">
+            <p className="text-[11px] font-medium text-slate-300">
+              Referensi penyanyi — karakter suara (2 pria + 2 wanita khas {INFO_GENRE[gv].label}):
+            </p>
+            <div>
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">Pria</p>
+              <div className="grid grid-cols-2 gap-1.5">{REFERENSI_VOKAL[gv].pria.map(tombolPenyanyi)}</div>
+            </div>
+            <div>
+              <p className="mb-1 text-[10px] uppercase tracking-wide text-slate-500">Wanita</p>
+              <div className="grid grid-cols-2 gap-1.5">{REFERENSI_VOKAL[gv].wanita.map(tombolPenyanyi)}</div>
+            </div>
+            <BarisSlider
+              label={`Tingkat rasa vokal ${INFO_GENRE[gv].label}${refAktif ? ` — ${refAktif.nama}` : ""}`}
+              nilai={atur.tingkatVokal}
+              min={0}
+              max={100}
+              step={5}
+              fmt={(n) => (n === 0 ? "Apa adanya" : `${n}%`)}
+              onChange={(n) => ubah({ tingkatVokal: n })}
+            />
+            <p className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[10px] leading-relaxed text-slate-500">
+              Jujur &amp; transparan: referensi penyanyi = <b>karakter gaya</b> yang
+              terinspirasi ciri khas penyanyi itu (warna timbre, getar, ruang, serak) —
+              <b> bukan tiruan suara aslinya</b>. Mengganti suara menjadi penyanyi tertentu
+              butuh AI raksasa di server GPU, mustahil jalan 100% offline. Semua proses di
+              sini DSP audio murni di PC-mu.
+            </p>
+          </div>
+        )}
+        {gv !== "mati" && atur.karaoke === "karaoke" && (
+          <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2 text-[11px] text-amber-200/90">
+            Mode <b>Karaoke</b> aktif — vokalnya dihapus, jadi genre vokal sementara tidak
+            dipakai. Pilih mode <b>Asli</b> atau <b>Vokal saja</b> untuk memakai genre vokal.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-3">
+        <ChipPilihan<KaraokeMode>
+          nilai={atur.karaoke}
+          onChange={(v) => ubah({ karaoke: v })}
+          pilihan={[
+            { v: "asli", label: "Asli", hint: "Tanpa dipisah" },
+            { v: "karaoke", label: "Karaoke", hint: "Vokal dihapus, instrumen tersisa" },
+            { v: "vokal", label: "Vokal saja", hint: "Instrumen diturunkan, vokal menonjol" },
+          ]}
+        />
+      </div>
       <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-        <b className="text-slate-400">v0.15 — penghapus vokal diperkuat:</b> kanal tengah
-        (tempat vokal) dihapus per pita frekuensi, bass &amp; kilau simbal dikembalikan,
-        lalu kepadatan dinaikkan otomatis — hasil <b>nyaring</b>, tidak lagi terpendam.
-        Paling efektif utk MP3 <b>stereo</b> dgn vokal di tengah (umum di lagu komersial);
-        sisa gema vokal yang lebar mungkin masih samar — itu batas DSP offline tanpa AI.
+        <b className="text-slate-400">Karaoke v0.15:</b> kanal tengah (tempat vokal)
+        dihapus per pita frekuensi, bass &amp; kilau simbal dikembalikan, kepadatan
+        dinaikkan otomatis — hasil <b>nyaring</b>, tidak terpendam. Paling efektif utk
+        MP3 <b>stereo</b> dgn vokal di tengah (umum di lagu komersial); sisa gema vokal
+        yang lebar mungkin masih samar — itu batas DSP offline tanpa AI.
       </p>
     </Kartu>
   );

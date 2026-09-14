@@ -271,7 +271,7 @@ cek(mean8 > -40, `edm pump tidak bisu (mean_volume ${mean8} dB)`);
 console.log("== 15. v0.15.0 — PERUBAHAN MUSIK 0%: benar-benar lagu asli (transpos ikut 0) ==");
 const p9 = await POST("/api/musik/proses", {
   file: up.file, judul: "Perubahan 0 Uji", genre: "dangdut", layerLevel: 0,
-  tingkatGenre: 80, tingkatMusik: 0, kemiripan: 60,
+  tingkatGenre: 80, tingkatMusik: 0, kemiripan: 60, nadaLevel: 0,
   karaoke: "asli", bpm: an.bpm, fase: an.fase,
   mode: "remake", kecepatan: 1.3,
 });
@@ -337,6 +337,55 @@ cek(!!pv.a, "jalur audio ada di MP4 vertikal");
 const prb = await POST("/api/probe", { file: `output/${jv.id}/${mp4Vert}` });
 cek(prb.ok && prb.lebar === 1080 && prb.tinggi === 1920 && prb.durasi > 0,
   `/api/probe membaca MP4 musik (lulus prasyarat tombol Buka di Mode Video)`);
+
+console.log("== 18. v0.16.0 — HARMONI TERKUNCI-AKOR: nada tambahan dari chord lagu sendiri ==");
+const p16 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Harmoni Akor Uji", genre: "dangdut", layerLevel: 0,
+  tingkatGenre: 55, tingkatMusik: 65, nadaLevel: 70, kemiripan: 80,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  mode: "remake", kecepatan: 1,
+});
+cek(p16.ok && p16.id, `job harmoni akor mulai: ${p16.id}`);
+const j16 = await pollJob(p16.id);
+cek(!j16.error && j16.fileMp3, "harmoni akor selesai tanpa error");
+const pr16 = ffprobe(path.join(WORK, j16.fileMp3));
+// resep dangdut tempo 1.02 → durasi ≈ 16/1.02 (harmoni TIDAK mengubah durasi)
+cek(Math.abs(pr16.durasi - 16 / 1.02) < 1.2,
+  `durasi harmoni ≈ ${(16 / 1.02).toFixed(2)} dtk (${pr16.durasi.toFixed(2)})`);
+const vol16 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j16.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean16 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol16)?.[1] || 0);
+cek(mean16 > -30, `harmoni menambah isi (mean_volume ${mean16} dB > -30)`);
+
+console.log("== 19. v0.16.0 — GENRE VOKAL: dangdut + referensi Rhoma Irama (karakter gaya) ==");
+const p17 = await POST("/api/musik/proses", {
+  file: up.file, judul: "Genre Vokal Uji", genre: "asli", layerLevel: 0,
+  genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 80,
+  karaoke: "asli", bpm: an.bpm, fase: an.fase,
+  kecepatan: 1,
+});
+cek(p17.ok && p17.id, `job genre vokal mulai: ${p17.id}`);
+const j17 = await pollJob(p17.id);
+cek(!j17.error && j17.fileMp3, "genre vokal selesai tanpa error");
+const pr17 = ffprobe(path.join(WORK, j17.fileMp3));
+cek(Math.abs(pr17.durasi - 16) < 1.2, `durasi genre vokal = asli (${pr17.durasi.toFixed(2)})`);
+const vol17 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j17.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean17 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol17)?.[1] || 0);
+cek(mean17 > -40, `genre vokal tidak bisu (mean_volume ${mean17} dB, sumber pelan -40)`);
+
+console.log("== 20. v0.16.0 — GENRE VOKAL di mode 'vokal saja' + harmoni mati utk genre asli ==");
+const p18 = await POST("/api/musik/proses", {
+  file: upS.file, judul: "Vokal Saja Vokal Uji", genre: "asli", layerLevel: 0,
+  genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 90,
+  karaoke: "vokal", bpm: 120, fase: 0,
+});
+const j18 = await pollJob(p18.id);
+cek(!j18.error && j18.fileMp3, "vokal saja + genre vokal selesai tanpa error");
+const vol18 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j18.fileMp3),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+const mean18 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol18)?.[1] || 0);
+cek(mean18 > -40, `vokal saja + warna vokal tidak bisu (mean_volume ${mean18} dB)`);
 
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

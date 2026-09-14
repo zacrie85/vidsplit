@@ -183,6 +183,296 @@ export function rantaiWarna(genre: GenreMusik, tingkat: number, bpmEfektif: numb
   return out;
 }
 
+// ============ v0.16.0 — GENRE VOKAL TERPISAH + REFERENSI PENYANYI ============
+
+/** Resep DSP vokal dasar per genre — diterapkan pada PITA VOKAL (kanal tengah,
+ *  band 180–5200 Hz) yang diambil dari lagu, lalu dicampur kembali. Semua nilai
+ *  di-skalakan dgn "Tingkat rasa vokal" (0–100%). Karakter timbre (bukan AI). */
+export interface ResepVokalGenre {
+  /** EQ timbre: [freq Hz, lebar oktaf, gain dB (× t)] */
+  eq: [number, number, number][];
+  /** kehangatan dada (low-shelf @180 Hz, dB × t) */
+  hangat?: number;
+  /** kecerahan (high-shelf @6000 Hz, dB × t) */
+  terang?: number;
+  /** getar khas (vibrato: [f Hz, depth × t]) — mis. hio dangdut */
+  vibrato?: [number, number];
+  /** getar amplitudo halus */
+  tremolo?: [number, number];
+  /** ruang/gema khas genre [delay, decay, gain maks (× t)] */
+  echo?: [string, string, number];
+  /** kompresor [threshold, ratio, attack, release, makeup] — ratio/makeup × t */
+  comp?: [number, number, number, number, number];
+  /** serak/grit 0..1 (acrusher ringan) — rock/metal/punk/blues/funk */
+  grit?: number;
+  /** potong frekuensi tinggi (hiphop/lofi) */
+  lowpass?: number;
+}
+
+export const RESEP_VOKAL_GENRE: Record<GenreMusik, ResepVokalGenre> = {
+  pop:       { eq: [[3000, 1.2, 2.5]], terang: 1.5, comp: [-18, 2.5, 10, 180, 3] },
+  rock:      { eq: [[2500, 1.5, 3], [800, 1, 1.5]], hangat: 2, grit: 0.35, comp: [-16, 3.2, 8, 140, 3.5] },
+  punk:      { eq: [[2200, 1.5, 3.5], [1200, 1, 2]], terang: 1, grit: 0.5, comp: [-15, 4, 6, 110, 4] },
+  metal:     { eq: [[3000, 1.8, 3.5], [180, 1, 2]], hangat: 1.5, grit: 0.55, comp: [-14, 5, 5, 100, 4.5] },
+  jazz:      { eq: [[250, 1, 2]], hangat: 3, terang: -1, echo: ["80|160", "0.16|0.09", 0.4], comp: [-20, 2, 18, 300, 2.5] },
+  blues:     { eq: [[220, 1, 2.5]], hangat: 2.5, grit: 0.3, tremolo: [4.8, 0.08], comp: [-18, 2.5, 14, 240, 3] },
+  reggae:    { eq: [[350, 1, 2]], hangat: 2.5, echo: ["150|300", "0.2|0.1", 0.4], comp: [-18, 3, 12, 220, 3] },
+  ska:       { eq: [[1600, 1.2, 2.5]], terang: 2, comp: [-16, 3, 10, 150, 3] },
+  dangdut:   { eq: [[1800, 1.3, 2.5], [2800, 1.2, 1.5]], hangat: 2, vibrato: [5.5, 0.2], echo: ["110|220", "0.14|0.08", 0.35], comp: [-17, 3, 10, 160, 3] },
+  edm:       { eq: [[3000, 1.4, 2.5]], terang: 2.5, comp: [-16, 4, 8, 140, 4] },
+  hiphop:    { eq: [[450, 1, 2]], hangat: 3, lowpass: 11000, comp: [-16, 4, 8, 150, 3.5] },
+  funk:      { eq: [[900, 1.2, 2], [3500, 1.4, 2]], grit: 0.25, comp: [-15, 4, 6, 120, 3.5] },
+  disco:     { eq: [[2800, 1.3, 2]], terang: 2.5, echo: ["90|180", "0.15|0.08", 0.4], comp: [-15, 3.5, 8, 130, 3.5] },
+  keroncong: { eq: [[200, 1, 2]], hangat: 2.5, vibrato: [5, 0.14], echo: ["130|260", "0.18|0.1", 0.45], comp: [-19, 2.4, 16, 280, 2.5] },
+  country:   { eq: [[700, 1, 2]], terang: 1.5, hangat: 1.5, echo: ["110", "0.24", 0.4], comp: [-17, 2.8, 12, 200, 2.5] },
+  lofi:      { eq: [], hangat: 2, lowpass: 7500, vibrato: [3.2, 0.1], comp: [-18, 3, 14, 240, 2.5] },
+  gamelan:   { eq: [[1000, 1.2, 1.5]], terang: 1, echo: ["160|320", "0.22|0.12", 0.5], comp: [-18, 2.6, 14, 260, 2.5] },
+};
+
+/** Satu REFERENSI PENYANYI — preset karakter gaya (EQ, getar, serak, ruang)
+ *  yang terinspirasi ciri khas penyanyi itu. Jujur di UI: ini karakter gaya
+ *  DSP 100% offline, BUKAN tiruan suara asli (itu butuh AI server GPU). */
+export interface ReferensiPenyanyi {
+  id: string;
+  nama: string;
+  ket: string;
+  /** EQ pribadi tambahan [freq, oktaf, gain dB × t] */
+  eq?: [number, number, number][];
+  /** pengali depth vibrato genre (1 = standar) */
+  vibMul?: number;
+  /** pengali serak (1 = standar) */
+  gritMul?: number;
+  /** dB kecerahan tambahan (× t) */
+  terang?: number;
+  /** dB kehangatan tambahan (× t) */
+  hangat?: number;
+}
+
+/** 17 genre × (2 penyanyi pria + 2 penyanyi wanita) = 68 referensi —
+ *  dipilih user sebagai acuan KARAKTER suara vokal hasil. */
+export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wanita: ReferensiPenyanyi[] }> = {
+  pop: {
+    pria: [
+      { id: "pop-p1", nama: "Tulus", ket: "Bersih lembut, dada penuh", hangat: 1.5, vibMul: 0.9 },
+      { id: "pop-p2", nama: "Glenn Fredly", ket: "Hangat soul, teduh", eq: [[600, 1, 1.5]], hangat: 1 },
+    ],
+    wanita: [
+      { id: "pop-w1", nama: "Rossa", ket: "Mengkilap, presisi", terang: 1.5, vibMul: 1.1 },
+      { id: "pop-w2", nama: "Andien", ket: "Mengalir lembut, soul", hangat: 1.5, vibMul: 0.85 },
+    ],
+  },
+  rock: {
+    pria: [
+      { id: "rock-p1", nama: "Ahmad Albar", ket: "Serak garang, legenda", gritMul: 1.3, hangat: 1 },
+      { id: "rock-p2", nama: "Ari Lasso", ket: "Melankolis, jerit tinggi", terang: 1.5, gritMul: 0.85 },
+    ],
+    wanita: [
+      { id: "rock-w1", nama: "Nicky Astria", ket: "Berwibawa, rock lawas", hangat: 1.5, gritMul: 1.1 },
+      { id: "rock-w2", nama: "Anggun", ket: "Bulat kuat, era 90-an", terang: 1, gritMul: 0.8 },
+    ],
+  },
+  punk: {
+    pria: [
+      { id: "punk-p1", nama: "Joey Ramone", ket: "Nasal lurus khas Ramones", eq: [[1200, 1.2, 2]], gritMul: 1.2 },
+      { id: "punk-p2", nama: "Billie Joe Armstrong", ket: "Nasal cepat Green Day", eq: [[1400, 1.2, 1.5]], gritMul: 1 },
+    ],
+    wanita: [
+      { id: "punk-w1", nama: "Hayley Williams", ket: "Pop-punk lincah", terang: 1.5, gritMul: 0.9 },
+      { id: "punk-w2", nama: "Kathleen Hanna", ket: "Riot grrrl tajam", eq: [[1800, 1.2, 2]], gritMul: 1.25 },
+    ],
+  },
+  metal: {
+    pria: [
+      { id: "metal-p1", nama: "Bruce Dickinson", ket: "Operik tinggi Iron Maiden", terang: 1.5, gritMul: 0.7, vibMul: 1.2 },
+      { id: "metal-p2", nama: "Rob Halford", ket: "Jerit baja Judas Priest", terang: 2, gritMul: 0.9 },
+    ],
+    wanita: [
+      { id: "metal-w1", nama: "Angela Gossow", ket: "Geraman death Arch Enemy", gritMul: 1.5, hangat: 1.5 },
+      { id: "metal-w2", nama: "Doro Pesch", ket: "Metal kuat eropa", terang: 1, gritMul: 1.05 },
+    ],
+  },
+  jazz: {
+    pria: [
+      { id: "jazz-p1", nama: "Frank Sinatra", ket: "Frasa santai, dada hangat", hangat: 1.5, vibMul: 0.8 },
+      { id: "jazz-p2", nama: "Michael Bublé", ket: "Swing modern mengkilap", terang: 1, vibMul: 0.9 },
+    ],
+    wanita: [
+      { id: "jazz-w1", nama: "Ella Fitzgerald", ket: "Gesit, swing murni", terang: 1.5, vibMul: 0.85 },
+      { id: "jazz-w2", nama: "Norah Jones", ket: "Berbisik hangat intim", hangat: 2, terang: -0.5 },
+    ],
+  },
+  blues: {
+    pria: [
+      { id: "blues-p1", nama: "B.B. King", ket: "Raung hangat penuh cerita", hangat: 2, gritMul: 1.15, vibMul: 1.2 },
+      { id: "blues-p2", nama: "Eric Clapton", ket: "Serak kalem, dada dalam", hangat: 1.5, gritMul: 0.95 },
+    ],
+    wanita: [
+      { id: "blues-w1", nama: "Etta James", ket: "Kuat bergetar penuh rasa", hangat: 2, vibMul: 1.3 },
+      { id: "blues-w2", nama: "Bonnie Raitt", ket: "Berdebu hangat", hangat: 1.5, gritMul: 1.1 },
+    ],
+  },
+  reggae: {
+    pria: [
+      { id: "reggae-p1", nama: "Bob Marley", ket: "Tenang berayun khas one drop", vibMul: 1.1, hangat: 1 },
+      { id: "reggae-p2", nama: "Peter Tosh", ket: "Tegas bertaut", eq: [[800, 1.2, 1.5]], gritMul: 1.1 },
+    ],
+    wanita: [
+      { id: "reggae-w1", nama: "Marcia Griffiths", ket: "Lembut ayun I-Threes", terang: 1, vibMul: 0.95 },
+      { id: "reggae-w2", nama: "Rita Marley", ket: "Hangat bersahutan", hangat: 1.5 },
+    ],
+  },
+  ska: {
+    pria: [
+      { id: "ska-p1", nama: "Desmond Dekker", ket: "Ceria melompat era rocksteady", terang: 1.5, vibMul: 1.15 },
+      { id: "ska-p2", nama: "Prince Buster", ket: "Teriak seruan sound system", eq: [[1000, 1.2, 1.5]], gritMul: 1.1 },
+    ],
+    wanita: [
+      { id: "ska-w1", nama: "Dawn Penn", ket: "Dingin khas rocksteady", hangat: 1, vibMul: 0.9 },
+      { id: "ska-w2", nama: "Pauline Black", ket: "Tegas cerdas The Selecter", terang: 1.5 },
+    ],
+  },
+  dangdut: {
+    pria: [
+      { id: "dangdut-p1", nama: "Rhoma Irama", ket: "Berhio hidup, raja dangdut", vibMul: 1.25, eq: [[1200, 1.2, 1.5]], hangat: 1 },
+      { id: "dangdut-p2", nama: "Mansyur S", ket: "Dalam merdu khas Melayu", hangat: 2, terang: -0.5, vibMul: 0.8 },
+    ],
+    wanita: [
+      { id: "dangdut-w1", nama: "Elvi Sukaesih", ket: "Penuh rasa, ratu dangdut", vibMul: 1.2, eq: [[2000, 1.2, 1.5]] },
+      { id: "dangdut-w2", nama: "Inul Daratista", ket: "Lincah khas ngebor", terang: 1.5, vibMul: 1.1 },
+    ],
+  },
+  edm: {
+    pria: [
+      { id: "edm-p1", nama: "The Weeknd", ket: "Falsetto gelap synth-pop", terang: 1.5, vibMul: 1.1 },
+      { id: "edm-p2", nama: "Daft Punk", ket: "Vocoder robot khas house", eq: [[2000, 1.5, 2.5]], gritMul: 1.3 },
+    ],
+    wanita: [
+      { id: "edm-w1", nama: "Dua Lipa", ket: "Rendah dingin dance-pop", hangat: 1.5, terang: 1 },
+      { id: "edm-w2", nama: "Ava Max", ket: "Terang menembus beat", terang: 2 },
+    ],
+  },
+  hiphop: {
+    pria: [
+      { id: "hiphop-p1", nama: "Eminem", ket: "Rapat cepat penuh serangan", eq: [[2500, 1.4, 2]], gritMul: 1.15 },
+      { id: "hiphop-p2", nama: "Jay-Z", ket: "Santai tenang boss", hangat: 1.5, gritMul: 0.9 },
+    ],
+    wanita: [
+      { id: "hiphop-w1", nama: "Lauryn Hill", ket: "Soul rap mengalir", hangat: 2, vibMul: 1.05 },
+      { id: "hiphop-w2", nama: "Nicki Minaj", ket: "Lincah berkarakter", eq: [[1800, 1.2, 1.5]], terang: 1.5 },
+    ],
+  },
+  funk: {
+    pria: [
+      { id: "funk-p1", nama: "James Brown", ket: "Teriak energi bapak funk", gritMul: 1.3, eq: [[1200, 1.2, 1.5]] },
+      { id: "funk-p2", nama: "Stevie Wonder", ket: "Melenting bergetar soul", vibMul: 1.35, terang: 1 },
+    ],
+    wanita: [
+      { id: "funk-w1", nama: "Chaka Khan", ket: "Kuat meledak-leledak", terang: 1.5, vibMul: 1.2 },
+      { id: "funk-w2", nama: "Aretha Franklin", ket: "Ratu soul berwibawa", hangat: 2, vibMul: 1.1 },
+    ],
+  },
+  disco: {
+    pria: [
+      { id: "disco-p1", nama: "Bee Gees", ket: "Falsetto tinggi mengambang", terang: 2, vibMul: 1.15 },
+      { id: "disco-p2", nama: "Michael Jackson", ket: "Ringan bertaut era Off the Wall", eq: [[1500, 1.2, 1.5]], terang: 1.5 },
+    ],
+    wanita: [
+      { id: "disco-w1", nama: "Donna Summer", ket: "Berpulsar ratu disko", terang: 1.5, vibMul: 1.1 },
+      { id: "disco-w2", nama: "Gloria Gaynor", ket: "Kuat perkasa", hangat: 1.5 },
+    ],
+  },
+  keroncong: {
+    pria: [
+      { id: "keroncong-p1", nama: "Gesang", ket: "Langgam tenang maestro", hangat: 2, vibMul: 0.85 },
+      { id: "keroncong-p2", nama: "Manthous", ket: "Langgam Jawa campursari", hangat: 1.5, eq: [[600, 1, 1.5]] },
+    ],
+    wanita: [
+      { id: "keroncong-w1", nama: "Waldjinah", ket: "Ratu Keroncong langgam Jawa", vibMul: 1.15, hangat: 1.5 },
+      { id: "keroncong-w2", nama: "Sundari Sukoco", ket: "Langgam halus Solo", terang: 1, vibMul: 0.9 },
+    ],
+  },
+  country: {
+    pria: [
+      { id: "country-p1", nama: "Johnny Cash", ket: "Berdebu dalam man in black", hangat: 2.5, gritMul: 1.2 },
+      { id: "country-p2", nama: "Kenny Rogers", ket: "Hangat bercerita", hangat: 1.5, vibMul: 0.9 },
+    ],
+    wanita: [
+      { id: "country-w1", nama: "Dolly Parton", ket: "Terang bulat country", terang: 2, vibMul: 1.1 },
+      { id: "country-w2", nama: "Patsy Cline", ket: "Sedih klasik Nashville", hangat: 1.5, vibMul: 1.2 },
+    ],
+  },
+  lofi: {
+    pria: [
+      { id: "lofi-p1", nama: "Joji", ket: "Berbisik pilu bedroom", hangat: 2, terang: -1, vibMul: 0.8 },
+      { id: "lofi-p2", nama: "Keshi", ket: "Falsetto tipis malam", terang: 1, vibMul: 0.85 },
+    ],
+    wanita: [
+      { id: "lofi-w1", nama: "Clairo", ket: "Kalem berdebu bedroom pop", hangat: 1.5, terang: -0.5 },
+      { id: "lofi-w2", nama: "Beabadoobee", ket: "Manis indie mengantuk", eq: [[1500, 1.2, 1.5]], terang: 0.5 },
+    ],
+  },
+  gamelan: {
+    pria: [
+      { id: "gamelan-p1", nama: "Didi Kempot", ket: "Panicinta lawas langgam Jawa", hangat: 2, vibMul: 0.95 },
+      { id: "gamelan-p2", nama: "Ki Nartosabdo", ket: "Sindhen pria wayang berwibawa", hangat: 1.5, vibMul: 1.1 },
+    ],
+    wanita: [
+      { id: "gamelan-w1", nama: "Peni Candra Rini", ket: "Sindhen berkelas", terang: 1, vibMul: 1.2 },
+      { id: "gamelan-w2", nama: "Endah Laras", ket: "Sindhen hangat gaya Yogya", hangat: 1.5, vibMul: 1 },
+    ],
+  },
+};
+
+/** Cari referensi penyanyi dari id di SELURUH genre (fallback bila id tak dikenal). */
+export function cariReferensiVokal(id: string): ReferensiPenyanyi | null {
+  for (const g of DAFTAR_GENRE) {
+    for (const r of [...REFERENSI_VOKAL[g].pria, ...REFERENSI_VOKAL[g].wanita]) {
+      if (r.id === id) return r;
+    }
+  }
+  return null;
+}
+
+/** v0.16.0 — bangun rantai filter GENRE VOKAL (diterapkan pada pita vokal tengah).
+ *  Mencampur resep dasar genre + sentuhan pribadi referensi penyanyi, semua
+ *  di-skalakan dgn tingkat 0–100 (0 = apa adanya). Karakter timbre murni DSP. */
+export function rantaiVokal(genre: GenreMusik, refId: string, tingkat: number): string[] {
+  const base = RESEP_VOKAL_GENRE[genre];
+  if (!base) return [];
+  const ref = cariReferensiVokal(refId) ?? REFERENSI_VOKAL[genre].pria[0];
+  const t = Math.min(1, Math.max(0, tingkat / 100));
+  if (t <= 0.005) return [];
+  const out: string[] = [];
+  if (base.lowpass) out.push(`lowpass=f=${Math.round(base.lowpass)}`);
+  const hangat = (base.hangat ?? 0) + (ref.hangat ?? 0);
+  const terang = (base.terang ?? 0) + (ref.terang ?? 0);
+  if (hangat) out.push(`bass=g=${dua(hangat * t)}:f=180`);
+  if (terang) out.push(`treble=g=${dua(terang * t)}:f=6000`);
+  for (const [f, wd, g] of [...base.eq, ...(ref.eq ?? [])]) {
+    if (Math.abs(g * t) < 0.4) continue;
+    out.push(`equalizer=f=${f}:t=q:w=${wd}:g=${dua(g * t)}`);
+  }
+  if (base.comp) {
+    const [th, rasio, atk, rel, mk] = base.comp;
+    out.push(`acompressor=threshold=${th}dB:ratio=${dua(1 + (rasio - 1) * t)}:attack=${atk}:release=${rel}:makeup=${dua(mk * t)}`);
+  }
+  if (base.echo) {
+    const [d, dc, g] = base.echo;
+    out.push(`aecho=0.8:${dua(0.3 + Math.abs(g) * t)}:${d}:${dc}`);
+  }
+  const grit = (base.grit ?? 0) * (ref.gritMul ?? 1);
+  if (grit > 0.02) out.push(`acrusher=bits=${dua(9 - 3 * grit)}:mix=${dua(0.12 + 0.3 * grit)}:mode=log:aa=0.3`);
+  if (base.vibrato) {
+    const d = base.vibrato[1] * (ref.vibMul ?? 1);
+    if (d * t >= 0.015) out.push(`vibrato=f=${base.vibrato[0]}:d=${dua(Math.min(1, d * t))}`);
+  }
+  if (base.tremolo) {
+    const d = base.tremolo[1] * t;
+    if (d >= 0.01) out.push(`tremolo=f=${base.tremolo[0]}:d=${dua(d)}`);
+  }
+  return out;
+}
+
 /** Resep tiap genre: rantai filter ffmpeg (dipakai berurutan), pengali tempo,
  *  pola layer instrumen, dan level layer bawaan (%). */
 export interface ResepGenre {
@@ -325,6 +615,18 @@ export interface OpsiStudioMusik {
    *  penuh. Kedua cabang punya pitch TEMPO SAMA (transpos diterapkan sebelum split)
    *  → campuran tak mungkin saling bertentangan. Bawaan 65. */
   tingkatMusik: number;
+  /** v0.16.0 (mode remake) 0–100 — LAPISAN HARMONI TERKUNCI-AKOR: nada tambahan
+   *  khas genre yang dimainkan dari chord lagu sendiri (akor/ters/kvint) + akar
+   *  bass + arpeggio di kisi ketukan hasil analisis → seirama by construction.
+   *  0 = mati (tanpa nada tambahan sama sekali). Bawaan 30. */
+  nadaLevel: number;
+  /** v0.16.0 — genre utk VOKAL (terpisah dari genre musik!): "mati" = vokal
+   *  asli tanpa sentuhan; selain itu = warna vokal khas genre tsb. */
+  genreVokal: GenreMusik | "mati";
+  /** v0.16.0 — id referensi penyanyi (mis. "dangdut-p1" = Rhoma Irama); "" = pria pertama */
+  refVokal: string;
+  /** v0.16.0 0–100 — tingkat rasa vokal (kekuatan warna genre vokal). Bawaan 55. */
+  tingkatVokal: number;
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -352,6 +654,13 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
         : Math.min(5, Math.max(-5, Math.round(Number(o.transpose)))),
     tingkatGenre: Math.min(100, Math.max(0, Math.round(Number(o.tingkatGenre ?? 55)))),
     tingkatMusik: Math.min(100, Math.max(0, Math.round(Number(o.tingkatMusik ?? 65)))),
+    nadaLevel: Math.min(100, Math.max(0, Math.round(Number(o.nadaLevel ?? 30)))),
+    genreVokal:
+      o.genreVokal && (o.genreVokal === "mati" || DAFTAR_GENRE.includes(o.genreVokal))
+        ? o.genreVokal
+        : "mati",
+    refVokal: String(o.refVokal || "").slice(0, 40),
+    tingkatVokal: Math.min(100, Math.max(0, Math.round(Number(o.tingkatVokal ?? 55)))),
   };
 }
 
@@ -422,7 +731,7 @@ export function skalaChord(c: SegmenChord[], faktor: number): SegmenChord[] {
  *  v0.14.0 mode remake: karakter genre memakai rantaiWarna() (WARNA GENRE) — tanpa
  *  nada tambahan; lapisan sintesis hanya bila layerLevel > 0 (opsi eksperimental). */
 export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
-  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number;
+  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number; adaNada: boolean;
 } {
   const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
   const tempoResep = resep ? resep.tempo : 1;
@@ -466,6 +775,14 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
 
   let adaLayer: boolean;
   let adaVokal = false;
+  let adaNada = false; // v0.16.0 — lapisan harmoni terkunci-akor aktif
+  // v0.16.0 — GENRE VOKAL (mode remake & lapisan): pita vokal tengah (180–5200 Hz)
+  // diekstrak, diberi karakter khas genre + referensi penyanyi, lalu dicampur kembali
+  // di ATAS lagu — bed tetap utuh, warna suara penyanyi berganti. Nonaktif saat
+  // karaoke (vokalnya sudah dihapus — tak ada yang diwarnai).
+  const fxVokalAktif =
+    !penuh && !!o.genreVokal && o.genreVokal !== "mati" && DAFTAR_GENRE.includes(o.genreVokal)
+    && (o.tingkatVokal ?? 55) > 0 && o.karaoke !== "karaoke";
   let labelAkhir = "mix"; // label bebas di ujung cabang (dikonsumsi atempo/limiter)
   if (!penuh) {
     // ========== MODE REMAKE ("versi genre" v0.14) & LAPISAN (perilaku v0.10) ==========
@@ -490,9 +807,34 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
         "[ksrcRaw]acompressor=threshold=-21dB:ratio=2.2:attack=10:release=200:makeup=4.5[ksrc]",
       );
     } else if (o.karaoke === "vokal") {
+      const fxV = fxVokalAktif && o.genreVokal !== "mati"
+        ? rantaiVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55).join(",")
+        : "";
+      if (fxV) {
+        baris.push(
+          "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200[voc0]",
+          `[voc0]${fxV},volume=1.45[voc0b]`,
+          "[voc0b]pan=stereo|c0=c0|c1=c0[ksrc]",
+        );
+      } else {
+        baris.push(
+          "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200,volume=1.45[voc0]",
+          "[voc0]pan=stereo|c0=c0|c1=c0[ksrc]",
+        );
+      }
+    } else if (fxVokalAktif && o.genreVokal !== "mati") {
+      // v0.16.0 — GENRE VOKAL di mode "asli": lagu tetap utuh di bed (sedikit diturunkan
+      // agar tak menimpa), pita vokal tengah diberi karakter genre + penyanyi referensi
+      // lalu diaduk kembali. p = tingkat rasa vokal (0–1): 0 → apa adanya.
+      const pv = Math.min(1, Math.max(0, (o.tingkatVokal ?? 55) / 100));
+      const fxV = rantaiVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55).join(",");
       baris.push(
-        "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200,volume=1.45[voc0]",
-        "[voc0]pan=stereo|c0=c0|c1=c0[ksrc]",
+        "[base]asplit=2[vbA][vbB]",
+        `[vbA]volume=${(1 - 0.3 * pv).toFixed(3)}[vokBed]`,
+        "[vbB]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200[vokBand]",
+        `[vokBand]${fxV},volume=${(0.62 * pv).toFixed(3)}[vokWet0]`,
+        "[vokWet0]pan=stereo|c0=c0|c1=c0[vokWet]",
+        "[vokBed][vokWet]amix=inputs=2:duration=first:normalize=0[ksrc]",
       );
     } else {
       baris.push("[base]anull[ksrc]");
@@ -520,6 +862,11 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
       baris.push(`[ksrc]${rantai}[g]`);
     }
     adaLayer = !!resep && o.layerLevel > 0 && !!resep.layer;
+    // v0.16.0 — LAPISAN HARMONI TERKUNCI-AKOR (remake + genre, bukan "asli"):
+    // nada tambahan khas genre yang SEMUA nada-nya diambil dari chord lagu sendiri
+    // (pad akor + akar bass + arpeggio di kisi ketukan hasil analisis) → seirama
+    // by construction. Input 1 (atau 2 bila lapisan eksperimental ikut aktif).
+    adaNada = remake && o.genre !== "asli" && (o.nadaLevel ?? 0) > 0;
     // v0.15.0 — gain akhir sadar-karaoke: jalur karaoke sudah membawa kompensasi
     // loudness sendiri (makeup 4,5 dB) → penguatan akhir diturunkan agar limiter
     // tidak bekerja terus-menerus (dulu: karaoke terpendam lalu dipaksa 1.9×).
@@ -528,8 +875,20 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
     if (adaLayer) {
       const lv = (o.layerLevel / 100) * 2;
       baris.push(`[g]volume=${gLayer}[g2]`);
-      baris.push(`[1:a]volume=${lv.toFixed(3)}[lay]`);
-      baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
+      if (adaNada) {
+        const lvN = ((o.nadaLevel ?? 0) / 100) * 2.1;
+        baris.push(`[1:a]volume=${lvN.toFixed(3)}[nad]`);
+        baris.push(`[2:a]volume=${lv.toFixed(3)}[lay]`);
+        baris.push("[g2][nad][lay]amix=inputs=3:duration=first[mix]");
+      } else {
+        baris.push(`[1:a]volume=${lv.toFixed(3)}[lay]`);
+        baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
+      }
+    } else if (adaNada) {
+      const lvN = ((o.nadaLevel ?? 0) / 100) * 2.1;
+      baris.push(`[g]volume=${gAkhir}[g2]`);
+      baris.push(`[1:a]volume=${lvN.toFixed(3)}[nad]`);
+      baris.push("[g2][nad]amix=inputs=2:duration=first[mix]");
     } else {
       baris.push(`[g]volume=${gAkhir}[mix]`);
     }
@@ -573,7 +932,7 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
   } else {
     baris.push(`[${labelAkhir}]alimiter=limit=0.95[aout]`);
   }
-  return { graf: baris.join(";"), adaLayer, tempo, adaVokal, transpose };
+  return { graf: baris.join(";"), adaLayer, tempo, adaVokal, transpose, adaNada };
 }
 
 // ============ 15 VISUALISER ============

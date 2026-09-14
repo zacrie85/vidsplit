@@ -515,3 +515,121 @@ export function buatIringanWav(a: KtxIring, genre: GenreMusik, opsi: OpsiIring):
   beriReverb(campur, 0.16);
   return wavDariFloat(campur);
 }
+
+// ============ v0.16.0 — LAPISAN HARMONI TERKUNCI-AKOR ============
+// Jawaban "tambahkan nada sesuai genre yang dipilih dan sinkronkan dengan musik &
+// nada yang telah ada": SEMUA nada di sini lahir dari chord lagu asli sendiri —
+// pad akor (akar/ters/kvint) bertahan mengikuti SEGMENT chord hasil analisis,
+// akar bass menguatkan kunci, arpeggio melangkah di kisi ketukan (BPM+fase asli),
+// plus hiasan khas genre. Tidak ada drum, tidak ada ritme terpisah → seirama
+// by construction (pelajaran v0.14), tapi kini lagu DAPAT nada tambahan.
+
+export interface GayaHarmoni {
+  /** alat nada bertahan (pad akor) */
+  pad: InsNada;
+  /** alat arpeggio */
+  arp: InsNada;
+  /** geser oktaf pad (metal/hiphop/lofi lebih dalam) */
+  okt: number;
+  /** pecahan ketukan per langkah arp (0.5 = not ke-8, 1 = tiap ketuk) */
+  arpDiv: number;
+  /** akar bass panjang di bawah */
+  bass: boolean;
+  /** hiasan khas genre (mis. sitar utk dangdut, seruling utk keroncong) */
+  dekor?: InsNada;
+  gPad: number;
+  gArp: number;
+  gBass: number;
+  gDekor?: number;
+}
+
+export const HARMONI_GENRE: Record<GenreMusik, GayaHarmoni> = {
+  pop:       { pad: "piano", arp: "piano", okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.5,  gArp: 0.4,  gBass: 0.5 },
+  rock:      { pad: "saw",   arp: "saw",   okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.42, gArp: 0.38, gBass: 0.55 },
+  punk:      { pad: "saw",   arp: "saw",   okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.4,  gArp: 0.45, gBass: 0.55 },
+  metal:     { pad: "saw",   arp: "saw",   okt: -1, arpDiv: 1,   bass: true, gPad: 0.4,  gArp: 0.35, gBass: 0.6 },
+  jazz:      { pad: "piano", arp: "piano", okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.45, gArp: 0.4,  gBass: 0.45 },
+  blues:     { pad: "piano", arp: "orgel", okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.45, gArp: 0.38, gBass: 0.5 },
+  reggae:    { pad: "orgel", arp: "pluk",  okt: 0,  arpDiv: 1,   bass: true, gPad: 0.5,  gArp: 0.42, gBass: 0.6 },
+  ska:       { pad: "pluk",  arp: "pluk",  okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.45, gArp: 0.5,  gBass: 0.5 },
+  dangdut:   { pad: "orgel", arp: "flute", okt: 0,  arpDiv: 0.5, bass: true, dekor: "sitar", gPad: 0.5, gArp: 0.45, gBass: 0.55, gDekor: 0.35 },
+  edm:       { pad: "saw",   arp: "saw",   okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.45, gArp: 0.42, gBass: 0.6 },
+  hiphop:    { pad: "piano", arp: "piano", okt: -1, arpDiv: 1,   bass: true, gPad: 0.45, gArp: 0.32, gBass: 0.6 },
+  funk:      { pad: "pluk",  arp: "pluk",  okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.42, gArp: 0.45, gBass: 0.55 },
+  disco:     { pad: "piano", arp: "bell",  okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.45, gArp: 0.42, gBass: 0.55 },
+  keroncong: { pad: "pluk",  arp: "pluk",  okt: 0,  arpDiv: 0.5, bass: true, dekor: "flute", gPad: 0.5, gArp: 0.45, gBass: 0.5, gDekor: 0.3 },
+  country:   { pad: "pluk",  arp: "pluk",  okt: 0,  arpDiv: 0.5, bass: true, gPad: 0.5,  gArp: 0.45, gBass: 0.5 },
+  lofi:      { pad: "piano", arp: "piano", okt: -1, arpDiv: 1,   bass: true, gPad: 0.5,  gArp: 0.3,  gBass: 0.55 },
+  gamelan:   { pad: "saron", arp: "saron", okt: 0,  arpDiv: 1,   bass: true, gPad: 0.5,  gArp: 0.45, gBass: 0.4 },
+};
+
+/** Render LAPISAN HARMONI (WAV PCM16 stereo 44.1 kHz) — nada tambahan khas genre
+ *  yang terkunci ke chord, BPM, dan fase lagu asli. tingkat 0–1 (0 = senyap).
+ *  Tanpa drum tanpa groove terpisah → mustahil bentrok irama (pelajaran v0.14). */
+export function buatHarmoniWav(a: KtxIring, genre: GenreMusik, tingkat: number): Buffer {
+  const gaya = HARMONI_GENRE[genre] ?? HARMONI_GENRE.pop;
+  const t = Math.min(1, Math.max(0, Number(tingkat) || 0));
+  const bpm = Math.min(220, Math.max(50, a.bpm || 120));
+  const spb = 60 / bpm;
+  const durasi = Math.max(1, a.durasi);
+  const totalN = Math.ceil((durasi + 1.0) * LAJU) * 2;
+  const campur = new Float32Array(totalN);
+  const master = 0.9 * t;
+  if (master > 0.001) {
+    const fase = a.fase || 0;
+    // cache sampel nada biar cepat
+    const cache = new Map<string, Float32Array>();
+    const ambilNada = (ins: InsNada, f: number, d: number, g: number): Float32Array => {
+      const kunci = `h:${ins}:${f.toFixed(1)}:${d.toFixed(2)}:${g.toFixed(3)}`;
+      let s = cache.get(kunci);
+      if (!s) { s = nadaIns(ins, f, d, g); cache.set(kunci, s); }
+      return s;
+    };
+    // daftar segmen akor (fallback: satu C sepanjang lagu)
+    const segmen: { root: number; minor: boolean; mulai: number; durasi: number }[] = [];
+    if (a.chord.length) {
+      for (const c of a.chord.slice(0, 900)) {
+        const p = parseChord(c.chord);
+        if (p) segmen.push({ root: p.root, minor: p.minor, mulai: c.mulai, durasi: c.durasi });
+      }
+    }
+    if (!segmen.length) segmen.push({ root: 0, minor: false, mulai: 0, durasi });
+    const urut = [0, 1, 2, 3, 2, 1]; // arah arpeggio naik-turun
+    for (const seg of segmen) {
+      const f0 = FREQ_C4 * Math.pow(2, seg.root / 12) * Math.pow(2, gaya.okt);
+      const freqs = (seg.minor ? [0, 3, 7, 12] : [0, 4, 7, 12]).map((o) => f0 * Math.pow(2, o / 12));
+      // 1) PAD akor — bertahan sepanjang segmen (mengikuti perubahan chord ASLI)
+      const dPad = Math.min(8, Math.max(0.4, seg.durasi * 0.94));
+      freqs.slice(0, 3).forEach((f, i) => {
+        if (seg.mulai >= durasi + 0.2) return;
+        tulisKeBufor(campur, ambilNada(gaya.pad, f, dPad, master * gaya.gPad * (i === 0 ? 1 : 0.8) / 1.7), seg.mulai);
+      });
+      // 2) AKAR BASS — kuatkan kunci di bawah
+      if (gaya.bass) {
+        const fB = FREQ_C2 * Math.pow(2, seg.root / 12);
+        tulisKeBufor(campur, ambilNada("bass", fB, Math.min(seg.durasi, spb * 3.8), master * gaya.gBass), seg.mulai);
+      }
+      // 3) ARPEGGIO di kisi ketukan (fase asli) — nada bagus yang ikut detak
+      const langkah = spb * gaya.arpDiv;
+      const nArp = Math.min(64, Math.floor(Math.min(seg.durasi, 8) / langkah));
+      for (let k = 0; k < nArp; k++) {
+        const tRaw = seg.mulai + k * langkah;
+        const tQ = fase + Math.round((tRaw - fase) / langkah) * langkah; // patok ke kisi beat
+        if (tQ < 0 || tQ > durasi + 0.2) continue;
+        const f = freqs[urut[k % urut.length]];
+        tulisKeBufor(campur, ambilNada(gaya.arp, f, langkah * 0.9, master * gaya.gArp * (k % 4 === 0 ? 1 : 0.75)), tQ);
+      }
+      // 4) HIASAN khas genre (sitar dangdut, seruling keroncong)
+      if (gaya.dekor && gaya.gDekor) {
+        const hias: [number, number][] = [[0.5, freqs[0] * 2], [2.5, freqs[2] * 2]];
+        for (const [p, f] of hias) {
+          const tt = seg.mulai + p * spb;
+          if (tt < 0 || tt > durasi + 0.2) continue;
+          tulisKeBufor(campur, ambilNada(gaya.dekor, f, spb * 0.55, master * gaya.gDekor), tt);
+        }
+      }
+    }
+  }
+  beriReverb(campur, 0.15);
+  return wavDariFloat(campur);
+}

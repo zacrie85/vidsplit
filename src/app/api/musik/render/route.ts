@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
       mode?: string; kecepatan?: number; grooveLevel?: number;
       melodiLevel?: number; vokalLevel?: number;
       tingkatGenre?: number; tingkatMusik?: number;
+      nadaLevel?: number; genreVokal?: string; refVokal?: string; tingkatVokal?: number;
       visual?: string; opsiVisual?: Partial<OpsiVisual>;
       resolusi?: string; lirik?: BarisLirik[]; chord?: SegmenChord[];
       audioSudahProses?: boolean; wavSiap?: string | null; fileMp3Siap?: string | null;
@@ -58,6 +59,10 @@ export async function POST(req: NextRequest) {
         vokalLevel: body.vokalLevel,
         tingkatGenre: body.tingkatGenre,
         tingkatMusik: body.tingkatMusik,
+        nadaLevel: body.nadaLevel,
+        genreVokal: body.genreVokal as OpsiStudioMusik["genreVokal"],
+        refVokal: body.refVokal,
+        tingkatVokal: body.tingkatVokal,
       }),
       visual,
       opsiVisual: rapiVisual(body.opsiVisual),
