@@ -74,6 +74,21 @@ for (const id of ["vektor-radar", "vektor-neon", "radar-berdenyut", "spatial-ste
   const g = bangunRantaiVisual(id, { w: 1280, h: 720, fps: 30, durasi: 60, o: { ...VIS, bgMode: "gradien" } });
   cek(g.includes("gradients="), `bgMode gradien diterapkan pada "${id}"`);
 }
+// v0.17.1 — kontrak kompatibilitas ffmpeg bundel (ffmpeg-static = 7.0.x, sama dgn installer Windows):
+// showspectrum hanya punya opsi `fps` (BUKAN `rate=` — hanya ada di ffmpeg lebih baru),
+// avectorscope hanya punya `draw=dot|line|aaline` (BUKAN mode=dot / mode=line / draw=fill).
+for (const id of ["spektrum-api", "spektrum-pelangi", "spektrum-magnet", "spektrum-vektor"] as const) {
+  const g = bangunRantaiVisual(id, { w: 1280, h: 720, fps: 30, durasi: 60, o: VIS });
+  const seg = (g.split("showspectrum=")[1] ?? "").split(";")[0];
+  cek(seg.length > 0 && seg.includes(`:fps=${30}`) && !seg.includes(`:rate=${30}`), `showspectrum "${id}" pakai fps= (kompatibel bundel, bukan rate=)`);
+}
+for (const id of ["vektor-radar", "vektor-neon", "spektrum-vektor", "radar-berdenyut"] as const) {
+  const g = bangunRantaiVisual(id, { w: 1280, h: 720, fps: 30, durasi: 60, o: VIS });
+  const seg = g.split("avectorscope=")[1] ?? "";
+  const aman = seg.length > 0 && !seg.includes("mode=dot") && !seg.includes("mode=line")
+    && !seg.includes("draw=fill") && !seg.includes("colors=") && seg.includes("rc=");
+  cek(aman, `avectorscope "${id}" pakai draw= valid + rc/gc/bc (kompatibel bundel)`);
+}
 
 console.log("== 4. ASS overlay ==");
 const ass = bangunAss({

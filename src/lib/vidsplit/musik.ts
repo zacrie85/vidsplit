@@ -1071,6 +1071,15 @@ export function hexFf(hex: string): string {
   return `0x${m ? m[1] : "22d3ee"}`;
 }
 
+/** v0.17.1 — "0xrrggbb" → opsi warna avectorscope (rc/gc/bc kontras per-kanal + fade netral).
+ * avectorscope TIDAK punya opsi `colors` (itu milik showwaves/showfreqs) — pakai rc/gc/bc. */
+export function vektorWarna(hex: string): string {
+  const m = /^0x([0-9a-fA-F]{6})$/.exec(hex.trim());
+  const n = m ? parseInt(m[1], 16) : 0x22d3ee;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `rc=${r}:gc=${g}:bc=${b}:rf=5:gf=5:bf=5`;
+}
+
 interface KtxVisual {
   w: number; h: number; fps: number; durasi: number; o: OpsiVisual;
 }
@@ -1092,11 +1101,11 @@ export function bangunRantaiVisual(id: IdVisual, k: KtxVisual): string {
     `[bg0][${labelVis}]overlay=(W-w)/2:(H-h)/2:shortest=1[viz]`;
   switch (id) {
     case "spektrum-api":
-      return `[av]showspectrum=s=${W}x${H}:mode=combined:slide=scroll:color=fire:scale=log:win_func=hann:rate=${fps}[viz]`;
+      return `[av]showspectrum=s=${W}x${H}:mode=combined:slide=scroll:color=fire:scale=log:win_func=hann:fps=${fps}[viz]`;
     case "spektrum-pelangi":
-      return `[av]showspectrum=s=${W}x${H}:mode=combined:slide=scroll:color=rainbow:scale=sqrt:win_func=hann:rate=${fps}[viz]`;
+      return `[av]showspectrum=s=${W}x${H}:mode=combined:slide=scroll:color=rainbow:scale=sqrt:win_func=hann:fps=${fps}[viz]`;
     case "spektrum-magnet":
-      return `[av]showspectrum=s=${W}x${H}:mode=combined:slide=scroll:color=intensity:scale=cbrt:win_func=hann:rate=${fps},hue=h=195:s=1.9[viz]`;
+      return `[av]showspectrum=s=${W}x${H}:mode=combined:slide=scroll:color=intensity:scale=cbrt:win_func=hann:fps=${fps},hue=h=195:s=1.9[viz]`;
     case "gelombang-neon":
       return `[av]showwaves=s=${W}x${H}:mode=cline:colors=${w1}|${w2}:rate=${fps}[viz]`;
     case "gelombang-cermin": {
@@ -1111,13 +1120,13 @@ export function bangunRantaiVisual(id: IdVisual, k: KtxVisual): string {
     case "vektor-radar": {
       const s = genap(Math.min(W, H) * 0.92);
       return [bgPilih(),
-        `[av]avectorscope=s=${s}x${s}:zoom=1.6:mode=dot:scale=cbrt:colors=${w1}|${w2}:rate=${fps}[sc]`,
+        `[av]avectorscope=s=${s}x${s}:zoom=1.6:draw=dot:scale=cbrt:${vektorWarna(w1)}:rate=${fps}[sc]`,
         pusat("sc")].join(";");
     }
     case "vektor-neon": {
       const s = genap(Math.min(W, H) * 0.92);
       return [bgPilih(),
-        `[av]avectorscope=s=${s}x${s}:zoom=2.1:mode=dot:draw=fill:scale=log:colors=${w2}|${w1}:rate=${fps}[sc]`,
+        `[av]avectorscope=s=${s}x${s}:zoom=2.1:draw=dot:scale=log:${vektorWarna(w2)}:rate=${fps}[sc]`,
         pusat("sc")].join(";");
     }
     case "frekuensi-balok":
@@ -1140,15 +1149,15 @@ export function bangunRantaiVisual(id: IdVisual, k: KtxVisual): string {
       const hw = genap(W / 2);
       return [
         "[av]asplit=2[sa][va2]",
-        `[sa]showspectrum=s=${hw}x${H}:mode=combined:slide=scroll:color=fire:scale=log:win_func=hann:rate=${fps}[sp]`,
-        `[va2]avectorscope=s=${hw}x${H}:zoom=1.5:mode=dot:scale=cbrt:colors=${w1}|${w2}:rate=${fps}[vec]`,
+        `[sa]showspectrum=s=${hw}x${H}:mode=combined:slide=scroll:color=fire:scale=log:win_func=hann:fps=${fps}[sp]`,
+        `[va2]avectorscope=s=${hw}x${H}:zoom=1.5:scale=cbrt:${vektorWarna(w1)}:rate=${fps}[vec]`,
         "[sp][vec]hstack=inputs=2[viz]",
       ].join(";");
     }
     case "radar-berdenyut": {
       const s = genap(Math.min(W, H) * 0.94);
       return [bgPilih(),
-        `[av]avectorscope=s=${s}x${s}:zoom=3.1:mode=line:draw=fill:scale=log:colors=${w2}|${w1}:rate=${fps},hue=s=1.4[sc]`,
+        `[av]avectorscope=s=${s}x${s}:zoom=3.1:draw=line:scale=log:${vektorWarna(w2)}:rate=${fps},hue=s=1.4[sc]`,
         pusat("sc")].join(";");
     }
     case "spatial-stereo": {
