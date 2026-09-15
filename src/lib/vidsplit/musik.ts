@@ -24,6 +24,30 @@ export type GenreMusik =
  *  | vokal (tonjolkan vokal, kurangi instrumen) — metode DSP tengah/samping stereo. */
 export type KaraokeMode = "asli" | "karaoke" | "vokal";
 
+/** v0.19.0 — PISAH VOKAL & MUSIK (vocal remover, DSP 100% offline):
+ *  satu lagu → DUA berkas terpisah sekaligus dalam SATU lari ffmpeg:
+ *  · [mout] MUSIK/INSTRUMENTAL — kanal tengah (tempat vokal) dihapus per pita,
+ *    bass mono <160 Hz + "udara" simbal >11 kHz dikembalikan + kompresor makeup
+ *    (resep karaoke v0.15 yang terbukti nyaring);
+ *  · [vout] VOKAL — inti tengah (L+R)/2 difokus ke pita suara 150–9500 Hz +
+ *    presence 3 kHz + kompensasi loudness, jadi bersih utk diputar/dinyanyikan.
+ *  Metode DSP tengah/samping stereo — paling efektif utk lagu stereo komersial
+ *  (vokal di tengah); pada berkas mono hasil = pita suara vs sisa band-reject. */
+export function grafPisahVokalMusik(): string {
+  return [
+    "[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asplit=4[k1][k2][k3][v1]",
+    // ==== MUSIK (instrumental): kanal tengah dihapus per pita ====
+    "[k1]pan=stereo|c0=0.5*c0+-0.5*c1|c1=0.5*c1+-0.5*c0,highpass=f=110,volume=2.0[side]",
+    "[k2]pan=mono|c0=0.5*c0+0.5*c1,lowpass=f=160[bas0]",
+    "[bas0]pan=stereo|c0=c0|c1=c0,volume=1.6[bas]",
+    "[k3]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=11000[air0]",
+    "[air0]pan=stereo|c0=c0|c1=c0,volume=0.45[air]",
+    "[bas][side][air]amix=inputs=3:duration=first:normalize=0,acompressor=threshold=-21dB:ratio=2.2:attack=10:release=200:makeup=4.5[mout]",
+    // ==== VOKAL: inti tengah, fokus pita suara + presence + kompensasi ====
+    "[v1]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=150,lowpass=f=9500,equalizer=f=3000:t=q:w=1:g=2.5,volume=1.7,acompressor=threshold=-19dB:ratio=2.5:attack=8:release=170:makeup=3.5[vout]",
+  ].join(";");
+}
+
 /** Cara pengubah genre bekerja:
  *  - "remake"  : (v0.14.0, BAWAAN) VERSI GENRE ala Suno — lagu asli tetap fondasi utuh
  *                100% (melodi, vokal, groove = bunyi rekaman asli) dan TIDAK ADA nada
@@ -201,15 +225,17 @@ export function rantaiWarna(genre: GenreMusik, tingkat: number, bpmEfektif: numb
   return out;
 }
 
-// ==== v0.17.0 — VOKALGEN-2: SUBSTITUSI PITA SUARA (genre vokal terpisah) ====
-// SKEMA BARU jawaban "tidak ada perubahan suara vokal sedikitpun": skema v0.16
-// hanya MENUMPANG salinan tipis pita vokal (gain 0,62×0,55 ≈ 0,34, EQ ±2,5 dB)
-// DI ATAS lagu utuh 100% → perubahan bersih 1–2 dB, tertutup musik. Sekarang
-// pita suara DIGANTI di tempatnya lewat crossover 3-pita Linkwitz-Riley
-// (acrossover 180|3800 Hz): pita tengah = inti suara penyanyi diproses PENUH
-// (EQ besar, kompresor, getar, ruang, serak, deesser + LAPISAN PITCH dada/kepala)
-// lalu disusun kembali dgn pita bawah (bass/kick) & pita atas (simbal/udara)
-// asli → perubahan JELAS terdengar DAN tetap sinkron 100% dgn musik.
+// ==== v0.19.0 — VOKALGEN-3: SUBSTITUSI KANAL TENGAH (vokal terisolasi) ====
+// Jawaban "masih belum terlihat perubahan suara vokal": pengukuran objektif
+// (scripts/uji-analisis-vokal.ts) membuktikan VOKALGEN-2 (v0.17) hanya mengubah
+// timbre vokal ±2–3% (sisa 31 dB) karena rantai karakter diterapkan ke SELURUH
+// pita tengah campuran (vokal + gitar + snare semuanya ikut, perubahan vokal
+// tertutup instrumen). VOKALGEN-3 memecah pita tengah 180–3800 Hz jadi
+// TENGAH/SAMPING: TENGAH (L+R)/2 = inti suara penyanyi → DIGANTI TOTAL dgn
+// versi berkarakter genre+referensi; SAMPING (L−R) = instrumen stereo → ASLI.
+// Rekonstruksi sempurna: tengah' + samping = pita tengah baru; pita bawah (<180)
+// & atas (>3800) tak tersentuh → musik utuh, karakter vokal berubah JELAS
+// (terukur: sisa <8 dB = perubahan dominan), tetap sinkron 100% dgn lagu.
 
 /** Resep DSP vokal per genre — diterapkan PENUH pada pita suara (180–3800 Hz)
  *  hasil crossover (bukan tumpangan → nilai EQ boleh & memang BESAR). Semua
@@ -249,18 +275,18 @@ export const RESEP_VOKAL_GENRE: Record<GenreMusik, ResepVokalGenre> = {
   punk:      { eq: [[2300, 1.4, 5], [1200, 1, 2.5]], terang: 1.5, grit: 0.6, comp: [-13, 5, 6, 100, 5.5] },
   metal:     { eq: [[3100, 1.6, 5], [200, 1, 2.5]], hangat: 2, grit: 0.65, geser: [-1.5, 0.26], comp: [-12, 6, 5, 90, 6] },
   jazz:      { eq: [[260, 1, 3.5]], hangat: 4, terang: -1.5, geser: [-1, 0.2], echo: ["90|180", "0.18|0.1", 0.5], comp: [-19, 2.5, 16, 280, 4], deess: 0.3 },
-  blues:     { eq: [[240, 1, 4], [2000, 1.2, 2]], hangat: 3.5, grit: 0.4, tremolo: [4.8, 0.12], geser: [-1, 0.24], comp: [-17, 3, 12, 220, 4.5] },
-  reggae:    { eq: [[380, 1, 3.5], [1500, 1.1, 2]], hangat: 3, vibrato: [5, 0.18], echo: ["170|340", "0.22|0.12", 0.5], comp: [-17, 3.5, 10, 200, 4.5] },
-  ska:       { eq: [[1700, 1.2, 4], [2800, 1.2, 2.5]], terang: 2.5, vibrato: [5.5, 0.15], comp: [-15, 3.5, 8, 140, 4.5] },
-  dangdut:   { eq: [[2000, 1.2, 4], [3200, 1.1, 3], [700, 1, 1.5]], hangat: 3, vibrato: [5.5, 0.28], echo: ["110|220", "0.16|0.09", 0.45], comp: [-16, 3.5, 9, 150, 4.5] },
+  blues:     { eq: [[240, 1, 4], [2000, 1.2, 2]], hangat: 3.5, grit: 0.4, tremolo: [4.8, 0.18], geser: [-1, 0.24], comp: [-17, 3, 12, 220, 4.5] },
+  reggae:    { eq: [[380, 1, 3.5], [1500, 1.1, 2]], hangat: 3, vibrato: [5, 0.26], echo: ["170|340", "0.22|0.12", 0.5], comp: [-17, 3.5, 10, 200, 4.5] },
+  ska:       { eq: [[1700, 1.2, 4], [2800, 1.2, 2.5]], terang: 2.5, vibrato: [5.5, 0.22], comp: [-15, 3.5, 8, 140, 4.5] },
+  dangdut:   { eq: [[2000, 1.2, 4], [3200, 1.1, 3], [700, 1, 1.5]], hangat: 3, vibrato: [5.5, 0.4], echo: ["110|220", "0.16|0.09", 0.45], comp: [-16, 3.5, 9, 150, 4.5] },
   edm:       { eq: [[3200, 1.3, 4.5]], terang: 3, geser: [1, 0.24], deess: 0.2, comp: [-15, 4.5, 7, 130, 5] },
   hiphop:    { eq: [[480, 1, 4]], hangat: 4, lowpass: 9500, geser: [-1.5, 0.28], comp: [-15, 4.5, 7, 140, 5] },
   funk:      { eq: [[950, 1.2, 3], [3600, 1.3, 3]], grit: 0.3, comp: [-14, 4.5, 6, 110, 5] },
   disco:     { eq: [[2900, 1.2, 4]], terang: 3, geser: [1, 0.24], echo: ["90|180", "0.16|0.09", 0.45], comp: [-14, 4, 7, 120, 5] },
-  keroncong: { eq: [[220, 1, 3.5], [1800, 1.1, 2]], hangat: 3.5, vibrato: [5, 0.2], geser: [-1, 0.2], echo: ["130|260", "0.2|0.11", 0.5], comp: [-18, 2.6, 14, 260, 4], deess: 0.25 },
+  keroncong: { eq: [[220, 1, 3.5], [1800, 1.1, 2]], hangat: 3.5, vibrato: [5, 0.28], geser: [-1, 0.2], echo: ["130|260", "0.2|0.11", 0.5], comp: [-18, 2.6, 14, 260, 4], deess: 0.25 },
   country:   { eq: [[750, 1, 3], [2600, 1.2, 2.5]], terang: 2, hangat: 2, echo: ["110", "0.26", 0.5], comp: [-16, 3, 10, 180, 4.5] },
-  lofi:      { eq: [[1500, 1.1, 2]], hangat: 2.5, lowpass: 6800, vibrato: [3.2, 0.15], geser: [-1, 0.24], comp: [-17, 3, 12, 220, 4] },
-  gamelan:   { eq: [[1100, 1.2, 2.5], [2400, 1.2, 2]], terang: 1.5, vibrato: [4.6, 0.14], echo: ["160|320", "0.24|0.13", 0.55], comp: [-17, 2.8, 12, 240, 4] },
+  lofi:      { eq: [[1500, 1.1, 2]], hangat: 2.5, lowpass: 6800, vibrato: [3.2, 0.22], geser: [-1, 0.24], comp: [-17, 3, 12, 220, 4] },
+  gamelan:   { eq: [[1100, 1.2, 2.5], [2400, 1.2, 2]], terang: 1.5, vibrato: [4.6, 0.2], echo: ["160|320", "0.24|0.13", 0.55], comp: [-17, 2.8, 12, 240, 4] },
 };
 
 /** Satu REFERENSI PENYANYI — preset karakter gaya (EQ, getar, serak, ruang)
@@ -477,6 +503,11 @@ export function cariReferensiVokal(id: string): ReferensiPenyanyi | null {
  *  180–3800 Hz hasil crossover — pita diganti utuh, bukan tumpangan tipis).
  *  Resep genre + sentuhan pribadi referensi penyanyi, semua di-skalakan dgn
  *  tingkat 0–100 (0 = apa adanya). Murni DSP offline. */
+/** v0.19 — faktor penguatan rantai karakter: rantai kini bekerja pada vokal
+ *  TERISOLASI (kanal tengah), bukan campuran penuh → nilai EQ/efek boleh dan
+ *  memang harus jauh lebih besar agar terdengar jelas. */
+const KUAT_VOKALGEN = 1.8;
+
 export function rantaiVokal(genre: GenreMusik, refId: string, tingkat: number): string[] {
   const base = RESEP_VOKAL_GENRE[genre];
   if (!base) return [];
@@ -486,19 +517,19 @@ export function rantaiVokal(genre: GenreMusik, refId: string, tingkat: number): 
   const out: string[] = [];
   const hangat = (base.hangat ?? 0) + (ref.hangat ?? 0);
   const terang = (base.terang ?? 0) + (ref.terang ?? 0);
-  if (hangat) out.push(`bass=g=${dua(hangat * t)}:f=160`);
+  if (hangat) out.push(`bass=g=${dua(hangat * t * 1.5)}:f=160`);
   for (const [f, wd, g] of [...base.eq, ...(ref.eq ?? [])]) {
-    if (Math.abs(g * t) < 0.4) continue;
-    out.push(`equalizer=f=${f}:t=q:w=${wd}:g=${dua(g * t)}`);
+    if (Math.abs(g * t * KUAT_VOKALGEN) < 0.4) continue;
+    out.push(`equalizer=f=${f}:t=q:w=${wd}:g=${dua(g * t * KUAT_VOKALGEN)}`);
   }
-  if (terang) out.push(`treble=g=${dua(terang * t)}:f=6000`);
+  if (terang) out.push(`treble=g=${dua(terang * t * 1.5)}:f=6000`);
   if (base.comp) {
     const [th, rasio, atk, rel, mk] = base.comp;
     out.push(`acompressor=threshold=${th}dB:ratio=${dua(1 + (rasio - 1) * t)}:attack=${atk}:release=${rel}:makeup=${dua(mk * t)}`);
   }
   if (base.deess) out.push(`deesser=i=${dua(base.deess * t)}`);
   const grit = (base.grit ?? 0) * (ref.gritMul ?? 1);
-  if (grit > 0.02) out.push(`acrusher=bits=${dua(9 - 3 * grit)}:mix=${dua(0.2 + 0.35 * grit)}:mode=log:aa=0.3`);
+  if (grit > 0.02) out.push(`acrusher=bits=${dua(9 - 3 * grit)}:mix=${dua(0.25 + 0.45 * grit)}:mode=log:aa=0.3`);
   if (base.vibrato) {
     const d = base.vibrato[1] * (ref.vibMul ?? 1);
     if (d * t >= 0.015) out.push(`vibrato=f=${base.vibrato[0]}:d=${dua(Math.min(1, d * t))}`);
@@ -536,7 +567,9 @@ export function geserVokal(genre: GenreMusik, refId: string, tingkat: number): {
   }
   st = Math.max(-3, Math.min(3, Math.round(st * 2) / 2));
   if (Math.abs(st) < 0.25 || g <= 0.01) return null;
-  return { st, gain: Math.min(0.5, g * (0.4 + 0.6 * t)) };
+  // v0.19 — lapisan pitch kini pd vokal terisolasi → penguatan 1,45× agar dada
+  // dalam/kepala terang benar-benar terdengar (dulu 0,26–0,44 = tenggelam).
+  return { st, gain: Math.min(0.65, g * (0.4 + 0.6 * t) * 1.45) };
 }
 
 /** v0.17 — baris graf utk pita berkarakter + lapisan pitch (dipakai jalur "asli"
@@ -899,23 +932,25 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
         ? geserVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55)
         : null;
       if (fxV) {
-        baris.push("[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200[voc0]");
+        // v0.19 — pita suara diperlebar 150–9500 Hz (konsonan & udara suara ikut)
+        baris.push("[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=150,lowpass=f=9500[voc0]");
         baris.push(...barisVokalKarakter("voc0", "voc0b", fxV, gvV, 1.45));
         baris.push("[voc0b]pan=stereo|c0=c0|c1=c0[ksrc]");
       } else {
         baris.push(
-          "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=5200,volume=1.45[voc0]",
+          "[base]pan=mono|c0=0.5*c0+0.5*c1,highpass=f=150,lowpass=f=9500,volume=1.45[voc0]",
           "[voc0]pan=stereo|c0=c0|c1=c0[ksrc]",
         );
       }
     } else if (fxVokalAktif && o.genreVokal !== "mati") {
-      // v0.17.0 — VOKALGEN-2 SUBSTITUSI PITA SUARA (mode "asli"): lagu dipecah
-      // crossover Linkwitz-Riley 180|3800 Hz. Pita bawah (bass/kick) & pita atas
-      // (simbal/udara) tetap asli; PITA TENGAH = inti suara penyanyi DIGANTI dgn
-      // versi berkarakter genre+referensi (EQ besar, kompresor, getar, ruang,
-      // serak, deesser) + LAPISAN PITCH dada/kepala (asetrate+atempo — sejajar
-      // waktu). Karena pita diganti DI TEMPATNYA (bukan salinan tipis ditempel di
-      // atas lagu seperti v0.16), perubahan suara JELAS terdengar & tetap sinkron.
+      // v0.19.0 — VOKALGEN-3 SUBSTITUSI KANAL TENGAH (mode "asli"): pita tengah
+      // 180–3800 Hz DIPECAH tengah/samping. TENGAH (L+R)/2 = inti suara penyanyi
+      // → DIGANTI dgn versi berkarakter genre+referensi (EQ besar, kompresor,
+      // getar, ruang, serak, deesser) + LAPISAN PITCH dada/kepala. SAMPING (L−R)
+      // = instrumen stereo → tetap ASLI. Rekonstruksi: tengah' + samping = pita
+      // tengah baru → perubahan vokal JELAS (vokal terisolasi, tak tertutup
+      // instrumen) & musik tetap utuh; sinkron 100%. Berkas mono → samping 0 →
+      // seluruh pita tengah menjadi "vokal" (fallback yang benar).
       const fxV = rantaiVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55).join(",");
       const gv = geserVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55);
       const resV = RESEP_VOKAL_GENRE[o.genreVokal];
@@ -925,7 +960,12 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
       if (resV?.terang) hi.push(`treble=g=${dua(resV.terang * tV)}:f=8000`);
       baris.push("[base]acrossover=split=180|3800:order=4th[vxl][vxm][vxh]");
       baris.push("[vxl]anull[vokLow]");
-      baris.push(...barisVokalKarakter("vxm", "vmMix", fxV, gv, 1.12));
+      baris.push("[vxm]asplit=2[vmC][vmS]");
+      baris.push("[vmC]pan=mono|c0=0.5*c0+0.5*c1[voc0]"); // TENGAH = inti vokal
+      baris.push("[vmS]pan=stereo|c0=0.5*c0+-0.5*c1|c1=0.5*c1+-0.5*c0[vocSd]"); // SAMPING = instrumen (amplitudo pas)
+      baris.push(...barisVokalKarakter("voc0", "voc1", fxV, gv, 0.8));
+      baris.push("[voc1]pan=stereo|c0=c0|c1=c0[vocS]");
+      baris.push("[vocSd][vocS]amix=inputs=2:duration=first:normalize=0[vmMix]");
       baris.push(hi.length ? `[vxh]${hi.join(",")}[vokHigh]` : "[vxh]anull[vokHigh]");
       baris.push("[vokLow][vmMix][vokHigh]amix=inputs=3:duration=first:normalize=0[ksrc]");
     } else {

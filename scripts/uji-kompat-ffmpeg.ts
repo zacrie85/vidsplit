@@ -1,14 +1,15 @@
-// Uji kompatibilitas ffmpeg — v0.17.1
+// Uji kompatibilitas ffmpeg — v0.19.0
 // Masalah v0.17.0: graf visual lolos uji sandbox (ffmpeg 7.1.x) tapi GAGAL di PC user
 // karena installer membundel ffmpeg-static 7.0.x yang tidak punya opsi `rate` di
 // showspectrum (`Error applying option 'rate' to filter 'showspectrum': Option not found`).
-// Solusi: skrip ini merender SEMUA gaya visual + bentuk graf ekspor penuh memakai
-// binary node_modules/ffmpeg-static (7.0.x — kembaran versi bundel Windows), plus
-// ffmpeg sistem bila ada, sehingga ketidakcocokan versi tertangkap SEBELUM rilis.
+// Solusi: skrip ini merender SEMUA gaya visual + bentuk graf ekspor penuh + graf
+// VOKALGEN-3 (genre vokal) + PISAH VOKAL & MUSIK memakai binary node_modules/ffmpeg-static
+// (7.0.x — kembaran versi bundel Windows), plus ffmpeg sistem bila ada, sehingga
+// ketidakcocokan versi tertangkap SEBELUM rilis.
 // Jalankan: bun scripts/uji-kompat-ffmpeg.ts
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { bangunRantaiVisual, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
+import { bangunFilterAudio, bangunRantaiVisual, grafPisahVokalMusik, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
 
 const DUR = 2;
 const W = 320, H = 568; // 9:16 kecil — cepat, tetap mewakili resolusi vertikal bawaan
@@ -35,6 +36,40 @@ function versiDari(bin: string): string {
 
 function uji(bin: string, label: string) {
   console.log(`\n== ${label}: ${versiDari(bin).slice(0, 60)} ==`);
+  // ==== v0.19 — graf AUDIO kritis: VOKALGEN-3 (3 genre) + PISAH VOKAL & MUSIK ====
+  const dasarVok = {
+    file: "uji", judul: "uji", genre: "asli" as const, layerLevel: 0,
+    karaoke: "asli" as const, bpm: 120, fase: 0, mode: "remake" as const,
+  };
+  const grafAudio: { nama: string; graf: string }[] = [
+    { nama: "vokalgen-3 dangdut 100", graf: bangunFilterAudio({ ...dasarVok, genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 100 }).graf },
+    { nama: "vokalgen-3 rock 80", graf: bangunFilterAudio({ ...dasarVok, genreVokal: "rock", refVokal: "rock-p1", tingkatVokal: 80 }).graf },
+    { nama: "vokalgen-3 hiphop 55", graf: bangunFilterAudio({ ...dasarVok, genreVokal: "hiphop", refVokal: "hiphop-p1", tingkatVokal: 55 }).graf },
+    { nama: "vokal saja + genre vokal", graf: bangunFilterAudio({ ...dasarVok, karaoke: "vokal", genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 90 }).graf },
+    { nama: "pisah vokal & musik", graf: grafPisahVokalMusik() },
+  ];
+  for (const { nama, graf } of grafAudio) {
+    const pisah = nama.startsWith("pisah");
+    const r = spawnSync(bin, [
+      "-hide_banner", "-v", "error",
+      "-f", "lavfi", "-i", `anoisesrc=d=${DUR}:c=pink:r=48000`,
+      "-filter_complex", graf,
+      // pisah punya DUA keluaran ([mout] + [vout]); graf lain satu [aout]
+      ...(pisah ? ["-map", "[mout]", "-map", "[vout]"] : ["-map", "[aout]"]),
+      "-t", String(DUR),
+      "-f", "null", "-",
+    ], { encoding: "utf8", timeout: 180_000 });
+    const ok = r.status === 0 && !(r.stderr || "").includes("Option not found");
+    if (ok) {
+      lulus++;
+      console.log(`  LULUS  ${nama}`);
+    } else {
+      gagal++;
+      daftarGagal.push(`${label} :: ${nama}`);
+      const s = (r.stderr || r.stdout || "tanpa stderr").trim().split("\n").slice(0, 3).join("\n    ");
+      console.log(`  GAGAL  ${nama}\n    ${s}`);
+    }
+  }
   VISUAL_MUSIK.forEach((v, idx) => {
     const o = {
       ...opsiVisualDefault,

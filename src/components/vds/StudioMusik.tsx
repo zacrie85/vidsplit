@@ -35,7 +35,7 @@ interface InfoLagu {
 
 interface InfoJobMusikUI {
   id: string;
-  jenis: "proses" | "render";
+  jenis: "proses" | "render" | "pisah";
   tahap: string;
   progres: number;
   pesan: string;
@@ -65,6 +65,7 @@ export function StudioMusik({
   const [sibukAnalisis, setSibukAnalisis] = useState(false);
   const [jobP, setJobP] = useState<InfoJobMusikUI | null>(null); // job proses audio
   const [jobR, setJobR] = useState<InfoJobMusikUI | null>(null); // job render
+  const [jobS, setJobS] = useState<InfoJobMusikUI | null>(null); // v0.19 — job pisah vokal & musik
   const [hasilProses, setHasilProses] = useState<{ wav: string; mp3: string } | null>(null);
   const [pratinjau, setPratinjau] = useState<string | null>(null);
   const [sibukPratinjau, setSibukPratinjau] = useState(false);
@@ -102,6 +103,7 @@ export function StudioMusik({
         const j = (await r.json()) as { ok: boolean; job?: InfoJobMusikUI };
         if (j.ok && j.job) {
           if (j.job.jenis === "proses") setJobP(j.job);
+          else if (j.job.jenis === "pisah") setJobS(j.job); // v0.19 — pisah vokal & musik
           else setJobR(j.job);
           if (j.job.selesai || j.job.error) {
             clearInterval(timer);
@@ -297,6 +299,22 @@ export function StudioMusik({
           judul: "", outputs: [], fileProses: null, fileMp3: null, error: null,
           selesai: false, batalDiminta: false, dibatalkan: false,
         });
+        pollJob(j.id, () => { /* status akhir sudah di-set pollJob */ });
+      })
+      .catch((e) => alert(e instanceof Error ? e.message : String(e)));
+  };
+
+  // ---------- pisah vokal & musik (v0.19.0 — vocal remover) ----------
+  const mulaiPisah = () => {
+    if (!lagu || (jobS && !jobS.selesai)) return;
+    fetch("/api/musik/pisah", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ file: lagu.file, judul: lagu.nama.replace(/\.[^.]+$/, "") }),
+    })
+      .then((r) => r.json())
+      .then((j: { ok: boolean; id?: string; error?: string }) => {
+        if (!j.ok || !j.id) throw new Error(j.error || "Gagal");
         pollJob(j.id, () => { /* status akhir sudah di-set pollJob */ });
       })
       .catch((e) => alert(e instanceof Error ? e.message : String(e)));
@@ -759,7 +777,16 @@ export function StudioMusik({
       <div className="space-y-4">
         <PanelGenre atur={atur} ubah={ubah} />
         <PanelTempo atur={atur} ubah={ubah} />
-        <PanelKaraoke atur={atur} ubah={ubah} />
+        <PanelKaraoke
+          atur={atur}
+          ubah={ubah}
+          pisah={{
+            job: jobS,
+            bisaMulai: !!lagu,
+            mulai: mulaiPisah,
+            batal: batalJob,
+          }}
+        />
         <PanelVisual atur={atur} ubah={ubah} judulLagu={lagu?.nama.replace(/\.[^.]+$/, "") || ""} />
       </div>
     </div>

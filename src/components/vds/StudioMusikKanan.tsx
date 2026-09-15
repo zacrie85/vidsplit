@@ -3,8 +3,8 @@
 // VidSplit v0.15.0 — STUDIO MUSIK: panel kolom KANAN
 // 2. Pengubah genre (17 genre, mode VERSI GENRE ala Suno / MUSIK BARU DARI CHORD / LAPISAN)
 // 3. Tempo (0.5×–1.5×, langkah halus 1.1–1.5) · 4. Vokal & karaoke · 5. Visual musik (15 gaya)
-import { BarisSlider, ChipPilihan, Kartu, PilihWarna } from "@/components/vds/bits";
-import { Mic, Palette, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
+import { BarisSlider, ChipPilihan, Kartu, PilihWarna, fmtUkuran } from "@/components/vds/bits";
+import { Mic, Palette, Scissors, SlidersHorizontal, Sparkles, Timer } from "lucide-react";
 import {
   DAFTAR_GENRE, INFO_GENRE, REFERENSI_VOKAL, RESEP_GENRE, VISUAL_MUSIK, transposeAuto, transposDgnPerubahan,
   type GenreMusik, type IdVisual, type KaraokeMode, type ModeTransformasi, type OpsiVisual,
@@ -383,7 +383,24 @@ export function PanelTempo({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
 
 // ============ 4. VOKAL & KARAOKE + GENRE VOKAL (v0.16.0) ============
 
-export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik }) {
+/** URL unduh berkas hasil job (folder output/<id>/…). */
+function urlMediaUnduh(rel: string): string {
+  return `/api/file?p=${encodeURIComponent(rel)}&dl=1`;
+}
+
+/** v0.19.0 — data tombol PISAH VOKAL & MUSIK (dikirim dari StudioMusik). */
+export interface PisahUI {
+  job: {
+    id: string; selesai: boolean; error: string | null; dibatalkan: boolean;
+    progres: number; pesan: string; batalDiminta: boolean;
+    outputs: { video: string; file: string; ukuran: number }[];
+  } | null;
+  bisaMulai: boolean;
+  mulai: () => void;
+  batal: (id: string) => void;
+}
+
+export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: UbahMusik; pisah?: PisahUI }) {
   if (atur.mode === "penuh") {
     return (
       <Kartu
@@ -532,6 +549,76 @@ export function PanelKaraoke({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik 
         MP3 <b>stereo</b> dgn vokal di tengah (umum di lagu komersial); sisa gema vokal
         yang lebar mungkin masih samar — itu batas DSP offline tanpa AI.
       </p>
+
+      {/* ===== v0.19.0 — PISAH VOKAL & MUSIK (vocal remover) ===== */}
+      {pisah && (
+        <div className="mt-3 rounded-xl border border-cyan-400/25 bg-slate-800/40 p-3">
+          <p className="flex items-center gap-1.5 text-xs font-semibold text-cyan-200">
+            <Scissors className="h-3.5 w-3.5" /> Pisah Vokal &amp; Musik — vocal remover
+          </p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
+            Satu lagu diproses sekali menjadi <b>dua berkas MP3 320k terpisah</b>:
+            <b> …-musik.mp3</b> (instrumen tanpa vokal — siap dipakai karaoke) dan
+            <b> …-vokal.mp3</b> (inti suara penyanyi, bersih &amp; nyaring). Memakai
+            mesin DSP tengah/samping 100% offline — paling efektif utk lagu
+            <b> stereo</b> dgn vokal di tengah (umum di lagu komersial).
+          </p>
+          <button
+            type="button"
+            onClick={pisah.mulai}
+            disabled={!pisah.bisaMulai || (!!pisah.job && !pisah.job.selesai)}
+            className="mt-2 w-full rounded-lg bg-gradient-to-r from-cyan-500 to-sky-500 px-3 py-2 text-xs font-semibold text-white transition hover:from-cyan-400 hover:to-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {pisah.job && !pisah.job.selesai ? "Memisahkan…" : "Pisah Vokal & Musik sekarang"}
+          </button>
+          {!pisah.bisaMulai && (
+            <p className="mt-1 text-[10px] text-slate-500">Impor lagu dulu di kartu 1.</p>
+          )}
+          {pisah.job && !pisah.job.selesai && (
+            <div className="mt-2">
+              <div className="h-1.5 overflow-hidden rounded-full bg-slate-700">
+                <div className="h-full rounded-full bg-gradient-to-r from-cyan-400 to-sky-400 transition-all" style={{ width: `${pisah.job.progres}%` }} />
+              </div>
+              <p className="mt-1 text-[10px] text-slate-400">
+                {pisah.job.pesan} ({pisah.job.progres}%)
+              </p>
+              {!pisah.job.batalDiminta && (
+                <button
+                  type="button"
+                  onClick={() => pisah.batal(pisah.job!.id)}
+                  className="mt-1 text-[10px] text-red-300 underline-offset-2 hover:underline"
+                >
+                  Batalkan
+                </button>
+              )}
+            </div>
+          )}
+          {pisah.job?.error && (
+            <p className="mt-2 rounded-lg border border-red-500/40 bg-red-500/10 p-2 text-xs text-red-300">{pisah.job.error}</p>
+          )}
+          {pisah.job?.dibatalkan && !pisah.job.error && (
+            <p className="mt-2 text-xs text-amber-200/90">Dibatalkan.</p>
+          )}
+          {pisah.job?.selesai && !pisah.job.error && pisah.job.outputs.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {pisah.job.outputs.map((o) => (
+                <a
+                  key={o.file}
+                  href={urlMediaUnduh(`output/${pisah.job!.id}/${o.file}`)}
+                  className="flex items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-900/50 px-2 py-1.5 text-xs text-slate-200 transition hover:border-cyan-400/60"
+                >
+                  <span className="truncate">{o.file}</span>
+                  <span className="shrink-0 text-[10px] text-slate-500">{fmtUkuran(o.ukuran)}</span>
+                </a>
+              ))}
+              <p className="text-[10px] text-slate-500">
+                Karaoke? Pakai <b>-musik.mp3</b>. Ingin video lirik dgn musik ini? Salin berkasnya
+                ke Mode Musik (impor ulang) atau langsung putar di pemutar mana pun — 100% offline.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </Kartu>
   );
 }

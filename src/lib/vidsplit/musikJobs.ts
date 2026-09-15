@@ -15,7 +15,7 @@ import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
   bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
-  formatChordSheet, formatLrc, skalaChord, skalaLirik, transposDgnPerubahan,
+  formatChordSheet, formatLrc, grafPisahVokalMusik, skalaChord, skalaLirik, transposDgnPerubahan,
   RESEP_GENRE, transposeAuto, type BarisLirik, type IdVisual, type OpsiVisual,
   type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
@@ -25,7 +25,7 @@ import { analisisMusik } from "./musikAnalisis";
 
 export interface InfoJobMusik {
   id: string;
-  jenis: "proses" | "render";
+  jenis: "proses" | "render" | "pisah";
   tahap: "menyiapkan" | "audio" | "video" | "berkas" | "salin" | "selesai";
   progres: number; // 0..100
   pesan: string;
@@ -451,6 +451,120 @@ export function mulaiProsesMusik(opsi: OpsiProsesMasuk): string {
 }
 
 export interface OpsiRenderMasuk extends OpsiRenderLengkap {}
+
+export interface OpsiPisahMasuk {
+  file: string;
+  judul: string;
+}
+
+/** v0.19.0 — job PISAH VOKAL & MUSIK (vocal remover): SATU lari ffmpeg →
+ *  dua berkas MP3 320k — <judul>-musik.mp3 (instrumental, karaoke nyaring)
+ *  & <judul>-vokal.mp3 (inti suara tengah). Hasil masuk daftar outputs
+ *  (bisa diunduh/disalin otomatis) + dicatat ke riwayat. */
+export function mulaiPisahMusik(opsi: OpsiPisahMasuk): string {
+  rapikanJobLama();
+  const id = randomBytes(4).toString("hex");
+  const folderOut = dirWork(`output/${id}`);
+  jobs.set(id, {
+    id, jenis: "pisah", tahap: "audio", progres: 0,
+    pesan: "Memisahkan vokal & musik…", judul: opsi.judul, outputs: [],
+    fileProses: null, fileMp3: null, error: null,
+    selesai: false, batalDiminta: false, dibatalkan: false, dibuat: Date.now(),
+  });
+  void (async () => {
+    const job = jobs.get(id)!;
+    const ktx: KtxRahasia = {
+      jobId: id,
+      onProgres: (f) => {
+        if (job.tahap === "audio") job.progres = Math.min(99, Math.round(f * 100));
+      },
+    };
+    try {
+      const ff = await pilihFfmpeg();
+      const srcAbs = pathAman(opsi.file);
+      if (!srcAbs || !existsSync(srcAbs)) throw new Error("Berkas sumber tidak ditemukan");
+      const info = await probeAudio(srcAbs);
+      if (!info.adaAudio) throw new Error("Berkas tidak punya jalur audio");
+      const slug = slugify(opsi.judul) || "lagu";
+      const fMus = path.join(folderOut, `${slug}-musik.mp3`);
+      const fVok = path.join(folderOut, `${slug}-vokal.mp3`);
+      const args = [
+        "-y", "-hide_banner",
+        "-i", srcAbs,
+        "-filter_complex", grafPisahVokalMusik(),
+        "-map", "[mout]", "-c:a", "libmp3lame", "-b:a", "320k",
+        "-metadata", `title=${opsi.judul} (musik)`, fMus,
+        "-map", "[vout]", "-c:a", "libmp3lame", "-b:a", "320k",
+        "-metadata", `title=${opsi.judul} (vokal)`, fVok,
+      ];
+      await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(id, c));
+      if (apakahBatal(id)) throw new Error("DIBATALKAN");
+      if (!existsSync(fMus) || !existsSync(fVok)) throw new Error("Pemisahan gagal — hasil tidak lengkap");
+      job.outputs = [
+        { video: opsi.judul, file: path.basename(fMus), ukuran: ukuran(fMus) },
+        { video: opsi.judul, file: path.basename(fVok), ukuran: ukuran(fVok) },
+      ];
+      // salin otomatis ke folder tujuan + riwayat (pola sama dgn ekspor)
+      const setelan = muatSetelanTujuan();
+      let folderTersimpan: string | null = null;
+      if (setelan.otomatis && setelan.folder) {
+        job.tahap = "salin";
+        job.pesan = "Menyalin hasil ke folder tujuan…";
+        job.progres = 96;
+        const salin = await salinHasilKeTujuan(
+          { id, outputs: job.outputs, antrean: [{ nama: opsi.judul, total: 1, selesai: 1, status: "selesai" }] },
+          setelan.folder,
+        );
+        folderTersimpan = salin.folder;
+        if (setelan.bersihkanKerja && !salin.gagal.length) buangSalinanKerja({ id, outputs: job.outputs });
+      }
+      catatRiwayat({
+        id,
+        antrean: [{ nama: opsi.judul, total: 1, selesai: 1, status: "selesai" }],
+        outputs: job.outputs,
+        videoAktif: -1,
+        partAktif: 0,
+        progresPart: 100,
+        progresTotal: 100,
+        error: null,
+        adaGagal: false,
+        selesaiSemua: true,
+        batalDiminta: false,
+        dibatalkan: false,
+        dibuat: job.dibuat,
+        akselerasi: "ffmpeg (pisah vokal DSP)",
+        paralel: 1,
+        folderTersimpan,
+        menyalin: false,
+        peringatanSalin: null,
+      } satisfies InfoJob);
+      job.tahap = "selesai";
+      job.pesan = folderTersimpan
+        ? `Selesai — vokal & musik tersalin ke ${folderTersimpan}`
+        : "Selesai — vokal & musik siap diunduh";
+      job.progres = 100;
+      job.selesai = true;
+    } catch (e) {
+      const dibatalkan = apakahBatal(id) || (e instanceof Error && e.message === "DIBATALKAN");
+      job.dibatalkan = dibatalkan;
+      job.selesai = true;
+      job.tahap = "selesai";
+      job.error = dibatalkan
+        ? "Dibatalkan — hasil parsial dibuang"
+        : e instanceof Error ? e.message : String(e);
+      if (dibatalkan) {
+        try {
+          const { rmSync } = await import("node:fs");
+          rmSync(folderOut, { recursive: true, force: true });
+        } catch { /* abaikan */ }
+        job.outputs = [];
+      }
+    } finally {
+      bersihkanBatal(id);
+    }
+  })();
+  return id;
+}
 
 /** Job render penuh: audio (bila perlu) + video visualizer + berkas + riwayat. */
 export function mulaiRenderMusik(opsi: OpsiRenderMasuk): string {

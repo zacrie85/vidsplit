@@ -290,7 +290,7 @@ execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error",
   "-f", "lavfi", "-i", "sine=frequency=554.37:duration=12",
   "-f", "lavfi", "-i", "sine=frequency=220:duration=12",
   "-filter_complex",
-  "[0:a][1:a][2:a]join=inputs=3:channel_layout=3.0:map=0.0-FL|1.0-FR|2.0-FC[j];[j]volume=0.7",
+  "[0:a][1:a][2:a]join=inputs=3:channel_layout=3.0:map=0.0-FL|1.0-FR|2.0-FC[j];[j]volume=0.35",
   "-c:a", "libmp3lame", "-b:a", "192k", STEREO], { stdio: "inherit" });
 const upS = await (async () => {
   const r = await fetch(`${BASE}/api/upload?kind=audio&nama=musik-uji-stereo.mp3`, {
@@ -426,6 +426,87 @@ const j19 = await pollJob(p19.id);
 cek(!j19.error && j19.fileMp3, "proses dgn BPM manual selesai tanpa error");
 const pr19 = ffprobe(path.join(WORK, j19.fileMp3));
 cek(Math.abs(pr19.durasi - 16) < 1.2, `durasi proses dgn BPM manual ≈ 16 dtk (${pr19.durasi.toFixed(2)} — BPM manual tidak mengubah durasi)`);
+
+console.log("== 22. v0.19.0 — PISAH VOKAL & MUSIK (vocal remover, 2 berkas) ==");
+const p20 = await POST("/api/musik/pisah", { file: upS.file, judul: "Pisah Uji" });
+cek(p20.ok && p20.id, `job pisah mulai: ${p20.id}`);
+const j20 = await pollJob(p20.id);
+cek(!j20.error && j20.outputs.length === 2, `pisah selesai tanpa error (${j20.outputs.length} berkas)`);
+const fMus = j20.outputs.find((o) => o.file.endsWith("-musik.mp3"));
+const fVok = j20.outputs.find((o) => o.file.endsWith("-vokal.mp3"));
+cek(!!fMus && !!fVok, `berkas keluaran benar: ${fMus?.file} + ${fVok?.file}`);
+const prMus = ffprobe(path.join(WORK, `output/${j20.id}/${fMus.file}`));
+const prVok = ffprobe(path.join(WORK, `output/${j20.id}/${fVok.file}`));
+cek(Math.abs(prMus.durasi - 12) < 1.2 && Math.abs(prVok.durasi - 12) < 1.2,
+  `durasi kedua berkas ≈ 12 dtk (${prMus.durasi.toFixed(2)} / ${prVok.durasi.toFixed(2)})`);
+const rmsPita = (abs, pita) => {
+  const ekstr = pita === "vokal"
+    ? "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=3800"
+    : "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+-0.5*c1,highpass=f=180,lowpass=f=3800";
+  const out = spawnSync("ffmpeg", ["-hide_banner", "-i", abs, "-af", `${ekstr},volumedetect`, "-f", "null", "-"],
+    { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+  return Number(/mean_volume: ([-\d.]+) dB/.exec(out)?.[1] || -99);
+};
+const musVok = rmsPita(path.join(WORK, `output/${j20.id}/${fMus.file}`), "vokal");
+const vokVok = rmsPita(path.join(WORK, `output/${j20.id}/${fVok.file}`), "vokal");
+cek(vokVok > musVok,
+  `pita vokal lebih kuat di berkas vokal (${vokVok.toFixed(1)} dB) dibanding berkas musik (${musVok.toFixed(1)} dB)`);
+cek(vokVok > -50, `berkas vokal tidak bisu (${vokVok.toFixed(1)} dB)`);
+// vokal.mp3 murni kanal tengah → SISI (L−R) nyaris bisu; musik.mp3 instrumennya di SISI
+const vokSis = rmsPita(path.join(WORK, `output/${j20.id}/${fVok.file}`), "sisi");
+const musSis = rmsPita(path.join(WORK, `output/${j20.id}/${fMus.file}`), "sisi");
+cek(musSis - vokSis > 15,
+  `instrumen hidup di berkas MUSIK: sisi ${musSis.toFixed(1)} dB vs berkas vokal ${vokSis.toFixed(1)} dB (selisih > 15 dB)`);
+const meanMus = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, `output/${j20.id}/${fMus.file}`),
+  "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+cek(Number(/mean_volume: ([-\d.]+) dB/.exec(meanMus)?.[1] || 0) > -30,
+  "instrumental karaoke tidak terpendam (mean_volume > -30)");
+
+console.log("== 23. v0.19.0 — VOKALGEN-3 TERUKUR: karakter vokal berubah, instrumen utuh (A/B) ==");
+const prosesAB = async (genreVokal) => {
+  const p = await POST("/api/musik/proses", {
+    file: upS.file, judul: "VokalGen AB", genre: "asli", layerLevel: 0,
+    genreVokal, refVokal: "dangdut-w1", tingkatVokal: 100,
+    karaoke: "asli", bpm: 120, fase: 0, kecepatan: 1,
+  });
+  const j = await pollJob(p.id);
+  if (j.error) throw new Error(j.error);
+  return path.join(WORK, j.fileMp3);
+};
+const outA = await prosesAB("dangdut");
+const outB = await prosesAB("mati");
+const bandAbs = (sumber, pita) => {
+  const jenis = pita.startsWith("vokal") ? "vokal" : "sisi";
+  const ekstr = jenis === "vokal"
+    ? "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=3800"
+    : "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+-0.5*c1,highpass=f=180,lowpass=f=3800";
+  const tujuan = path.join(WORK, `tmp-band-${pita}-${path.basename(sumber)}.wav`);
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error", "-i", sumber, "-af", ekstr,
+    "-c:a", "pcm_s16le", tujuan]);
+  return tujuan;
+};
+const rmsFile = (abs) => {
+  const out = spawnSync("ffmpeg", ["-hide_banner", "-i", abs, "-af", "volumedetect", "-f", "null", "-"],
+    { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
+  return Number(/mean_volume: ([-\d.]+) dB/.exec(out)?.[1] || -99);
+};
+const perubahanPctAB = (a, b, pita) => {
+  const ba = bandAbs(a, `${pita}-A`);
+  const bb = bandAbs(b, `${pita}-B`);
+  const bd = ba.replace("band-", "diff-");
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error", "-i", ba, "-i", bb,
+    "-filter_complex", "[0:a][1:a]amerge=inputs=2,pan=mono|c0=0.5*c0+-0.5*c1",
+    "-c:a", "pcm_s16le", bd]);
+  const A = 10 ** (rmsFile(ba) / 20), B = 10 ** (rmsFile(bb) / 20), C = 10 ** (rmsFile(bd) / 20) * 2;
+  if (A <= 0 || B <= 0) return 0;
+  const corr = Math.max(-1, Math.min(1, (A * A + B * B - C * C) / (2 * A * B)));
+  return (1 - corr) * 100;
+};
+const chgVok = perubahanPctAB(outA, outB, "vokal");
+const chgSis = perubahanPctAB(outA, outB, "sisi");
+cek(chgVok > 45, `karakter VOKAL berubah jelas: ${chgVok.toFixed(0)}% (harapan > 45%)`);
+cek(chgSis < 25, `INSTRUMEN (sisi) tetap utuh: berubah ${chgSis.toFixed(0)}% (harapan < 25%)`);
+console.log(`    → vokal ${chgVok.toFixed(0)}% · instrumen ${chgSis.toFixed(0)}%`);
 
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

@@ -1,8 +1,9 @@
-// Validasi cepat VokalGen-2 (v0.17): graf baru harus lulus ffmpeg sungguhan.
+// Validasi cepat VokalGen-3 (v0.19) + PISAH VOKAL & MUSIK: graf baru harus lulus ffmpeg sungguhan.
 // Jalankan: bun scripts/coba-vokalgen.ts
 import { execSync } from "node:child_process";
-import { existsSync, unlinkSync } from "node:fs";
-import { bangunFilterAudio } from "../src/lib/vidsplit/musik";
+import { existsSync, statSync, unlinkSync } from "node:fs";
+const statUkuran = (f: string) => statSync(f).size;
+import { bangunFilterAudio, grafPisahVokalMusik } from "../src/lib/vidsplit/musik";
 
 const dasar = { file: "work/coba-in.wav", judul: "Coba", genre: "asli" as const, layerLevel: 0, karaoke: "asli" as const, bpm: 120, fase: 0 };
 const kasus = [
@@ -35,6 +36,23 @@ for (const k of kasus) {
     gagal++;
   }
 }
+// v0.19 — uji PISAH VOKAL & MUSIK (dua keluaran)
+{
+  const outM = "work/coba-pisah-musik.wav";
+  const outV = "work/coba-pisah-vokal.wav";
+  try {
+    execSync(`ffmpeg -y -hide_banner -loglevel error -i work/coba-in.wav -filter_complex "${grafPisahVokalMusik().replace(/"/g, '\\"')}" -map "[mout]" ${outM} -map "[vout]" ${outV}`);
+    const okM = existsSync(outM) && statUkuran(outM) > 1000;
+    const okV = existsSync(outV) && statUkuran(outV) > 1000;
+    console.log(`\n== pisah vokal & musik ==`);
+    console.log(`  musik=${okM ? "OK" : "GAGAL"} · vokal=${okV ? "OK" : "GAGAL"}`);
+    if (!okM || !okV) gagal++;
+  } catch (e) {
+    console.error(`\n== pisah vokal & musik: GAGAL-ffmpeg: ${e}`);
+    gagal++;
+  }
+}
+
 if (existsSync("work/coba-in.wav") && process.argv.includes("--bersih")) unlinkSync("work/coba-in.wav");
 console.log(gagal === 0 ? "\nSEMUA KASUS LOLOS" : `\n${gagal} KASUS GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);
