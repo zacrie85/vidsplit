@@ -15,7 +15,7 @@ import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
   bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
-  formatChordSheet, formatLrc, grafPisahVokalMusik, skalaChord, skalaLirik, transposDgnPerubahan,
+  formatChordSheet, formatLrc, grafPisahVokalMusik, geserVokalSemi, skalaChord, skalaLirik, transposDgnPerubahan,
   RESEP_GENRE, transposeAuto, type BarisLirik, type IdVisual, type OpsiVisual,
   type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
@@ -121,6 +121,14 @@ async function prosesAudio(
     o.mode === "remake" ? (o.transpose ?? transposeAuto(o.kemiripan, o.file)) : 0;
   const transposeEfe =
     o.mode === "remake" ? transposDgnPerubahan(transposeDasar, o.tingkatMusik ?? 65) : 0;
+  // v0.21.0 — register referensi genre vokal ikut menggeser nada dasar (vokal +
+  // musik bergeser sama, lihat geserVokalSemi) — lapisan ritme eksperimental
+  // harus mengikuti nada dasar BARU ini agar tidak off-key dgn hasil.
+  const geserRegister =
+    o.mode !== "penuh" && o.karaoke !== "karaoke" && !!o.genreVokal && o.genreVokal !== "mati"
+    && (o.tingkatVokal ?? 55) > 0 && !!o.mesinVokal && o.mesinVokal !== "dsp"
+    ? geserVokalSemi(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55)
+    : 0;
   // v0.20.0 — MESIN AI VOKAL: bila mesinVokal = "ai" (bawaan), model tersedia, dan salah
   // satu dari genre-vokal / karaoke / vokal-saja aktif → pisah STEM AI dulu (cache otomatis
   // per lagu), lalu pakai graf VOKALGEN-4 di atas stem: vokal diganti PENUH semua frekuensi
@@ -204,7 +212,7 @@ async function prosesAudio(
       if (pola) {
         // layer hidup di linimasa ASLI (atempo dipakai di ujung rantai graf);
         // v0.13.0: lapisan mengikuti transpos remake — nada petik/stab ikut digeser
-        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase, transposeEfe);
+        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase, transposeEfe + geserRegister);
         layerAbs = path.join(dirWork("tmp"), `layer-${ktx.jobId}.wav`);
         writeFileSync(layerAbs, layerWav);
         args.push("-i", layerAbs);
@@ -347,9 +355,16 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     job.tahap = "berkas";
     job.pesan = "Menulis berkas chord & lirik…";
     const slug = slugify(o.judul) || "musik";
+    // v0.21.0 — info register suara baru di meta chord-sheet (geser nada dasar)
+    const geserMeta =
+      o.mode !== "penuh" && o.karaoke !== "karaoke" && !!o.genreVokal && o.genreVokal !== "mati"
+      && (o.tingkatVokal ?? 55) > 0 && !!o.mesinVokal && o.mesinVokal !== "dsp"
+      ? geserVokalSemi(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55)
+      : 0;
     const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Mode: ${o.mode === "penuh" ? "transformasi penuh" : "lapisan"} · Tempo: ${o.kecepatan}× · BPM hasil ≈ ${Math.round(o.bpm * faktorWaktuStudio(o))} · Visual: ${o.visual}`
       + (o.mode === "remake" && (o.nadaLevel ?? 0) > 0 && o.genre !== "asli" ? ` · nada akor ${o.nadaLevel}%` : "")
-      + (o.genreVokal !== "mati" ? ` · vokal ${o.genreVokal}${o.refVokal ? ` (${o.refVokal})` : ""} ${o.tingkatVokal}%` : "");
+      + (o.genreVokal !== "mati" ? ` · vokal ${o.genreVokal}${o.refVokal ? ` (${o.refVokal})` : ""} ${o.tingkatVokal}%`
+        + (geserMeta !== 0 ? ` · nada dasar ikut ${geserMeta > 0 ? "+" : ""}${geserMeta} st (register suara baru)` : "") : "");
     const txtAbs = path.join(folderOut, `${slug}-chord-lirik.txt`);
     writeFileSync(txtAbs, formatChordSheet(o.judul, meta, chordSkala, lirikSkala), "utf8");
     if (o.lirik.length) {

@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
 import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
-import { faktorWaktuStudio, bpmAman, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan } from "@/lib/vidsplit/musik";
+import { faktorWaktuStudio, bpmAman, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan, geserVokalSemi } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
 // v6 (v0.17.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
@@ -343,6 +343,12 @@ export function StudioMusik({
         atur.transpose ?? transposeAuto(atur.kemiripan, lagu?.file || ""), atur.tingkatMusik,
       )
     : 0;
+  // v0.21.0 — register referensi genre vokal (dada-dalam/kepala-terang) ikut
+  // menggeser nada dasar lagu (vokal + musik bergeser sama) — tampil di info.
+  const geserRegister = atur.mode !== "penuh" && atur.karaoke !== "karaoke"
+    && atur.genreVokal !== "mati" && (atur.tingkatVokal ?? 55) > 0 && atur.mesinVokal !== "dsp"
+    ? geserVokalSemi(atur.genreVokal, atur.refVokal, atur.tingkatVokal ?? 55)
+    : 0;
   const fmtMenit = (d: number) => `${Math.floor(d / 60)}:${String(Math.max(0, Math.round(d % 60))).padStart(2, "0")}`;
 
   // ---------- render ----------
@@ -423,11 +429,14 @@ export function StudioMusik({
                     Pakai deteksi otomatis
                   </button>
                 </div>
-                {(faktorWaktu !== 1 || atur.mode === "penuh" || (atur.mode === "remake" && transposeEfe !== 0)) && (
+                {(faktorWaktu !== 1 || atur.mode === "penuh" || (atur.mode === "remake" && transposeEfe !== 0) || geserRegister !== 0) && (
                   <p className="mt-1 text-[11px] text-cyan-300/90">
                     Hasil ≈ <b>{bpmHasil} BPM</b> · {fmtMenit(durasiHasil)}
                     {atur.mode === "remake" && transposeEfe !== 0
                       ? ` · versi genre: nada dasar ${transposeEfe > 0 ? "+" : ""}${transposeEfe} semitone`
+                      : ""}
+                    {geserRegister !== 0
+                      ? ` · suara baru: nada dasar ikut ${geserRegister > 0 ? "+" : ""}${geserRegister} semitone (register referensi)`
                       : ""}
                     {atur.mode === "remake" && atur.genre !== "asli"
                       ? ` · perubahan musik ${atur.tingkatMusik}% / asli ${100 - atur.tingkatMusik}% · rasa genre ${atur.tingkatGenre}%`

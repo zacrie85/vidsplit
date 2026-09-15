@@ -60,6 +60,7 @@ function uji(bin: string, label: string) {
     { nama: "vokalgen-4 AI karaoke", graf: bangunFilterAudioAi({ ...dasarAi, karaoke: "karaoke" }).graf, nInput: 2 },
     { nama: "vokalgen-4 AI vokal-saja", graf: bangunFilterAudioAi({ ...dasarAi, karaoke: "vokal", tingkatVokal: 90 }).graf, nInput: 2 },
     { nama: "vokalgen-4 AI transpos +3", graf: bangunFilterAudioAi({ ...dasarAi, transpose: 3 }).graf, nInput: 2 },
+    { nama: "vokalgen-5 AI register penuh 100", graf: bangunFilterAudioAi({ ...dasarAi, tingkatVokal: 100 }).graf, nInput: 2 },
     { nama: "vokalgen-4 AI harmoni+lapisan", graf: bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, nadaLevel: 50 }).graf, nInput: 4 },
   );
   for (const { nama, graf, nInput } of grafAudio) {

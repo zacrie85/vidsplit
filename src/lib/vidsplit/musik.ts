@@ -572,6 +572,32 @@ export function geserVokal(genre: GenreMusik, refId: string, tingkat: number): {
   return { st, gain: Math.min(0.65, g * (0.4 + 0.6 * t) * 1.45) };
 }
 
+/** v0.21.0 — GANTI-SUARA SATU SUARA (jalur AI): lapisan pitch PARALEL (salinan
+ *  digeser lalu dicampur balik dgn suara utama) TERBUKTI terdengar sebagai
+ *  PENYANYI KEDUA — keluhan user "suara penyanyinya ada 2" saat genre vokal +
+ *  mode Asli dipakai. Solusinya persis usulan user: karaoke dulu (stem vokal
+ *  asli dibuang dari campuran), lalu suara genre dimasukkan sbg PENGGANTI penuh.
+ *  Register referensi (dada-dalam/kepala-terang) kini menggeser register suara:
+ *  seluruh stem vokal digeser ±N semitone DAN seluruh stem musik digeser sama
+ *  besarnya (prep di bangunFilterAudioAi) → nada dasar lagu ikut pindah agar
+ *  vokal tetap selaras dgn instrumen = seperti penyanyi lain dgn register beda
+ *  mencover lagu. Kuantitas = st referensi × tingkat (0–100%, 0% = apa adanya),
+ *  langkah ¼ semitone, clamp ±3. Dipakai juga utk lapisan ritme & tampilan UI.
+ *  (Jalur DSP v0.19 tetap memakai geserVokal/lapisan — fallback lawas.) */
+export function geserVokalSemi(genre: GenreMusik, refId: string, tingkat: number): number {
+  const base = RESEP_VOKAL_GENRE[genre];
+  if (!base) return 0;
+  const t = Math.min(1, Math.max(0, tingkat / 100));
+  if (t <= 0.005) return 0;
+  const ref = cariReferensiVokal(refId) ?? REFERENSI_VOKAL[genre]?.pria[0] ?? null;
+  let st = 0;
+  if (ref && (ref.dada || ref.tinggi)) st = ref.tinggi ? ref.tinggi : -(ref.dada ?? 0);
+  else if (base.geser) [st] = base.geser;
+  st = Math.max(-3, Math.min(3, Math.round(st * 2) / 2));
+  if (Math.abs(st) < 0.25) return 0;
+  return Math.max(-3, Math.min(3, Math.round(st * t * 4) / 4));
+}
+
 /** v0.17 — baris graf utk pita berkarakter + lapisan pitch (dipakai jalur "asli"
  *  & "vokal saja"): [inL] → rantai karakter (volume gain) → split → salinan
  *  asetrate/atempo (highpass 260 + lowpass 3200 utk fokus area suara) → amix
@@ -1072,16 +1098,24 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
   return { graf: baris.join(";"), adaLayer, tempo, adaVokal, transpose, adaNada };
 }
 
-/** v0.20.0 — VOKALGEN-4: graf pemrosesan di atas STEM AI (input 0 = vokal stem,
- *  input 1 = instrumental stem, keduanya f32 interleave stereo 44.1k dari mesin
- *  MDX-Net Kim Vocal 2). Bedanya dgn bangunFilterAudio:
+/** v0.21.0 — VOKALGEN-5 "GANTI-SUARA SATU SUARA": graf pemrosesan di atas STEM AI
+ *  (input 0 = vokal stem, input 1 = instrumental stem, keduanya f32 interleave
+ *  stereo 44.1k dari mesin MDX-Net Kim Vocal 2). Alur PERSIS usulan user:
+ *  karaoke dulu (vokal asli dibuang dari campuran) → suara genre dimasukkan
+ *  sebagai PENGGANTI penuh. Bedanya dgn bangunFilterAudio:
  *  · pita suara TIDAK dipotong crossover — stem vokal = vokal MURNI SEMUA
- *    frekuensi → rantai karakter genre mengganti suara PENUH → TIDAK MUNGKIN
- *    ada suara dobel (suara asli tidak pernah masuk jalur keluaran);
- *  · karaoke = instrumental stem murni (benar-benar tanpa vokal);
- *  · mode "vokal" = stem vokal utuh (bukan band 150–9500 Hz).
- *  Transpos (asetrate+atempo) diterapkan IDENTIK pada kedua stem agar tetap
- *  seirama. Input harmoni/lapisan memakai indeks 2/3 (atau 2 bila lapisan saja).
+ *    frekuensi → rantai karakter genre mengganti suara PENUH;
+ *  · v0.21: LAPISAN PITCH PARALEL DIHAPUS — salinan digeser pitch yang dicampur
+ *    balik (v0.20 barisVokalKarakter gv) terdengar sebagai PENYANYI KEDUA
+ *    (keluhan "suara penyanyinya ada 2"). Kini hanya ada SATU suara: rantai
+ *    karakter tunggal di atas seluruh stem;
+ *  · register referensi (dada-dalam/kepala-terang) = geserVokalSemi → digabung
+ *    ke transpos yang diterapkan IDENTIK pada kedua stem (asetrate+atempo) →
+ *    nada dasar lagu ikut bergeser agar vokal tetap selaras dgn instrumen;
+ *  · karaoke = instrumental stem murni (benar-benar tanpa vokal, tanpa geser
+ *    register);
+ *  · mode "vokal" = stem vokal utuh dgn satu suara baru.
+ *  Input harmoni/lapisan memakai indeks 2/3 (atau 2 bila lapisan saja).
  *  Label keluar [aout]. */
 export function bangunFilterAudioAi(o: OpsiStudioMusik): {
   graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number; adaNada: boolean;
@@ -1091,7 +1125,17 @@ export function bangunFilterAudioAi(o: OpsiStudioMusik): {
   const tempo = tempoResep * (o.kecepatan || 1);
   const remake = o.mode === "remake";
   const baris: string[] = [];
-  const transpose = Math.min(5, Math.max(-5, Math.round(o.transpose ?? 0)));
+  // v0.21.0 — register referensi genre vokal (dada-dalam/kepala-terang) digabung
+  // ke transpos: KEDUA stem bergeser sama → satu nada dasar baru yg selaras.
+  // Karaoke tidak membangun vokal → register tidak ikut (instrumental apa adanya).
+  const fxVokalAktif0 =
+    !!o.genreVokal && o.genreVokal !== "mati" && DAFTAR_GENRE.includes(o.genreVokal)
+    && (o.tingkatVokal ?? 55) > 0;
+  const geserRegister = o.karaoke !== "karaoke" && fxVokalAktif0
+    && !!o.genreVokal && o.genreVokal !== "mati"
+    ? geserVokalSemi(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55)
+    : 0;
+  const transpose = Math.min(7, Math.max(-7, Math.round(o.transpose ?? 0) + geserRegister));
   // siapkan stem — transpos identik supaya pitch vokal & musik tak mungkin beda
   const prep = (inL: string, outL: string): string => {
     if (transpose !== 0) {
@@ -1100,16 +1144,14 @@ export function bangunFilterAudioAi(o: OpsiStudioMusik): {
     }
     return `[${inL}]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[${outL}]`;
   };
-  const fxVokalAktif =
-    !!o.genreVokal && o.genreVokal !== "mati" && DAFTAR_GENRE.includes(o.genreVokal)
-    && (o.tingkatVokal ?? 55) > 0;
+  const fxVokalAktif = fxVokalAktif0;
   const rantaiVokalAi = (): string[] => {
-    // stem vokal utuh → karakter genre + lapisan pitch dada/kepala (gain 0.85 —
-    // stem sudah bersih, tak perlu penguatan besar seperti era crossover)
+    // v0.21.0 — stem vokal utuh → SATU rantai karakter genre (TANPA lapisan pitch
+    // paralel — itulah penyebab "2 penyanyi"; register kini lewat transpos prep).
+    // Gain 0.9: stem bersih, kompensasi hilangnya lapisan (dulu 0.85 + lapisan).
     if (fxVokalAktif && o.genreVokal !== "mati") {
       const fxV = rantaiVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55).join(",");
-      const gv = geserVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55);
-      if (fxV) return barisVokalKarakter("vok0", "voc1", fxV, gv, 0.85);
+      if (fxV) return [`[vok0]${fxV},volume=0.9[voc1]`];
     }
     return ["[vok0]anull[voc1]"];
   };

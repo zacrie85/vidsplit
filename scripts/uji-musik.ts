@@ -6,7 +6,7 @@ import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
   bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
   clampStudio, faktorAtempo,
-  faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
+  faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, geserVokalSemi, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
   REFERENSI_VOKAL, RESEP_VOKAL_GENRE,
   RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
@@ -576,6 +576,12 @@ for (const g of DAFTAR_GENRE) {
   }
 }
 cek(semuaTerdengar, "68/68 penyanyi punya karakter pitch terdengar @55%");
+// --- v0.21 geserVokalSemi: register referensi = pitch PENGGANTI (satu suara) ---
+cek(geserVokalSemi("dangdut", "dangdut-p1", 0) === 0, "geserVokalSemi tingkat 0 → 0 (apa adanya)");
+cek(geserVokalSemi("dangdut", "dangdut-p1", 55) === -1, `Rhoma dada −2 st @55% → −1 st (skala kekuatan, dpt ${geserVokalSemi("dangdut", "dangdut-p1", 55)})`);
+cek(geserVokalSemi("dangdut", "dangdut-p1", 100) === -2, "Rhoma dada −2 st @100% → register penuh");
+cek(geserVokalSemi("dangdut", "dangdut-w2", 100) === 2, "Inul kepala +2 st @100%");
+cek(geserVokalSemi("country", "country-p1", 100) === -2.5, "Cash dada −2,5 st @100%");
 // --- clampStudio field v0.16 ---
 const cl16 = clampStudio({ file: "x" });
 cek(cl16.nadaLevel === 30, "bawaan nadaLevel = 30");
@@ -657,20 +663,40 @@ const dasarAi = clampStudio({
   karaoke: "asli",
 });
 const gAiAsli = bangunFilterAudioAi(dasarAi);
-cek(gAiAsli.graf.includes("[0:a]aformat") && gAiAsli.graf.includes("[1:a]aformat"),
+cek(gAiAsli.graf.includes("[0:a]") && gAiAsli.graf.includes("[1:a]"),
   "graf AI memakai input 0 (vokal stem) + 1 (musik stem)");
 cek(gAiAsli.graf.includes("[ins0][voc1]amix=inputs=2"), "mode asli = remix instrumental + vokal berkarakter");
 cek(gAiAsli.graf.includes("[vok0]bass="), "rantai karakter diterapkan PENUH di stem vokal (bukan crossover 180-3800)");
 cek(!gAiAsli.graf.includes("acrossover"), "graf AI TANPA crossover 3-pita (era v0.19 selesai)");
+// v0.21 — GANTI-SUARA SATU SUARA: lapisan pitch paralel DIHAPUS (penyebab "2 penyanyi")
+cek(!gAiAsli.graf.includes("highpass=f=260,lowpass=f=3200"),
+  "v0.21: lapisan pitch paralel 260–3200 Hz DIHAPUS (tak ada penyanyi kedua)");
+cek(!gAiAsli.graf.includes("asplit"),
+  "v0.21: vokal tak pernah dipecah/dicampur balik — SATU rantai tunggal");
+cek((gAiAsli.graf.match(/amix=/g) || []).length === 1,
+  "v0.21: satu-satunya amix = remix instrumental+vokal genre");
 cek(gAiAsli.graf.endsWith("alimiter=limit=0.95[aout]"), "ujung graf AI = limiter [aout]");
+// v0.21 — register referensi = transpos KEDUA stem (Rhoma dada @55% → −1 st)
+cek((gAiAsli.graf.match(/asetrate=41625/g) || []).length === 2,
+  "register Rhoma −1 st @55% diterapkan IDENTIK di kedua stem (asetrate 41625 ×2)");
+cek(gAiAsli.graf.includes("atempo=1.05946"), "kompensasi atempo ikut (durasi tetap, tetap sinkron)");
 const gAiKar = bangunFilterAudioAi({ ...dasarAi, karaoke: "karaoke" });
 cek(gAiKar.graf.includes("[ins0]anull[ksrc]"), "karaoke AI = instrumental stem murni");
 cek(!gAiKar.graf.includes("[vok0]"), "karaoke AI: stem vokal tidak dibangun (tak ada label menggantung)");
+cek(!gAiKar.graf.includes("asetrate"), "karaoke AI: register genre vokal TIDAK menggeser instrumental");
 const gAiVok = bangunFilterAudioAi({ ...dasarAi, karaoke: "vokal" });
 cek(gAiVok.graf.includes("[voc1]anull[ksrc]"), "vokal-saja AI = stem vokal utuh semua frekuensi");
-const gAiTr = bangunFilterAudioAi({ ...dasarAi, transpose: 3 });
+cek((gAiVok.graf.match(/asetrate=41625/g) || []).length === 1, "vokal-saja: register ikut pada stem vokal (SATU suara)");
+cek(!gAiVok.graf.includes("highpass=f=260,lowpass=f=3200"), "vokal-saja: tanpa lapisan paralel (satu suara)");
+const gAiTr = bangunFilterAudioAi({ ...dasarAi, transpose: 3, tingkatVokal: 0 });
 const asetCount = gAiTr.graf.match(/asetrate=52444/g)?.length ?? 0; // 44100×2^(3/12) ≈ 52444
-cek(asetCount === 2, `transpos diterapkan IDENTIK di kedua stem (asetrate×${asetCount})`);
+cek(asetCount === 2, `transpos user diterapkan IDENTIK di kedua stem (asetrate×${asetCount})`);
+const gAiGab = bangunFilterAudioAi({ ...dasarAi, transpose: 3 }); // +3 user + (−1 register) = +2
+cek((gAiGab.graf.match(/asetrate=49501/g) || []).length === 2,
+  "transpos user + register GABUNG: +3 + (−1) = +2 st identik kedua stem (asetrate 49501 ×2)");
+const gAiPenuh = bangunFilterAudioAi({ ...dasarAi, tingkatVokal: 100 }); // register penuh −2
+cek((gAiPenuh.graf.match(/asetrate=39289/g) || []).length === 2,
+  "kekuatan 100% → register penuh Rhoma −2 st di kedua stem (asetrate 39289 ×2)");
 const gAiHar = bangunFilterAudioAi({ ...dasarAi, genre: "dangdut", nadaLevel: 40 });
 cek(gAiHar.graf.includes("[2:a]volume"), "harmoni memakai input 2 di jalur AI");
 const gAiLay = bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, nadaLevel: 50 });

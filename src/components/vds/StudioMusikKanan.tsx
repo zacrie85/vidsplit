@@ -444,27 +444,29 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
     >
       <span className="block font-medium">{r.nama}</span>
       <span className="block truncate text-[10px] opacity-70">
-        {r.ket}{r.dada ? " · dada dalam" : r.tinggi ? " · terang" : ""}
+        {r.ket}{r.dada ? ` · dada −${r.dada} st` : r.tinggi ? ` · terang +${r.tinggi} st` : ""}
       </span>
     </button>
   );
   return (
     <Kartu
       judul="4. Vokal, genre vokal & karaoke"
-      deskripsi="Mesin v0.20: stem vokal AI — suara diganti PENUH (tanpa suara dobel), karaoke benar-benar bersih"
+      deskripsi="Mesin v0.21: karaoke AI dulu (vokal asli dibuang) → suara genre menggantikan PENUH — hanya SATU suara di hasil"
       ikon={<Mic className="h-4 w-4" />}
     >
-      {/* ===== v0.20.0 — GENRE VOKAL VOKALGEN-4 (stem AI — ganti suara PENUH) ===== */}
+      {/* ===== v0.21.0 — GENRE VOKAL VOKALGEN-5 (satu suara — tanpa penyanyi kedua) ===== */}
       <div className="rounded-xl border border-violet-400/25 bg-slate-800/40 p-3">
-        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin v0.20 (stem AI)</p>
+        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin v0.21 (satu suara)</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
           Terpisah dari genre musik: <b>musiknya</b> diubah lewat menu 2, <b>suara
-          vokalnya</b> diganti sesuai genre ini. Mesin v0.20 memakai <b>stem vokal AI</b>
-          (model MDX-Net, 100% offline): vokal benar-benar dipisah dari musik lalu
-          <b> suaranya diganti PENUH semua frekuensi</b> — dada, tengah, sampai napas —
-          dgn EQ timbre kuat, kompresor, getar, ruang, serak + lapisan
-          dada-dalam/kepala-terang dari referensi penyanyi. Tanpa sisa suara asli →
-          <b> tidak ada lagi suara dobel</b>, dan tetap sinkron 100% dgn musiknya.
+          vokalnya</b> diganti sesuai genre ini. Alur v0.21 (persis usulan kamu):
+          lagu dipisah AI dulu → <b>vokal asli dibuang</b> (dijadikan karaoke) →
+          lalu suara baru sesuai genre <b>dimasukkan sebagai pengganti penuh</b> —
+          di hasil hanya ada <b>SATU suara</b>, suara asli tidak pernah ikut
+          tercampur (bug “ada 2 penyanyi” era lapisan pitch v0.20 sudah dihapus).
+          Register referensi (dada-dalam/kepala-terang) menggeser nada dasar lagu
+          ±N semitone — vokal &amp; musik bergeser bersama agar tetap selaras,
+          persis penyanyi lain dgn register beda mencover lagu.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <button
@@ -518,6 +520,11 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
               fmt={(n) => (n === 0 ? "Apa adanya" : `${n}%`)}
               onChange={(n) => ubah({ tingkatVokal: n })}
             />
+            <p className="text-[10px] text-slate-500">
+              Kekuatan juga menakar geser register: referensi dada-dalam menurunkan
+              nada dasar (suara baru lebih berat), kepala-terang menaikkannya (suara
+              baru lebih tinggi) — vokal &amp; musik bergeser bersama agar selaras.
+            </p>
             {/* v0.20.0 — pilih mesin: stem AI (bawaan) atau DSP cepat */}
             <p className="text-[11px] font-medium text-slate-300">Mesin pengubah suara:</p>
             <div className="grid grid-cols-2 gap-1.5">
@@ -543,18 +550,18 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
                 }`}
               >
                 <span className="block font-medium">Cepat — DSP (v0.19)</span>
-                <span className="block text-[10px] opacity-70">Detik-an selesai, tapi hanya mengubah pita tengah 180–3800 Hz</span>
+                <span className="block text-[10px] opacity-70">Detik-an selesai, tapi hanya mengubah pita tengah 180–3800 Hz dan bisa terdengar dobel (lapisan pitch lawas)</span>
               </button>
             </div>
             <p className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[10px] leading-relaxed text-slate-500">
               Jujur &amp; transparan: referensi penyanyi = <b>karakter gaya</b> yang
-              terinspirasi ciri khas penyanyi itu (warna timbre, dada dalam/kepala
-              terang, getar, ruang, serak) — <b>bukan tiruan suara aslinya</b>.
-              Mengganti suara menjadi penyanyi tertentu butuh AI raksasa di server
-              GPU. Mesin AI v0.20 (model MDX-Net, ±65 MB dibundel, jalan penuh di
-              PC-mu tanpa internet) sudah cukup untuk <b>mengganti seluruh suara</b>
-              dgn karakter genre — hasilnya jelas terdengar dan selalu seirama dgn
-              lagunya.
+              terinspirasi ciri khas penyanyi itu (warna timbre, register
+              dada-dalam/kepala-terang, getar, ruang, serak) — <b>bukan tiruan suara
+              aslinya</b>. Mengganti menjadi suara penyanyi tertentu butuh AI raksasa
+              di server GPU. Mesin v0.21 (stem AI MDX-Net ±65 MB dibundel, jalan
+              penuh di PC-mu tanpa internet) menghapus vokal asli lalu memasukkan
+              <b> satu suara baru</b> berkarakter genre + register referensi — hasil
+              tunggal (tanpa penyanyi kedua), selalu seirama dgn lagunya.
             </p>
           </div>
         )}
