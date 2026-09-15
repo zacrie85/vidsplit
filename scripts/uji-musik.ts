@@ -7,6 +7,7 @@ import {
   bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
   clampStudio, faktorAtempo,
   faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, geserVokalSemi, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
+  adalahWanita,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
   REFERENSI_VOKAL, RESEP_VOKAL_GENRE,
   RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
@@ -566,7 +567,7 @@ cek(geserVokal("dangdut", "dangdut-p1", 0) === null, "geserVokal tingkat 0 → n
 const gRhoma = geserVokal("dangdut", "dangdut-p1", 55);
 cek(!!gRhoma && gRhoma.st === -2 && gRhoma.gain > 0.45 && gRhoma.gain <= 0.65, `Rhoma dada −2 st @55% (gain ${gRhoma?.gain.toFixed(3)} = 0,44×0,73×1,45)`);
 const gInul = geserVokal("dangdut", "dangdut-w2", 100);
-cek(!!gInul && gInul.st === 2, "Inul kepala +2 st");
+cek(!!gInul && gInul.st === 3, "Inul tinggi +5 st → lapisan DSP lawas clamp ±3 (st 3)");
 const gCash = geserVokal("country", "country-p1", 100);
 cek(!!gCash && gCash.st === -2.5 && gCash.gain <= 0.65, "Johnny Cash dada −2,5 st, gain ≤ 0,65");
 cek(geserVokal("dangdut", "id-palsu", 55) !== null, "id palsu → fallback pria[0] tetap ada karakter");
@@ -581,8 +582,36 @@ cek(semuaTerdengar, "68/68 penyanyi punya karakter pitch terdengar @55%");
 cek(geserVokalSemi("dangdut", "dangdut-p1", 0) === 0, "geserVokalSemi tingkat 0 → 0 (apa adanya)");
 cek(geserVokalSemi("dangdut", "dangdut-p1", 55) === -1, `Rhoma dada −2 st @55% → −1 st (skala kekuatan, dpt ${geserVokalSemi("dangdut", "dangdut-p1", 55)})`);
 cek(geserVokalSemi("dangdut", "dangdut-p1", 100) === -2, "Rhoma dada −2 st @100% → register penuh");
-cek(geserVokalSemi("dangdut", "dangdut-w2", 100) === 2, "Inul kepala +2 st @100%");
+// v0.23 — wanita: register +4–5,5 st (suara wanita sejati) + lantai skala 0,6
+cek(geserVokalSemi("dangdut", "dangdut-w2", 0) === 0, "wanita tingkat 0 → 0 (apa adanya)");
+cek(geserVokalSemi("dangdut", "dangdut-w2", 100) === 5, `Inul register +5 st @100% (dpt ${geserVokalSemi("dangdut", "dangdut-w2", 100)})`);
+cek(geserVokalSemi("dangdut", "dangdut-w2", 55) === 4, `Inul register @55% = 4 st (5×0,82, lantai 0,6 — dpt ${geserVokalSemi("dangdut", "dangdut-w2", 55)})`);
+cek(geserVokalSemi("dangdut", "dangdut-w1", 55) === 3.75, `Elvi register @55% = 3,75 st (dpt ${geserVokalSemi("dangdut", "dangdut-w1", 55)})`);
+cek(geserVokalSemi("pop", "pop-w1", 100) === 5, "Rossa register +5 st @100%");
 cek(geserVokalSemi("country", "country-p1", 100) === -2.5, "Cash dada −2,5 st @100%");
+// v0.23 — struktur referensi: SEMUA wanita = register tinggi besar tanpa dada
+let strukturWanitaOk = true;
+for (const g of DAFTAR_GENRE) {
+  for (const r of REFERENSI_VOKAL[g].wanita) {
+    if (r.dada || !r.tinggi || r.tinggi < 3.5 || r.tinggi > 5.5) {
+      strukturWanitaOk = false;
+      cek(false, `referensi wanita ${r.id} tidak sesuai (dada=${r.dada}, tinggi=${r.tinggi})`);
+    }
+  }
+  for (const r of REFERENSI_VOKAL[g].pria) {
+    if ((r.tinggi ?? 0) > 3) { strukturWanitaOk = false; cek(false, `pria ${r.id} tinggi > 3`); }
+  }
+}
+cek(strukturWanitaOk, "34/34 referensi wanita: tinggi 4–5,5 st, tanpa dada; pria tinggi ≤ 3");
+cek(adalahWanita("dangdut-w1") && adalahWanita("pop-w2"), "adalahWanita mengenali wanita");
+cek(!adalahWanita("dangdut-p1") && !adalahWanita("id-palsu"), "adalahWanita: pria & id palsu → false");
+// v0.23 — feminisasi timbre: pangkas dada 320 Hz + ring 3,4 kHz + tanpa bass hangat
+const rvWan = rantaiVokal("blues", "blues-w1", 100);
+cek(rvWan.some((x) => x.includes("f=320:t=q:w=1.4:g=-4.5")), "wanita: resonansi dada 320 Hz dipangkas −4,5 dB");
+cek(rvWan.some((x) => x.startsWith("equalizer=f=3400")), "wanita: ring vokal wanita 3,4 kHz ditambah");
+cek(rvWan.every((x) => !(x.startsWith("bass=g=") && !x.includes("g=-"))), "wanita: TANPA low-shelf kehangatan dada (ciri pria)");
+cek(rvWan.some((x) => x.startsWith("deesser")), "wanita: deesser cadangan bila resep genre tanpa deess");
+cek(!rantaiVokal("blues", "blues-p1", 100).some((x) => x.includes("f=320:t=q:w=1.4")), "pria: tanpa feminisasi");
 // --- clampStudio field v0.16 ---
 const cl16 = clampStudio({ file: "x" });
 cek(cl16.nadaLevel === 30, "bawaan nadaLevel = 30");
@@ -609,7 +638,7 @@ const gVokK = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, karaok
 cek(!gVokK.graf.includes("[vxm]"), "karaoke aktif → genre vokal dilewati (vokal sudah dihapus)");
 const gVokV = bangunFilterAudio({ ...dasar, genre: "asli", layerLevel: 0, karaoke: "vokal", genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 60 });
 cek(gVokV.graf.includes("[voc0b]pan=stereo"), "genre vokal di mode 'vokal saja' menyusup ke rantai vokal");
-cek(gVokV.graf.includes("asetrate=48091") && gVokV.graf.includes("atempo=0.91700"), "Elvi kepala +1,5 st di mode vokal saja (terkompensasi)");
+cek(gVokV.graf.includes("asetrate=52444") && gVokV.graf.includes("atempo=0.84090"), "Elvi register wanita (+4,5 st → clamp ±3) di mode vokal saja (terkompensasi)");
 cek(gVokV.graf.includes("highpass=f=150,lowpass=f=9500"), "v0.19: pita suara mode 'vokal saja' diperlebar 150–9500 Hz");
 // --- v0.19 rantaiVokal lebih kuat (vokal terisolasi) ---
 const rvDutKuat = rantaiVokal("dangdut", "dangdut-p1", 100);

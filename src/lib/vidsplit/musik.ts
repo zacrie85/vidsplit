@@ -313,11 +313,13 @@ export interface ReferensiPenyanyi {
   terang?: number;
   /** dB kehangatan tambahan (× t) */
   hangat?: number;
-  /** v0.17 — karakter DADA DALAM: lapisan pitch −N semitone (0,5–3) yang
-   *  dicampur ke pita suara → suara terdengar lebih berat/berwibawa */
+  /** v0.17 — karakter DADA DALAM: register suara diturunkan −N semitone (0,5–3)
+   *  → lebih berat/berwibawa (khas penyanyi pria) */
   dada?: number;
-  /** v0.17 — karakter KEPALA TERANG: lapisan pitch +N semitone (0,5–3) →
-   *  suara terdengar lebih tinggi/ceria */
+  /** v0.23 — REGISTER WANITA SEJATI: register suara dinaikkan +N semitone
+   *  (4–5,5 = jarak register pria→wanita yang nyata; dulu hanya 1–2,5 → suara
+   *  wanita masih terdengar seperti pria). Nada dasar lagu ikut bergeser agar
+   *  vokal selaras dgn instrumen. */
   tinggi?: number;
 }
 
@@ -330,8 +332,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "pop-p2", nama: "Glenn Fredly", ket: "Hangat soul, teduh", eq: [[600, 1, 1.5]], hangat: 1, dada: 1 },
     ],
     wanita: [
-      { id: "pop-w1", nama: "Rossa", ket: "Mengkilap, presisi", terang: 1.5, vibMul: 1.1, tinggi: 1.5 },
-      { id: "pop-w2", nama: "Andien", ket: "Mengalir lembut, soul", hangat: 1.5, vibMul: 0.85, tinggi: 1 },
+      { id: "pop-w1", nama: "Rossa", ket: "Mengkilap, presisi", terang: 1.5, vibMul: 1.1, tinggi: 5 },
+      { id: "pop-w2", nama: "Andien", ket: "Mengalir lembut, soul", hangat: 1.5, vibMul: 0.85, tinggi: 4.5 },
     ],
   },
   rock: {
@@ -340,8 +342,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "rock-p2", nama: "Ari Lasso", ket: "Melankolis, jerit tinggi", terang: 1.5, gritMul: 0.85, tinggi: 1.5 },
     ],
     wanita: [
-      { id: "rock-w1", nama: "Nicky Astria", ket: "Berwibawa, rock lawas", hangat: 1.5, gritMul: 1.1, tinggi: 1 },
-      { id: "rock-w2", nama: "Anggun", ket: "Bulat kuat, era 90-an", terang: 1, gritMul: 0.8, tinggi: 1.5 },
+      { id: "rock-w1", nama: "Nicky Astria", ket: "Berwibawa, rock lawas", hangat: 1.5, gritMul: 1.1, tinggi: 4.5 },
+      { id: "rock-w2", nama: "Anggun", ket: "Bulat kuat, era 90-an", terang: 1, gritMul: 0.8, tinggi: 4.5 },
     ],
   },
   punk: {
@@ -350,8 +352,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "punk-p2", nama: "Billie Joe Armstrong", ket: "Nasal cepat Green Day", eq: [[1400, 1.2, 1.5]], gritMul: 1, tinggi: 1 },
     ],
     wanita: [
-      { id: "punk-w1", nama: "Hayley Williams", ket: "Pop-punk lincah", terang: 1.5, gritMul: 0.9, tinggi: 1.5 },
-      { id: "punk-w2", nama: "Kathleen Hanna", ket: "Riot grrrl tajam", eq: [[1800, 1.2, 2]], gritMul: 1.25, tinggi: 2 },
+      { id: "punk-w1", nama: "Hayley Williams", ket: "Pop-punk lincah", terang: 1.5, gritMul: 0.9, tinggi: 5 },
+      { id: "punk-w2", nama: "Kathleen Hanna", ket: "Riot grrrl tajam", eq: [[1800, 1.2, 2]], gritMul: 1.25, tinggi: 5.5 },
     ],
   },
   metal: {
@@ -360,8 +362,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "metal-p2", nama: "Rob Halford", ket: "Jerit baja Judas Priest", terang: 2, gritMul: 0.9, tinggi: 2.5 },
     ],
     wanita: [
-      { id: "metal-w1", nama: "Angela Gossow", ket: "Geraman death Arch Enemy", gritMul: 1.5, hangat: 1.5, dada: 1.5 },
-      { id: "metal-w2", nama: "Doro Pesch", ket: "Metal kuat eropa", terang: 1, gritMul: 1.05, tinggi: 1.5 },
+      { id: "metal-w1", nama: "Angela Gossow", ket: "Geraman death Arch Enemy", gritMul: 1.5, hangat: 1.5, tinggi: 4 },
+      { id: "metal-w2", nama: "Doro Pesch", ket: "Metal kuat eropa", terang: 1, gritMul: 1.05, tinggi: 4.5 },
     ],
   },
   jazz: {
@@ -370,8 +372,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "jazz-p2", nama: "Michael Bublé", ket: "Swing modern mengkilap", terang: 1, vibMul: 0.9, dada: 1.5 },
     ],
     wanita: [
-      { id: "jazz-w1", nama: "Ella Fitzgerald", ket: "Gesit, swing murni", terang: 1.5, vibMul: 0.85, tinggi: 1.5 },
-      { id: "jazz-w2", nama: "Norah Jones", ket: "Berbisik hangat intim", hangat: 2, terang: -0.5, dada: 1 },
+      { id: "jazz-w1", nama: "Ella Fitzgerald", ket: "Gesit, swing murni", terang: 1.5, vibMul: 0.85, tinggi: 5 },
+      { id: "jazz-w2", nama: "Norah Jones", ket: "Berbisik hangat intim", hangat: 2, terang: -0.5, tinggi: 4 },
     ],
   },
   blues: {
@@ -380,8 +382,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "blues-p2", nama: "Eric Clapton", ket: "Serak kalem, dada dalam", hangat: 1.5, gritMul: 0.95, dada: 1.5 },
     ],
     wanita: [
-      { id: "blues-w1", nama: "Etta James", ket: "Kuat bergetar penuh rasa", hangat: 2, vibMul: 1.3, dada: 1 },
-      { id: "blues-w2", nama: "Bonnie Raitt", ket: "Berdebu hangat", hangat: 1.5, gritMul: 1.1, dada: 1 },
+      { id: "blues-w1", nama: "Etta James", ket: "Kuat bergetar penuh rasa", hangat: 2, vibMul: 1.3, tinggi: 4.5 },
+      { id: "blues-w2", nama: "Bonnie Raitt", ket: "Berdebu hangat", hangat: 1.5, gritMul: 1.1, tinggi: 4 },
     ],
   },
   reggae: {
@@ -390,8 +392,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "reggae-p2", nama: "Peter Tosh", ket: "Tegas bertaut", eq: [[800, 1.2, 1.5]], gritMul: 1.1, dada: 1.5 },
     ],
     wanita: [
-      { id: "reggae-w1", nama: "Marcia Griffiths", ket: "Lembut ayun I-Threes", terang: 1, vibMul: 0.95, tinggi: 1 },
-      { id: "reggae-w2", nama: "Rita Marley", ket: "Hangat bersahutan", hangat: 1.5, dada: 1 },
+      { id: "reggae-w1", nama: "Marcia Griffiths", ket: "Lembut ayun I-Threes", terang: 1, vibMul: 0.95, tinggi: 4.5 },
+      { id: "reggae-w2", nama: "Rita Marley", ket: "Hangat bersahutan", hangat: 1.5, tinggi: 4 },
     ],
   },
   ska: {
@@ -400,8 +402,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "ska-p2", nama: "Prince Buster", ket: "Teriak seruan sound system", eq: [[1000, 1.2, 1.5]], gritMul: 1.1, dada: 1.5 },
     ],
     wanita: [
-      { id: "ska-w1", nama: "Dawn Penn", ket: "Dingin khas rocksteady", hangat: 1, vibMul: 0.9, tinggi: 1 },
-      { id: "ska-w2", nama: "Pauline Black", ket: "Tegas cerdas The Selecter", terang: 1.5, tinggi: 1.5 },
+      { id: "ska-w1", nama: "Dawn Penn", ket: "Dingin khas rocksteady", hangat: 1, vibMul: 0.9, tinggi: 4.5 },
+      { id: "ska-w2", nama: "Pauline Black", ket: "Tegas cerdas The Selecter", terang: 1.5, tinggi: 5 },
     ],
   },
   dangdut: {
@@ -410,8 +412,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "dangdut-p2", nama: "Mansyur S", ket: "Dalam merdu khas Melayu", hangat: 2, terang: -0.5, vibMul: 0.8, dada: 2 },
     ],
     wanita: [
-      { id: "dangdut-w1", nama: "Elvi Sukaesih", ket: "Penuh rasa, ratu dangdut", vibMul: 1.2, eq: [[2000, 1.2, 1.5]], tinggi: 1.5 },
-      { id: "dangdut-w2", nama: "Inul Daratista", ket: "Lincah khas ngebor", terang: 1.5, vibMul: 1.1, tinggi: 2 },
+      { id: "dangdut-w1", nama: "Elvi Sukaesih", ket: "Penuh rasa, ratu dangdut", vibMul: 1.2, eq: [[2000, 1.2, 1.5]], tinggi: 4.5 },
+      { id: "dangdut-w2", nama: "Inul Daratista", ket: "Lincah khas ngebor", terang: 1.5, vibMul: 1.1, tinggi: 5 },
     ],
   },
   edm: {
@@ -420,8 +422,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "edm-p2", nama: "Daft Punk", ket: "Vocoder robot khas house", eq: [[2000, 1.5, 2.5]], gritMul: 1.3, tinggi: 1 },
     ],
     wanita: [
-      { id: "edm-w1", nama: "Dua Lipa", ket: "Rendah dingin dance-pop", hangat: 1.5, terang: 1, dada: 1.5 },
-      { id: "edm-w2", nama: "Ava Max", ket: "Terang menembus beat", terang: 2, tinggi: 1.5 },
+      { id: "edm-w1", nama: "Dua Lipa", ket: "Rendah dingin dance-pop", hangat: 1.5, terang: 1, tinggi: 4.5 },
+      { id: "edm-w2", nama: "Ava Max", ket: "Terang menembus beat", terang: 2, tinggi: 5.5 },
     ],
   },
   hiphop: {
@@ -430,8 +432,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "hiphop-p2", nama: "Jay-Z", ket: "Santai tenang boss", hangat: 1.5, gritMul: 0.9, dada: 1.5 },
     ],
     wanita: [
-      { id: "hiphop-w1", nama: "Lauryn Hill", ket: "Soul rap mengalir", hangat: 2, vibMul: 1.05, dada: 1 },
-      { id: "hiphop-w2", nama: "Nicki Minaj", ket: "Lincah berkarakter", eq: [[1800, 1.2, 1.5]], terang: 1.5, tinggi: 2 },
+      { id: "hiphop-w1", nama: "Lauryn Hill", ket: "Soul rap mengalir", hangat: 2, vibMul: 1.05, tinggi: 4.5 },
+      { id: "hiphop-w2", nama: "Nicki Minaj", ket: "Lincah berkarakter", eq: [[1800, 1.2, 1.5]], terang: 1.5, tinggi: 5.5 },
     ],
   },
   funk: {
@@ -440,8 +442,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "funk-p2", nama: "Stevie Wonder", ket: "Melenting bergetar soul", vibMul: 1.35, terang: 1, tinggi: 2 },
     ],
     wanita: [
-      { id: "funk-w1", nama: "Chaka Khan", ket: "Kuat meledak-leledak", terang: 1.5, vibMul: 1.2, tinggi: 1.5 },
-      { id: "funk-w2", nama: "Aretha Franklin", ket: "Ratu soul berwibawa", hangat: 2, vibMul: 1.1, dada: 1 },
+      { id: "funk-w1", nama: "Chaka Khan", ket: "Kuat meledak-leledak", terang: 1.5, vibMul: 1.2, tinggi: 5 },
+      { id: "funk-w2", nama: "Aretha Franklin", ket: "Ratu soul berwibawa", hangat: 2, vibMul: 1.1, tinggi: 4.5 },
     ],
   },
   disco: {
@@ -450,8 +452,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "disco-p2", nama: "Michael Jackson", ket: "Ringan bertaut era Off the Wall", eq: [[1500, 1.2, 1.5]], terang: 1.5, tinggi: 1.5 },
     ],
     wanita: [
-      { id: "disco-w1", nama: "Donna Summer", ket: "Berpulsar ratu disko", terang: 1.5, vibMul: 1.1, tinggi: 1.5 },
-      { id: "disco-w2", nama: "Gloria Gaynor", ket: "Kuat perkasa", hangat: 1.5, dada: 1 },
+      { id: "disco-w1", nama: "Donna Summer", ket: "Berpulsar ratu disko", terang: 1.5, vibMul: 1.1, tinggi: 5 },
+      { id: "disco-w2", nama: "Gloria Gaynor", ket: "Kuat perkasa", hangat: 1.5, tinggi: 4.5 },
     ],
   },
   keroncong: {
@@ -460,8 +462,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "keroncong-p2", nama: "Manthous", ket: "Langgam Jawa campursari", hangat: 1.5, eq: [[600, 1, 1.5]], dada: 1 },
     ],
     wanita: [
-      { id: "keroncong-w1", nama: "Waldjinah", ket: "Ratu Keroncong langgam Jawa", vibMul: 1.15, hangat: 1.5, tinggi: 1.5 },
-      { id: "keroncong-w2", nama: "Sundari Sukoco", ket: "Langgam halus Solo", terang: 1, vibMul: 0.9, tinggi: 1 },
+      { id: "keroncong-w1", nama: "Waldjinah", ket: "Ratu Keroncong langgam Jawa", vibMul: 1.15, hangat: 1.5, tinggi: 4.5 },
+      { id: "keroncong-w2", nama: "Sundari Sukoco", ket: "Langgam halus Solo", terang: 1, vibMul: 0.9, tinggi: 4.5 },
     ],
   },
   country: {
@@ -470,8 +472,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "country-p2", nama: "Kenny Rogers", ket: "Hangat bercerita", hangat: 1.5, vibMul: 0.9, dada: 1.5 },
     ],
     wanita: [
-      { id: "country-w1", nama: "Dolly Parton", ket: "Terang bulat country", terang: 2, vibMul: 1.1, tinggi: 2 },
-      { id: "country-w2", nama: "Patsy Cline", ket: "Sedih klasik Nashville", hangat: 1.5, vibMul: 1.2, tinggi: 1.5 },
+      { id: "country-w1", nama: "Dolly Parton", ket: "Terang bulat country", terang: 2, vibMul: 1.1, tinggi: 5.5 },
+      { id: "country-w2", nama: "Patsy Cline", ket: "Sedih klasik Nashville", hangat: 1.5, vibMul: 1.2, tinggi: 4.5 },
     ],
   },
   lofi: {
@@ -480,8 +482,8 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "lofi-p2", nama: "Keshi", ket: "Falsetto tipis malam", terang: 1, vibMul: 0.85, tinggi: 1.5 },
     ],
     wanita: [
-      { id: "lofi-w1", nama: "Clairo", ket: "Kalem berdebu bedroom pop", hangat: 1.5, terang: -0.5, tinggi: 1 },
-      { id: "lofi-w2", nama: "Beabadoobee", ket: "Manis indie mengantuk", eq: [[1500, 1.2, 1.5]], terang: 0.5, tinggi: 1 },
+      { id: "lofi-w1", nama: "Clairo", ket: "Kalem berdebu bedroom pop", hangat: 1.5, terang: -0.5, tinggi: 4 },
+      { id: "lofi-w2", nama: "Beabadoobee", ket: "Manis indie mengantuk", eq: [[1500, 1.2, 1.5]], terang: 0.5, tinggi: 4.5 },
     ],
   },
   gamelan: {
@@ -490,11 +492,20 @@ export const REFERENSI_VOKAL: Record<GenreMusik, { pria: ReferensiPenyanyi[]; wa
       { id: "gamelan-p2", nama: "Ki Nartosabdo", ket: "Sindhen pria wayang berwibawa", hangat: 1.5, vibMul: 1.1, dada: 1 },
     ],
     wanita: [
-      { id: "gamelan-w1", nama: "Peni Candra Rini", ket: "Sindhen berkelas", terang: 1, vibMul: 1.2, tinggi: 1.5 },
-      { id: "gamelan-w2", nama: "Endah Laras", ket: "Sindhen hangat gaya Yogya", hangat: 1.5, vibMul: 1, tinggi: 1 },
+      { id: "gamelan-w1", nama: "Peni Candra Rini", ket: "Sindhen berkelas", terang: 1, vibMul: 1.2, tinggi: 5 },
+      { id: "gamelan-w2", nama: "Endah Laras", ket: "Sindhen hangat gaya Yogya", hangat: 1.5, vibMul: 1, tinggi: 4.5 },
     ],
   },
 };
+
+/** v0.23.0 — apakah referensi penyanyi ini WANITA? Dipakai utk register besar
+ *  (+4–5,5 st) & feminisasi timbre (pangkas resonansi dada, ring 3,4 kHz). */
+export function adalahWanita(refId: string): boolean {
+  for (const g of DAFTAR_GENRE) {
+    if (REFERENSI_VOKAL[g].wanita.some((r) => r.id === refId)) return true;
+  }
+  return false;
+}
 
 /** Cari referensi penyanyi dari id di SELURUH genre (fallback bila id tak dikenal). */
 export function cariReferensiVokal(id: string): ReferensiPenyanyi | null {
@@ -522,9 +533,23 @@ export function rantaiVokal(genre: GenreMusik, refId: string, tingkat: number): 
   const t = Math.min(1, Math.max(0, tingkat / 100));
   if (t <= 0.005) return [];
   const out: string[] = [];
+  // v0.23.0 — FEMINISASI TIMBRE utk referensi WANITA: suara wanita dibedakan
+  // pria bukan cuma pitch, tapi juga resonansi. Resep: (1) pangkas resonansi
+  // DADA pria di sekitar 320 Hz (peaking — dasar nada 100-200 Hz tetap utuh,
+  // tidak seperti low-shelf yang menipiskan nada dasar), (2) tambah RING khas
+  // vokal wanita di 3,4 kHz, (3) penghalus sibilan cadangan — hasil lebih cerah
+  // + ringan, bukan sekadar "pria yang dinaikkan pitch"-nya saja.
+  const wanita = adalahWanita(ref.id);
+  if (wanita) {
+    out.push(`equalizer=f=320:t=q:w=1.4:g=${dua(-4.5 * t)}`);
+    out.push(`equalizer=f=3400:t=q:w=1.5:g=${dua(2.6 * t * 1.5)}`);
+    if (!base.deess) out.push(`deesser=i=${dua(0.2 * t)}`);
+  }
   const hangat = (base.hangat ?? 0) + (ref.hangat ?? 0);
   const terang = (base.terang ?? 0) + (ref.terang ?? 0);
-  if (hangat) out.push(`bass=g=${dua(hangat * t * 1.5)}:f=160`);
+  // v0.23 — kehangatan dada (low-shelf 160 Hz) = ciri pria → tidak diterapkan
+  // utk referensi wanita (sudah diganti pangkas-dada di atas)
+  if (hangat && !wanita) out.push(`bass=g=${dua(hangat * t * 1.5)}:f=160`);
   for (const [f, wd, g] of [...base.eq, ...(ref.eq ?? [])]) {
     if (Math.abs(g * t * KUAT_VOKALGEN) < 0.4) continue;
     out.push(`equalizer=f=${f}:t=q:w=${wd}:g=${dua(g * t * KUAT_VOKALGEN)}`);
@@ -590,7 +615,12 @@ export function geserVokal(genre: GenreMusik, refId: string, tingkat: number): {
  *  vokal tetap selaras dgn instrumen = seperti penyanyi lain dgn register beda
  *  mencover lagu. Kuantitas = st referensi × tingkat (0–100%, 0% = apa adanya),
  *  langkah ¼ semitone, clamp ±3. Dipakai juga utk lapisan ritme & tampilan UI.
- *  (Jalur DSP v0.19 tetap memakai geserVokal/lapisan — fallback lawas.) */
+ *  (Jalur DSP v0.19 tetap memakai geserVokal/lapisan — fallback lawas.)
+ *  v0.23.0 — SUARA WANITA SEJATI: referensi wanita kini bernilai +4–5,5 st
+ *  (jarak register pria→wanita yang nyata; dulu 1–2,5 st = nyaris tak terdengar)
+ *  dgn clamp khusus ±6, DAN skala dgn LANTAI 0,6 (skala = 0,6 + 0,4×t) — walau
+ *  slider "Kekuatan" masih 55% bawaan, geseran wanita tetap terasa (×0,82),
+ *  tidak lagi tenggelam. Referensi pria tak berubah (clamp ±3, skala ×t). */
 export function geserVokalSemi(genre: GenreMusik, refId: string, tingkat: number): number {
   const base = RESEP_VOKAL_GENRE[genre];
   if (!base) return 0;
@@ -600,6 +630,10 @@ export function geserVokalSemi(genre: GenreMusik, refId: string, tingkat: number
   let st = 0;
   if (ref && (ref.dada || ref.tinggi)) st = ref.tinggi ? ref.tinggi : -(ref.dada ?? 0);
   else if (base.geser) [st] = base.geser;
+  if (ref && adalahWanita(ref.id)) {
+    st = Math.max(3, Math.min(6, Math.round(st * 2) / 2));
+    return Math.max(-6, Math.min(6, Math.round(st * (0.6 + 0.4 * t) * 4) / 4));
+  }
   st = Math.max(-3, Math.min(3, Math.round(st * 2) / 2));
   if (Math.abs(st) < 0.25) return 0;
   return Math.max(-3, Math.min(3, Math.round(st * t * 4) / 4));

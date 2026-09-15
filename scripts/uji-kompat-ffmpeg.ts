@@ -61,6 +61,8 @@ function uji(bin: string, label: string) {
     { nama: "vokalgen-4 AI vokal-saja", graf: bangunFilterAudioAi({ ...dasarAi, karaoke: "vokal", tingkatVokal: 90 }).graf, nInput: 2 },
     { nama: "vokalgen-4 AI transpos +3", graf: bangunFilterAudioAi({ ...dasarAi, transpose: 3 }).graf, nInput: 2 },
     { nama: "vokalgen-5 AI register penuh 100", graf: bangunFilterAudioAi({ ...dasarAi, tingkatVokal: 100 }).graf, nInput: 2 },
+    // v0.23 — register wanita sejati (+4,5 st → asetrate rasio tinggi) + feminisasi timbre
+    { nama: "vokalgen-5 AI wanita register 100", graf: bangunFilterAudioAi({ ...dasarAi, refVokal: "dangdut-w1", tingkatVokal: 100 }).graf, nInput: 2 },
     { nama: "vokalgen-4 AI harmoni+lapisan", graf: bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, nadaLevel: 50 }).graf, nInput: 4 },
     // ==== v0.22 — GANTI INSTRUMEN (mode ganti): vokal stem + aransemen WAV ====
     { nama: "ganti AI rock (penyanyi+aransemen)", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", genre: "rock", vokalLevel: 100, grooveLevel: 75, variasi: 0 }, 2).graf, nInput: 3 },
