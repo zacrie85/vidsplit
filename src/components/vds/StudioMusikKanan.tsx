@@ -64,12 +64,14 @@ export const aturMusikDefault: AturMusik = {
   // v0.20.0 — mesin vokal AI (stem MDX-Net) jadi bawaan
   mesinVokal: "ai",
   karaoke: "asli",
-  mode: "remake",
+  // v0.22.0 — GANTI INSTRUMEN jadi bawaan menu 2: penyanyi asli (stem AI) +
+  // musik benar-benar baru khas genre — musik asli hanya referensi
+  mode: "ganti",
   kecepatan: 1,
   grooveLevel: 75,
-  melodiLevel: 65,
+  melodiLevel: 60,
   melodiAsliLevel: 0,
-  vokalLevel: 0,
+  vokalLevel: 100, // v0.22.0: vokal asli = penyanyi asli dipertahankan (stem AI)
   variasi: 0,
   kemiripan: 80,
   transpose: null,
@@ -107,18 +109,32 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
   return (
     <Kartu
       judul="2. Pengubah genre musik"
-      deskripsi="17 genre — Versi genre mirip asli (disarankan), musik baru dari chord, atau lapisan"
+      deskripsi="17 genre — Ganti instrumen (cover sejati, disarankan), versi genre mirip asli, musik baru, atau lapisan"
       ikon={<SlidersHorizontal className="h-4 w-4" />}
     >
       <ChipPilihan<ModeTransformasi>
         nilai={atur.mode}
         onChange={(v) => ubah({ mode: v })}
         pilihan={[
+          { v: "ganti", label: "Ganti instrumen — cover sejati", hint: "Penyanyi asli + musik benar-benar baru khas genre (disarankan)" },
           { v: "remake", label: "Versi genre — mirip asli", hint: "Lagu asli 100% + gaya genre terkunci" },
-          { v: "penuh", label: "Musik baru dari chord", hint: "Musik diciptakan ulang total" },
+          { v: "penuh", label: "Musik baru dari chord", hint: "Musik diciptakan ulang total, tanpa vokal" },
           { v: "lapisan", label: "Lapisan", hint: "Lagu asli + lapisan genre (v0.10)" },
         ]}
       />
+      {atur.mode === "ganti" && (
+        <p className="mt-2 rounded-lg border border-cyan-400/30 bg-cyan-400/5 p-2 text-[11px] leading-relaxed text-cyan-200/90">
+          <b>Ganti instrumen (prinsip aransemen ulang, ala cover)</b> — musik asli
+          TIDAK ikut di hasil: drum, bass, gitar/akor, dan lead semuanya
+          <b> diganti alat musik baru khas genre</b> yang dimainkan ulang mengikuti
+          tempo, chord, DAN dinamika lagu asli (bagian sunyi tetap sunyi, klimaks
+          tetap klimaks). Lagu asli jadi <b>referensi</b>, bukan lapisan. Pilih
+          <b> Rock</b> → gitar distorsi + drum nge-rock sungguhan; <b>EDM</b> →
+          supersaw + kick 4/4. Suara <b>penyanyi asli dipertahankan</b> (stem AI
+          Kim Vocal 2, 100% offline) — persis band cover: penyanyinya tetap,
+          bandnya berganti genre.
+        </p>
+      )}
       {atur.mode === "remake" && (
         <p className="mt-2 rounded-lg border border-emerald-400/30 bg-emerald-400/5 p-2 text-[11px] leading-relaxed text-emerald-200/90">
           <b>Versi genre (prinsip Suno, offline)</b> — lagu asli dipertahankan 100%:
@@ -176,6 +192,82 @@ export function PanelGenre({ atur, ubah }: { atur: AturMusik; ubah: UbahMusik })
           </button>
         ))}
       </div>
+      {atur.mode === "ganti" && atur.genre !== "asli" && (
+        <div className="mt-3 space-y-2 rounded-xl border border-cyan-400/25 bg-slate-800/40 p-3">
+          <BarisSlider
+            label="Suara penyanyi asli (stem AI — suara TIDAK diubah)"
+            nilai={atur.vokalLevel}
+            min={0}
+            max={100}
+            step={5}
+            fmt={(n) => (n === 0 ? "Tanpa vokal (instrumental genre)" : `${n}%`)}
+            onChange={(n) => ubah({ vokalLevel: n })}
+          />
+          <BarisSlider
+            label="Iringan genre baru (drum, bass, gitar/akor)"
+            nilai={atur.grooveLevel}
+            min={0}
+            max={100}
+            step={5}
+            fmt={(n) => (n === 0 ? "Mati" : `${n}%`)}
+            onChange={(n) => ubah({ grooveLevel: n })}
+          />
+          <BarisSlider
+            label="Melodi utama (lead)"
+            nilai={atur.melodiLevel}
+            min={0}
+            max={100}
+            step={5}
+            fmt={(n) => (n === 0 ? "Mati" : `${n}%`)}
+            onChange={(n) => ubah({ melodiLevel: n })}
+          />
+          <div>
+            <p className="mb-1 text-xs text-slate-400">Sumber melodi utama</p>
+            <ChipPilihan<string>
+              nilai={atur.variasi === 0 ? "asli" : "baru"}
+              onChange={(v) => ubah({ variasi: v === "asli" ? 0 : atur.variasi === 0 ? 1 : atur.variasi })}
+              pilihan={[
+                { v: "asli", label: "Ikuti melodi asli (referensi)", hint: "Lead memainkan jalur melodi lagu asli" },
+                { v: "baru", label: `Melodi baru dari chord`, hint: "Lead memainkan melodi ciptaan khas genre" },
+              ]}
+            />
+          </div>
+          {atur.variasi !== 0 && (
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <BarisSlider
+                  label={`Variasi melodi baru (#${atur.variasi} dari 8)`}
+                  nilai={(atur.variasi - 1) % 8}
+                  min={0}
+                  max={7}
+                  step={1}
+                  fmt={(n) => `#${n + 1}`}
+                  onChange={(n) => ubah({ variasi: n + 1 })}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => ubah({ variasi: (atur.variasi % 8) + 1 })}
+                className="mb-0.5 inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-400/50 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-200 transition hover:bg-amber-400/20"
+                title="Ganti pola melodi baru dgn variasi lain"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> Variasikan
+              </button>
+            </div>
+          )}
+          <p className="text-[11px] leading-relaxed text-slate-500">
+            Penyanyi asli (stem AI) diletakkan di atas aransemen genre — persis band
+            cover. Menu 4 tetap bekerja: pilih <b>Karaoke</b> utk instrumental genre
+            murni, <b>Vokal saja</b> utk penyanyi tanpa iringan.
+          </p>
+        </div>
+      )}
+      {atur.mode === "ganti" && atur.genre === "asli" && (
+        <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2 text-[11px] text-amber-200/90">
+          Genre belum dipilih — aransemen memakai <b>Pop</b>. Pilih salah satu genre
+          di atas utk gaya lain (Rock, Dangdut, EDM, dst.).
+        </p>
+      )}
       {atur.mode === "remake" ? (
         <div className="mt-3 space-y-2 rounded-xl border border-emerald-400/25 bg-slate-800/40 p-3">
           {atur.genre !== "asli" && (
@@ -418,6 +510,43 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
           <b> 0% (bawaan) = musik baru murni tanpa suara asli</b> — ideal utk instrumental
           genre; naikkan bila ingin menyanyi sendiri di atas musik baru dgn vokal asli
           sbg panduan.
+        </p>
+      </Kartu>
+    );
+  }
+  if (atur.mode === "ganti") {
+    // v0.22.0 — mode GANTI INSTRUMEN: vokal = penyanyi asli (stem AI, tak diubah),
+    // dikendalikan dari menu 2. Genre vokal (menu 4) tidak berlaku di mode ini;
+    // chips karaoke tetap berlaku (instrumental murni / vokal telanjang).
+    return (
+      <Kartu
+        judul="4. Vokal & karaoke"
+        deskripsi="Mode Ganti instrumen — penyanyi asli dipertahankan, genre vokal tidak dipakai"
+        ikon={<Mic className="h-4 w-4" />}
+      >
+        <p className="rounded-lg border border-cyan-400/30 bg-cyan-400/5 p-2.5 text-[11px] leading-relaxed text-cyan-200/90">
+          Dalam mode <b>Ganti instrumen</b>, vokal dikendalikan slider
+          <b> “Suara penyanyi asli”</b> di menu 2 (bawaan 100% = penyanyi asli
+          dipertahankan; suaranya TIDAK diubah — yang berganti hanya bandnya).
+          Pilihan di bawah tetap berlaku: <b>Karaoke</b> = instrumental genre murni
+          (vokal dihapus AI), <b>Vokal saja</b> = penyanyi tanpa iringan,
+          <b> Asli</b> = penyanyi + aransemen genre.
+        </p>
+        <div className="mt-3">
+          <ChipPilihan<KaraokeMode>
+            nilai={atur.karaoke}
+            onChange={(v) => ubah({ karaoke: v })}
+            pilihan={[
+              { v: "asli", label: "Asli", hint: "Penyanyi + aransemen genre" },
+              { v: "karaoke", label: "Karaoke", hint: "Instrumental genre murni (tanpa vokal)" },
+              { v: "vokal", label: "Vokal saja", hint: "Penyanyi asli tanpa iringan" },
+            ]}
+          />
+        </div>
+        <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+          Ingin mengganti SUARA penyanyi (genre vokal, referensi penyanyi, pisah
+          vokal &amp; musik)? Pilih mode <b>Versi genre</b> atau <b>Lapisan</b> di
+          menu 2 — fitur lengkap menu 4 kembali tersedia di mode itu.
         </p>
       </Kartu>
     );

@@ -4,7 +4,7 @@
 // Jalankan: bun scripts/uji-musik.ts
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
-  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
+  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
   clampStudio, faktorAtempo,
   faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, geserVokalSemi, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
@@ -14,6 +14,7 @@ import {
 } from "../src/lib/vidsplit/musik";
 import { beriReverb, buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
 import { buatHarmoniWav, buatIringanWav, buatMelodiBaru, HARMONI_GENRE, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
+import { buatAransemenWav, deskripsiAransemen, drumSampel, RENCANA_GENRE } from "../src/lib/vidsplit/musikAransemen";
 import { ekstrakMelodi } from "../src/lib/vidsplit/musikAnalisis";
 
 let lulus = 0;
@@ -704,6 +705,97 @@ cek(gAiLay.graf.includes("[2:a]volume") && gAiLay.graf.includes("[3:a]volume"),
   "harmoni input 2 + lapisan input 3 di jalur AI");
 cek(clampStudio({ mesinVokal: "dsp" }).mesinVokal === "dsp", "clampStudio mempertahankan mesinVokal dsp");
 cek(clampStudio({}).mesinVokal === "ai", "clampStudio bawaan mesinVokal = ai");
+
+console.log("== 31. GANTI INSTRUMEN — mode ganti v0.22 (cover genre sejati) ==");
+cek(clampStudio({ mode: "ganti" }).mode === "ganti", "clampStudio menerima mode ganti");
+cek(clampStudio({ mode: "apaaja" }).mode === "remake", "clampStudio mode tak dikenal → remake");
+// graf AI ganti
+const dasarGanti = clampStudio({
+  file: "uji.mp3", judul: "Uji Ganti", genre: "rock", mode: "ganti",
+  vokalLevel: 100, grooveLevel: 75, melodiLevel: 60, variasi: 0,
+  karaoke: "asli", mesinVokal: "ai",
+});
+const gGanti = bangunFilterAudioGantiAi(dasarGanti, 2);
+cek(gGanti.graf.includes("[0:a]") && gGanti.graf.includes("[2:a]"),
+  "ganti AI: vokal stem input 0 + aransemen input 2");
+cek(gGanti.graf.includes("amix=inputs=2") && gGanti.graf.endsWith("alimiter=limit=0.95[aout]"),
+  "ganti AI: penyanyi asli + aransemen diamix lalu limiter");
+cek(!gGanti.graf.includes("asetrate"), "ganti AI: TANPA transpos (aransemen pada nada dasar asli)");
+cek(!gGanti.graf.includes("equalizer") && !gGanti.graf.includes("acompressor"),
+  "ganti AI: TANPA rantai warna/resep (aransemen sudah khas genre)");
+cek(gGanti.tempo === 1 && gGanti.transpose === 0 && gGanti.adaLayer === false && gGanti.adaNada === false,
+  "ganti AI: tempo/transpos/layer/nada netral");
+const gGantiKar = bangunFilterAudioGantiAi({ ...dasarGanti, karaoke: "karaoke" }, 2);
+cek(!gGantiKar.graf.includes("[0:a]") && gGantiKar.graf.includes("[2:a]"),
+  "ganti AI karaoke: instrumental aransemen murni — vokal tidak dibangun");
+const gGantiVok = bangunFilterAudioGantiAi({ ...dasarGanti, karaoke: "vokal" }, 2);
+cek(gGantiVok.graf.includes("[0:a]") && !gGantiVok.graf.includes("[2:a]"),
+  "ganti AI vokal-saja: stem vokal utuh tanpa aransemen");
+const gGantiIdx1 = bangunFilterAudioGantiAi(dasarGanti, 1);
+cek(gGantiIdx1.graf.includes("[1:a]"), "ganti AI: indeks aransemen bisa 1 (jalur tanpa stem)");
+const gGantiBisu = bangunFilterAudioGantiAi({ ...dasarGanti, grooveLevel: 0 }, 2);
+cek(!gGantiBisu.graf.includes("[2:a]"), "ganti AI groove 0: aransemen tidak direferensikan (tak ada label gantung)");
+// fallback DSP: cabang penuh, tanpa rantai resep, tempo = kecepatan
+const fGantiDsp = bangunFilterAudio({ ...dasarGanti, vokalLevel: 100, grooveLevel: 75 }, 44100);
+cek(fGantiDsp.graf.includes("[1:a]") || fGantiDsp.graf.includes("amix"),
+  "ganti DSP fallback: aransemen input 1 ikut graf");
+cek(fGantiDsp.tempo === 1, "ganti DSP fallback: tempo = kecepatan (resep genre tidak berlaku)");
+const fGantiDspRock = bangunFilterAudio({ ...dasarGanti, genre: "rock", kecepatan: 1 }, 44100);
+cek(!fGantiDspRock.graf.includes("equalizer=f=120"),
+  "ganti DSP fallback: TANPA rantai resep genre (aransemen sudah khas genre)");
+cek(faktorWaktuStudio({ genre: "rock", mode: "ganti", kecepatan: 1.5 }) === 1.5,
+  "faktorWaktuStudio ganti = kecepatan murni");
+cek(faktorWaktuStudio({ genre: "punk", mode: "remake", kecepatan: 1 }) > 1,
+  "faktorWaktuStudio remake tetap pakai resep tempo genre");
+// engine aransemen
+cek(DAFTAR_GENRE.every((g) => !!RENCANA_GENRE[g]), "RENCANA_GENRE 17 lengkap");
+cek(DAFTAR_GENRE.every((g) => deskripsiAransemen(g).length > 3), "deskripsiAransemen 17 ramah");
+const ktxAr = {
+  bpm: 120, fase: 0, durasi: 4,
+  chord: [
+    { mulai: 0, durasi: 2, chord: "C" },
+    { mulai: 2, durasi: 2, chord: "Am" },
+  ],
+  melodi: [
+    { t: 0, d: 0.5, f: 261.63, g: 0.9 }, { t: 1, d: 0.5, f: 329.63, g: 0.8 },
+    { t: 2, d: 0.5, f: 220, g: 0.85 }, { t: 3, d: 0.5, f: 261.63, g: 0.7 },
+  ],
+  gelombang: Array.from({ length: 800 }, (_, i) => (i < 200 ? 0.2 : i < 500 ? 0.5 : 0.9)),
+};
+const arOps = { groove: 0.75, melodi: 0.6, sumberMelodi: "asli" as const, variasi: 0 };
+for (const g of DAFTAR_GENRE) {
+  const w = buatAransemenWav(ktxAr, g, arOps);
+  const rms = rmsDari(w);
+  cek(w.length > 44 && !Number.isNaN(rms) && rms > 0.001,
+    `aransemen ${g}: WAV valid + berbunyi (RMS ${rms.toFixed(4)})`);
+}
+const arRock = buatAransemenWav(ktxAr, "rock", arOps);
+const arRock2 = buatAransemenWav(ktxAr, "rock", arOps);
+cek(arRock.equals(arRock2), "aransemen deterministik: input sama → byte sama");
+const arEdm = buatAransemenWav(ktxAr, "edm", arOps);
+cek(!arRock.equals(arEdm), "aransemen rock ≠ edm (instrumen & pola berbeda)");
+const arBaru = buatAransemenWav(ktxAr, "rock", { ...arOps, sumberMelodi: "baru", variasi: 1 });
+cek(!arRock.equals(arBaru), "sumber melodi asli ≠ melodi baru variasi");
+const arSunyi = buatAransemenWav(
+  { ...ktxAr, gelombang: Array(800).fill(0.08) }, "rock", arOps,
+);
+const arKlimaks = buatAransemenWav(
+  { ...ktxAr, gelombang: Array(800).fill(0.95) }, "rock", arOps,
+);
+cek(rmsDari(arSunyi) < rmsDari(arKlimaks),
+  `dinamika energi: bar senyi RMS ${rmsDari(arSunyi).toFixed(4)} < klimaks ${rmsDari(arKlimaks).toFixed(4)}`);
+const arTanpaMelodi = buatAransemenWav({ ...ktxAr, melodi: undefined, gelombang: undefined }, "rock", arOps);
+cek(!Number.isNaN(rmsDari(arTanpaMelodi)) && rmsDari(arTanpaMelodi) > 0.001,
+  "tanpa melodi & tanpa gelombang → fallback melodi baru + dinamika aman");
+const durasiByte = (4 + 1.6) * 44100 * 2 * 2 + 44;
+cek(Math.abs(arRock.length - durasiByte) < 44100 * 4,
+  "panjang aransemen ≈ durasi + ekor 1.6 dtk");
+for (const ins of ["crash", "ride", "tom", "hatOpen", "clap"] as const) {
+  const s = drumSampel(ins, 0.8, 200);
+  let finite = true;
+  for (let i = 0; i < s.length; i += 37) if (!Number.isFinite(s[i])) { finite = false; break; }
+  cek(s.length > 100 && finite, `drum baru ${ins}: finite + panjang ${s.length}`);
+}
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

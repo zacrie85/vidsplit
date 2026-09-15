@@ -9,7 +9,7 @@
 // Jalankan: bun scripts/uji-kompat-ffmpeg.ts
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, grafPisahVokalMusik, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
+import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
 
 const DUR = 2;
 const W = 320, H = 568; // 9:16 kecil — cepat, tetap mewakili resolusi vertikal bawaan
@@ -62,6 +62,12 @@ function uji(bin: string, label: string) {
     { nama: "vokalgen-4 AI transpos +3", graf: bangunFilterAudioAi({ ...dasarAi, transpose: 3 }).graf, nInput: 2 },
     { nama: "vokalgen-5 AI register penuh 100", graf: bangunFilterAudioAi({ ...dasarAi, tingkatVokal: 100 }).graf, nInput: 2 },
     { nama: "vokalgen-4 AI harmoni+lapisan", graf: bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, nadaLevel: 50 }).graf, nInput: 4 },
+    // ==== v0.22 — GANTI INSTRUMEN (mode ganti): vokal stem + aransemen WAV ====
+    { nama: "ganti AI rock (penyanyi+aransemen)", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", genre: "rock", vokalLevel: 100, grooveLevel: 75, variasi: 0 }, 2).graf, nInput: 3 },
+    { nama: "ganti AI karaoke (aransemen murni)", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", genre: "edm", karaoke: "karaoke", grooveLevel: 75 }, 2).graf, nInput: 3 },
+    { nama: "ganti AI vokal-saja", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", karaoke: "vokal" }, 2).graf, nInput: 3 },
+    { nama: "ganti AI tempo 1.5x", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", genre: "dangdut", kecepatan: 1.5 }, 2).graf, nInput: 3 },
+    { nama: "ganti DSP fallback (aransemen input 1)", graf: bangunFilterAudio({ ...dasarAi, mode: "ganti", genre: "rock", vokalLevel: 100, grooveLevel: 75 }, 44100).graf, nInput: 2 },
   );
   for (const { nama, graf, nInput } of grafAudio) {
     const pisah = nama.startsWith("pisah");

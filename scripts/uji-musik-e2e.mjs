@@ -578,5 +578,61 @@ cek(!j24.error && j24.fileMp3, "proses dgn mesin DSP (fallback) selesai tanpa er
 const pr24 = ffprobe(path.join(WORK, j24.fileMp3));
 cek(Math.abs(pr24.durasi - 16) < 1.5, `durasi hasil DSP ≈ 16 dtk (${pr24.durasi.toFixed(2)})`);
 
+console.log("== 25. v0.22.0 — GANTI INSTRUMEN: penyanyi asli + aransemen genre (rock vs EDM) ==");
+const prosesGanti = (genre, karaoke = "asli") =>
+  (async () => {
+    const p = await POST("/api/musik/proses", {
+      file: upVok.file, judul: `Ganti ${genre}`, genre, layerLevel: 0,
+      karaoke, bpm: 120, fase: 0,
+      mode: "ganti", kecepatan: 1, grooveLevel: 75, melodiLevel: 60,
+      vokalLevel: 100, variasi: 0, mesinVokal: "ai",
+    });
+    const j = await pollJob(p.id, 600_000);
+    if (j.error) throw new Error(j.error);
+    return path.join(WORK, j.fileMp3);
+  })();
+const gantiRock = await prosesGanti("rock");
+cek(existsSync(gantiRock), "ganti instrumen rock selesai tanpa error");
+const prGanti = ffprobe(gantiRock);
+// mode ganti TANPA resep tempo genre → durasi = sumber (16 dtk)
+cek(Math.abs(prGanti.durasi - 16) < 1.5, `durasi ganti ≈ 16 dtk (${prGanti.durasi.toFixed(2)})`);
+const meanGanti = rmsFile(gantiRock);
+cek(meanGanti > -40, `hasil ganti tidak bisu (mean ${meanGanti.toFixed(1)} dB)`);
+const gantiEdm = await prosesGanti("edm");
+cek(existsSync(gantiEdm), "ganti instrumen edm selesai tanpa error");
+// A/B PENUH: (1) hasil ganti vs LAGU ASLI — harus beda total (musik asli DIGANTI,
+// bukan dilayer); (2) rock vs edm — aransemen beda genre beda total.
+const bandPenuh = (sumber, tag) => {
+  const tujuan = path.join(WORK, `tmp-penuh-${tag}.wav`);
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error", "-i", sumber,
+    "-ac", "1", "-c:a", "pcm_s16le", tujuan]);
+  return tujuan;
+};
+const perubahanPenuh = (a, b, tag) => {
+  const ba = bandPenuh(a, `${tag}-A`);
+  const bb = bandPenuh(b, `${tag}-B`);
+  const bd = ba.replace("penuh-", "diffpenuh-");
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error", "-i", ba, "-i", bb,
+    "-filter_complex", "[0:a][1:a]amerge=inputs=2,pan=mono|c0=0.5*c0+-0.5*c1",
+    "-ac", "1", "-c:a", "pcm_s16le", bd]);
+  const A = 10 ** (rmsFile(ba) / 20), B = 10 ** (rmsFile(bb) / 20), C = 10 ** (rmsFile(bd) / 20) * 2;
+  if (A <= 0 || B <= 0) return 0;
+  const corr = Math.max(-1, Math.min(1, (A * A + B * B - C * C) / (2 * A * B)));
+  return (1 - corr) * 100;
+};
+const asliAbs = path.join(WORK, upVok.file);
+const chgAsli = perubahanPenuh(gantiRock, asliAbs, "ganti-asli");
+cek(chgAsli > 80, `musik asli DIGANTI total: hasil-rock vs lagu-asli ${chgAsli.toFixed(0)}% berubah (harus > 80%)`);
+const chgGenre = perubahanPenuh(gantiRock, gantiEdm, "ganti-genre");
+cek(chgGenre > 50, `instrumen antar-genre berubah besar: rock↔edm ${chgGenre.toFixed(0)}% (harus > 50%)`);
+
+console.log("== 26. v0.22.0 — GANTI INSTRUMEN + KARAOKE: instrumental genre murni ==");
+const gantiKar = await prosesGanti("dangdut", "karaoke");
+cek(existsSync(gantiKar), "ganti + karaoke selesai tanpa error");
+const prGantiKar = ffprobe(gantiKar);
+cek(Math.abs(prGantiKar.durasi - 16) < 1.5, `durasi ganti-karaoke ≈ 16 dtk (${prGantiKar.durasi.toFixed(2)})`);
+const meanGantiKar = rmsFile(gantiKar);
+cek(meanGantiKar > -40, `instrumental genre tidak bisu (mean ${meanGantiKar.toFixed(1)} dB)`);
+
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

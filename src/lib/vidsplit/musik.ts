@@ -49,7 +49,14 @@ export function grafPisahVokalMusik(): string {
 }
 
 /** Cara pengubah genre bekerja:
- *  - "remake"  : (v0.14.0, BAWAAN) VERSI GENRE ala Suno — lagu asli tetap fondasi utuh
+ *  - "ganti"   : (v0.22.0, BAWAAN) GANTI INSTRUMEN — cover genre sejati. SEMUA
+ *                instrumen asli dibuang, diganti aransemen baru khas genre
+ *                (drum/bass/akor/lead — musikAransemen.ts) yang mengikuti BPM,
+ *                fasa, progresi chord DAN dinamika (energi per bar) lagu asli.
+ *                Vokal asli (stem AI MDX-Net) dipertahankan di atasnya — persis
+ *                band cover: penyanyi tetap, band berganti genre. Musik asli
+ *                jadi REFERENSI, bukan lapisan — tidak ada lagi "efek tempelan".
+ *  - "remake"  : (v0.14.0) VERSI GENRE ala Suno — lagu asli tetap fondasi utuh
  *                100% (melodi, vokal, groove = bunyi rekaman asli) dan TIDAK ADA nada
  *                tambahan sama sekali (sumber bentrok irama dihapus dari jalur bawaan).
  *                Perubahan gaya dilakukan lewat transformasi yang TERKUNCI ke lagu:
@@ -61,7 +68,7 @@ export function grafPisahVokalMusik(): string {
  *                BPM & fasa lagu asli dijadikan REFERENSI lalu seluruh musik baru
  *                (drum/bass/akor/melodi/perkusi) diciptakan khas genre pilihan;
  *                vokal asli opsional (DSP kanal tengah) bila ingin dinyanyikan. */
-export type ModeTransformasi = "remake" | "lapisan" | "penuh";
+export type ModeTransformasi = "remake" | "lapisan" | "penuh" | "ganti";
 
 /** pilihan kecepatan tempo — 0.5 = perlambat 2× lebih lama; v0.15.0: langkah halus
  *  1.1×–1.5× utk percepatan (permintaan user: 1.1-1.2-1.3-1.4-1.5) */
@@ -788,7 +795,7 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
     karaoke: o.karaoke === "karaoke" || o.karaoke === "vokal" ? o.karaoke : "asli",
     bpm: bpmAman(o.bpm, 120), // v0.18.0: clamp 30–300 (dulu 50–220 — lagu lambat < 50 BPM terpotong)
     fase: Math.max(0, Number(o.fase) || 0),
-    mode: o.mode === "penuh" || o.mode === "lapisan" ? o.mode : "remake",
+    mode: o.mode === "penuh" || o.mode === "lapisan" || o.mode === "ganti" ? o.mode : "remake",
     kecepatan: (PILIHAN_KECEPATAN as readonly number[]).includes(kec) ? kec : 1,
     grooveLevel: Math.min(100, Math.max(0, Math.round(Number(o.grooveLevel ?? 70)))),
     melodiLevel: Math.min(100, Math.max(0, Math.round(Number(o.melodiLevel ?? 65)))),
@@ -836,8 +843,10 @@ export function transposeAuto(kemiripan: number, seed: string): number {
 }
 
 /** Faktor percepatan TOTAL: resep tempo genre × kecepatan pilihan user.
- *  1.2 = hasil 1.2× lebih cepat (durasi dibagi 1.2). */
-export function faktorWaktuStudio(o: Pick<OpsiStudioMusik, "genre" | "kecepatan">): number {
+ *  1.2 = hasil 1.2× lebih cepat (durasi dibagi 1.2).
+ *  v0.22.0 mode "ganti": aransemen sudah khas genre — hanya kecepatan user. */
+export function faktorWaktuStudio(o: Pick<OpsiStudioMusik, "genre" | "kecepatan" | "mode">): number {
+  if (o.mode === "ganti") return o.kecepatan;
   const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
   return (resep ? resep.tempo : 1) * o.kecepatan;
 }
@@ -885,8 +894,9 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
   const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
   const tempoResep = resep ? resep.tempo : 1;
   const kecepatan = o.kecepatan || 1; // defensif bila dipanggil tanpa clamp
-  const tempo = tempoResep * kecepatan;
-  const penuh = o.mode === "penuh";
+  // v0.22.0 mode "ganti": aransemen sudah khas genre — resep tempo genre tidak berlaku
+  const tempo = o.mode === "ganti" ? kecepatan : tempoResep * kecepatan;
+  const penuh = o.mode === "penuh" || o.mode === "ganti";
   const remake = o.mode === "remake";
   const baris: string[] = [];
   // v0.14.0 — mode REMAKE memakai WARNA GENRE (rantaiWarna): seluruh karakter lahir
@@ -899,6 +909,9 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
     : [];
   const rantai = remake
     ? (warna.join(",") || "anull")
+    // v0.22.0 mode ganti (fallback DSP): aransemen sudah khas genre — TANPA rantai
+    // resep tambahan (dulu jadi dobel proses)
+    : o.mode === "ganti" ? "anull"
     : resep ? resep.rantai.join(",") : "anull";
   // input 0 hanya dimasukkan ke graf bila benar-benar dipakai (lapisan selalu;
   // penuh hanya bila vokal ikut atau iringan mati) — output graf tak boleh menggantung.
@@ -1096,6 +1109,48 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
     baris.push(`[${labelAkhir}]alimiter=limit=0.95[aout]`);
   }
   return { graf: baris.join(";"), adaLayer, tempo, adaVokal, transpose, adaNada };
+}
+
+/** v0.22.0 — GANTI INSTRUMEN (mode "ganti"): graf jalur STEM AI.
+ *  Input 0 = vokal stem MDX-Net (penyanyi asli — TIDAK diubah sama sekali),
+ *  input 1 = musik stem (tidak dipakai — instrumen asli dibuang), input
+ *  `idxAransemen` = WAV aransemen baru khas genre (musikAransemen.ts).
+ *  Hasil = penyanyi asli menyanyi di atas band genre baru — cover sejati:
+ *  musik asli benar-benar DIGANTI, bukan dilayer. Tanpa transpos/asetrate
+ *  (aransemen dibangun pada nada dasar asli — pasti selaras). Karaoke =
+ *  aransemen murni (instrumental); vokal-saja = stem vokal utuh. */
+export function bangunFilterAudioGantiAi(o: OpsiStudioMusik, idxAransemen = 2): {
+  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number; adaNada: boolean;
+} {
+  const tempo = o.kecepatan || 1;
+  const baris: string[] = [];
+  const fmt = (label: string) =>
+    `[${label}]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo`;
+  const gVokal = ((o.vokalLevel ?? 100) / 100) * 1.35;
+  const gIring = ((o.grooveLevel ?? 75) / 100) * 1.9;
+  const adaIring = (o.grooveLevel ?? 75) > 0 && o.karaoke !== "vokal";
+  const pakaiVokal = o.karaoke !== "karaoke" && (o.vokalLevel ?? 100) > 0;
+  const cabangIring = adaIring
+    ? `${fmt(`${idxAransemen}:a`)},volume=${gIring.toFixed(3)}[ir]`
+    : "";
+  if (pakaiVokal && adaIring) {
+    baris.push(`${fmt("0:a")},volume=${gVokal.toFixed(3)}[vok]`);
+    baris.push(cabangIring);
+    baris.push("[vok][ir]amix=inputs=2:duration=first:normalize=0[mix]");
+  } else if (adaIring) {
+    baris.push(`${cabangIring.replace("[ir]", "[mix]")}`);
+  } else {
+    // vokal saja (atau semua slider mati — vokal tetap diturunkan)
+    baris.push(`${fmt("0:a")},volume=${gVokal.toFixed(3)}[mix]`);
+  }
+  const at = faktorAtempo(tempo);
+  if (at.length) {
+    baris.push(`[mix]${at.map((f) => `atempo=${f}`).join(",")}[at]`);
+    baris.push("[at]alimiter=limit=0.95[aout]");
+  } else {
+    baris.push("[mix]alimiter=limit=0.95[aout]");
+  }
+  return { graf: baris.join(";"), adaLayer: false, tempo, adaVokal: o.karaoke !== "karaoke", transpose: 0, adaNada: false };
 }
 
 /** v0.21.0 — VOKALGEN-5 "GANTI-SUARA SATU SUARA": graf pemrosesan di atas STEM AI

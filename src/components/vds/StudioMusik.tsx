@@ -12,12 +12,12 @@ import {
 } from "lucide-react";
 import { BarisSlider, JatuhBerkas, Kartu, ChipPilihan, fmtUkuran } from "@/components/vds/bits";
 import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, type AturMusik } from "@/components/vds/StudioMusikKanan";
-import { faktorWaktuStudio, bpmAman, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan, geserVokalSemi } from "@/lib/vidsplit/musik";
+import { faktorWaktuStudio, bpmAman, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan, geserVokalSemi, INFO_GENRE } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-// v6 (v0.17.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
-// mendapat harmoni terkunci-akor 30% + genre vokal terpisah dgn referensi penyanyi.
-const KUNCI_ATUR = "vidsplit-musik-v6";
+// v7 (v0.22.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
+// mendapat mode GANTI INSTRUMEN (cover genre sejati) sebagai bawaan menu 2.
+const KUNCI_ATUR = "vidsplit-musik-v7";
 
 interface InfoLagu {
   file: string;
@@ -211,7 +211,7 @@ export function StudioMusik({
           wavRel: hasilProses.wav, judul: judulOverlay(), visual: atur.visual,
           opsiVisual: atur.vis, mulai: pratinjauMulai, lirik,
           chord: lagu?.chord || [], resolusi: atur.resolusi,
-          faktor: faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }),
+          faktor: faktorWaktuStudio({ genre: atur.genre, mode: atur.mode, kecepatan: atur.kecepatan }),
         }),
       });
       const j = (await r.json()) as { ok: boolean; file?: string; error?: string };
@@ -333,7 +333,7 @@ export function StudioMusik({
   // v0.18.0 — BPM efektif: manual (input user) kalau diisi, kalau tidak hasil deteksi
   const bpmEfe = bpmManual ?? (lagu ? lagu.bpm : 120);
   // BPM & durasi HASIL — mengikuti resep tempo genre × kecepatan pilihan user
-  const faktorWaktu = lagu ? faktorWaktuStudio({ genre: atur.genre, kecepatan: atur.kecepatan }) : 1;
+  const faktorWaktu = lagu ? faktorWaktuStudio({ genre: atur.genre, mode: atur.mode, kecepatan: atur.kecepatan }) : 1;
   const bpmHasil = lagu ? Math.round(bpmEfe * faktorWaktu) : 0;
   const durasiHasil = lagu ? lagu.durasi / faktorWaktu : 0;
   // v0.13.0 — transpos efektif mode remake (null = otomatis dari kemiripan + nama berkas);
@@ -345,7 +345,7 @@ export function StudioMusik({
     : 0;
   // v0.21.0 — register referensi genre vokal (dada-dalam/kepala-terang) ikut
   // menggeser nada dasar lagu (vokal + musik bergeser sama) — tampil di info.
-  const geserRegister = atur.mode !== "penuh" && atur.karaoke !== "karaoke"
+  const geserRegister = atur.mode !== "penuh" && atur.mode !== "ganti" && atur.karaoke !== "karaoke"
     && atur.genreVokal !== "mati" && (atur.tingkatVokal ?? 55) > 0 && atur.mesinVokal !== "dsp"
     ? geserVokalSemi(atur.genreVokal, atur.refVokal, atur.tingkatVokal ?? 55)
     : 0;
@@ -429,7 +429,7 @@ export function StudioMusik({
                     Pakai deteksi otomatis
                   </button>
                 </div>
-                {(faktorWaktu !== 1 || atur.mode === "penuh" || (atur.mode === "remake" && transposeEfe !== 0) || geserRegister !== 0) && (
+                {(faktorWaktu !== 1 || atur.mode === "penuh" || atur.mode === "ganti" || (atur.mode === "remake" && transposeEfe !== 0) || geserRegister !== 0) && (
                   <p className="mt-1 text-[11px] text-cyan-300/90">
                     Hasil ≈ <b>{bpmHasil} BPM</b> · {fmtMenit(durasiHasil)}
                     {atur.mode === "remake" && transposeEfe !== 0
@@ -447,6 +447,9 @@ export function StudioMusik({
                     {atur.genreVokal !== "mati" ? " · vokal " : ""}
                     {atur.genreVokal !== "mati" ? `${atur.genreVokal} ${atur.tingkatVokal}%` : ""}
                     {atur.mode === "penuh" && atur.genre !== "asli" ? " · musik baru dari chord" : ""}
+                    {atur.mode === "ganti" && atur.genre !== "asli"
+                      ? ` · musik diganti instrumen ${INFO_GENRE[atur.genre].label}${atur.vokalLevel > 0 ? " + penyanyi asli" : " (instrumental)"}`
+                      : ""}
                     {faktorWaktu !== 1 ? ` · tempo ${atur.kecepatan}×` : ""}
                   </p>
                 )}

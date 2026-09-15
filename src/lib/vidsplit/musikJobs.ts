@@ -14,13 +14,14 @@ import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tuju
 import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
-  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
+  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
   formatChordSheet, formatLrc, grafPisahVokalMusik, geserVokalSemi, skalaChord, skalaLirik, transposDgnPerubahan,
   RESEP_GENRE, transposeAuto, type BarisLirik, type IdVisual, type OpsiVisual,
   type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
 import { buatLayerWav } from "./musikLayer";
 import { buatHarmoniWav, buatIringanWav } from "./musikTransformasi";
+import { buatAransemenWav } from "./musikAransemen";
 import { analisisMusik } from "./musikAnalisis";
 import { aiTersedia, pastikanStemAi, type HasilStemAi } from "./vokalAi";
 
@@ -124,8 +125,10 @@ async function prosesAudio(
   // v0.21.0 — register referensi genre vokal ikut menggeser nada dasar (vokal +
   // musik bergeser sama, lihat geserVokalSemi) — lapisan ritme eksperimental
   // harus mengikuti nada dasar BARU ini agar tidak off-key dgn hasil.
+  // v0.22.0 — mode "ganti" TIDAK menggeser apa pun (aransemen dibangun pada
+  // nada dasar asli; penyanyi asli tak diubah).
   const geserRegister =
-    o.mode !== "penuh" && o.karaoke !== "karaoke" && !!o.genreVokal && o.genreVokal !== "mati"
+    o.mode !== "penuh" && o.mode !== "ganti" && o.karaoke !== "karaoke" && !!o.genreVokal && o.genreVokal !== "mati"
     && (o.tingkatVokal ?? 55) > 0 && !!o.mesinVokal && o.mesinVokal !== "dsp"
     ? geserVokalSemi(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55)
     : 0;
@@ -136,6 +139,7 @@ async function prosesAudio(
   const butuhStem = o.mode !== "penuh" && o.mesinVokal !== "dsp" && (
     ((!!o.genreVokal && o.genreVokal !== "mati") && (o.tingkatVokal ?? 55) > 0 && o.karaoke !== "karaoke")
     || o.karaoke !== "asli"
+    || (o.mode === "ganti" && o.karaoke === "asli") // v0.22.0 — ganti butuh stem vokal (penyanyi asli)
   );
   let stem: HasilStemAi | null = null;
   if (butuhStem && (await aiTersedia())) {
@@ -154,16 +158,37 @@ async function prosesAudio(
   let adaNada: boolean;
   const args: string[] = ["-y", "-hide_banner"];
   if (stem) {
-    const g = bangunFilterAudioAi({ ...o, transpose: transposeEfe });
-    graf = g.graf;
-    adaLayer = g.adaLayer;
-    tempo = g.tempo;
-    adaNada = g.adaNada;
+    if (o.mode === "ganti") {
+      // v0.22.0 — GANTI INSTRUMEN jalur AI: vokal stem + aransemen baru (input 2)
+      const g = bangunFilterAudioGantiAi(o, 2);
+      graf = g.graf; adaLayer = g.adaLayer; tempo = g.tempo; adaNada = g.adaNada;
+    } else {
+      const g = bangunFilterAudioAi({ ...o, transpose: transposeEfe });
+      graf = g.graf;
+      adaLayer = g.adaLayer;
+      tempo = g.tempo;
+      adaNada = g.adaNada;
+    }
     // input 0 = vokal stem, input 1 = instrumental stem (f32 stereo 44.1k)
     args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.vokalF32);
     args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.musikF32);
   } else {
-    const g = bangunFilterAudio({ ...o, transpose: transposeEfe }, info.sr || 44100);
+    const g = bangunFilterAudio(
+      {
+        ...o, transpose: transposeEfe,
+        // v0.22.0 mode ganti jalur DSP: karaoke = tanpa vokal, vokal-saja = tanpa
+        // aransemen — kendalikan lewat level agar cabang penuh tidak salah mix
+        vokalLevel:
+          o.mode === "ganti"
+            ? (o.karaoke === "karaoke" ? 0 : o.vokalLevel ?? 100)
+            : o.vokalLevel,
+        grooveLevel:
+          o.mode === "ganti"
+            ? (o.karaoke === "vokal" ? 0 : o.grooveLevel ?? 75)
+            : o.grooveLevel,
+      },
+      info.sr || 44100,
+    );
     graf = g.graf;
     adaLayer = g.adaLayer;
     tempo = g.tempo;
@@ -173,6 +198,34 @@ async function prosesAudio(
   const durasiKeluar = info.durasi / tempo;
   let layerAbs: string | null = null;
   let harmoniAbs: string | null = null;
+  let aransemenAbs: string | null = null;
+  // v0.22.0 — GANTI INSTRUMEN: seluruh musik asli diganti aransemen baru khas
+  // genre (drum/bass/akor/lead dari BPM+fasa+chord+energi+melodi asli).
+  // Jalur AI → aransemen = input 2; jalur DSP (tanpa stem) → input 1.
+  if (o.mode === "ganti" && o.karaoke !== "vokal" && (o.grooveLevel ?? 75) > 0) {
+    const an = await analisisMusik(o.file, ff.bin);
+    const aransemenWav = buatAransemenWav(
+      {
+        bpm: o.bpm, fase: an.fase, durasi: info.durasi,
+        chord: an.chord, melodi: an.melodi, gelombang: an.gelombang,
+      },
+      o.genre === "asli" ? "pop" : o.genre,
+      {
+        groove: o.grooveLevel / 100,
+        melodi: o.melodiLevel / 100,
+        sumberMelodi: (o.variasi ?? 0) > 0 ? "baru" : "asli",
+        variasi: o.variasi ?? 0,
+      },
+    );
+    aransemenAbs = path.join(dirWork("tmp"), `aransemen-${ktx.jobId}.wav`);
+    writeFileSync(aransemenAbs, aransemenWav);
+    args.push("-i", aransemenAbs); // indeks: stem ada → 2, tanpa stem → 1
+    if (!stem) {
+      // jalur DSP memakai bangunFilterAudio (cabang penuh) → aransemen = input 1 ✓
+    } else {
+      // jalur AI — indeks sudah 2 ✓
+    }
+  }
   // v0.16.0 — LAPISAN HARMONI TERKUNCI-AKOR: nada tambahan khas genre dari chord
   // lagu sendiri (pad+bass+arp mengikuti BPM/fase hasil analisis). Input 1;
   // lapisan ritme eksperimental (bila aktif) menjadi input 2 — urutan ini HARUS
@@ -234,6 +287,7 @@ async function prosesAudio(
   await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(ktx.jobId, c));
   if (layerAbs) { try { unlinkSync(layerAbs); } catch { /* abaikan */ } }
   if (harmoniAbs) { try { unlinkSync(harmoniAbs); } catch { /* abaikan */ } }
+  if (aransemenAbs) { try { unlinkSync(aransemenAbs); } catch { /* abaikan */ } }
   const wavRel = `${path.basename(folderOut)}/proses.wav`;
   const mp3Rel = `${path.basename(folderOut)}/proses.mp3`;
   return { wavRel: `musik/${wavRel}`, mp3Rel: `musik/${mp3Rel}`, durasi: durasiKeluar };
