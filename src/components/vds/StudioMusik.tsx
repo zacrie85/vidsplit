@@ -182,7 +182,7 @@ export function StudioMusik({
         kemiripan: atur.kemiripan, transpose: atur.transpose,
         tingkatGenre: atur.tingkatGenre, tingkatMusik: atur.tingkatMusik,
         nadaLevel: atur.nadaLevel,
-        genreVokal: atur.genreVokal, refVokal: atur.refVokal, tingkatVokal: atur.tingkatVokal,
+        genreVokal: atur.genreVokal, refVokal: atur.refVokal, tingkatVokal: atur.tingkatVokal, mesinVokal: atur.mesinVokal,
       }),
     })
       .then((r) => r.json())
@@ -283,7 +283,7 @@ export function StudioMusik({
         kemiripan: atur.kemiripan, transpose: atur.transpose,
         tingkatGenre: atur.tingkatGenre, tingkatMusik: atur.tingkatMusik,
         nadaLevel: atur.nadaLevel,
-        genreVokal: atur.genreVokal, refVokal: atur.refVokal, tingkatVokal: atur.tingkatVokal,
+        genreVokal: atur.genreVokal, refVokal: atur.refVokal, tingkatVokal: atur.tingkatVokal, mesinVokal: atur.mesinVokal,
         visual: atur.visual, opsiVisual: atur.vis, resolusi: atur.resolusi,
         lirik, chord: lagu?.chord || [],
         audioSudahProses: !!hasilProses,

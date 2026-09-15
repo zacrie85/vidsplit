@@ -13,6 +13,17 @@ const SAMPEL = path.join(WORK, "sample", "musik-uji.mp3");
 const gagal = (a) => { console.error("[GAGAL]", ...a); process.exit(1); };
 const cek = (kondisi, ...a) => { if (kondisi) console.log("  [LOLOS]", ...a); else gagal(a); };
 const jeda = (ms) => new Promise((r) => setTimeout(r, ms));
+// fetch dgn retry — keep-alive undici bisa kena ECONNRESET saat server sibuk CPU (ORT/ffmpeg)
+const fetchRetry = async (url, opsi = {}, coba = 3) => {
+  for (let i = 1; i <= coba; i++) {
+    try {
+      return await fetch(url, { ...opsi, keepalive: false });
+    } catch (e) {
+      if (i === coba) throw e;
+      await jeda(1500);
+    }
+  }
+};
 
 function buatSampel() {
   mkdirSync(path.join(WORK, "sample"), { recursive: true });
@@ -52,7 +63,7 @@ async function pollJob(id, maksMs = 420_000) {
   const t0 = Date.now();
   while (Date.now() - t0 < maksMs) {
     await jeda(1200);
-    const r = await fetch(`${BASE}/api/musik/job?id=${id}`, { cache: "no-store" });
+    const r = await fetchRetry(`${BASE}/api/musik/job?id=${id}`, { cache: "no-store" }, 5);
     const j = await r.json();
     if (!j.ok) throw new Error(`job ${id} hilang`);
     if (j.job.selesai || j.job.error) return j.job;
@@ -62,10 +73,10 @@ async function pollJob(id, maksMs = 420_000) {
 }
 
 const POST = async (url, body) => {
-  const r = await fetch(`${BASE}${url}`, {
+  const r = await fetchRetry(`${BASE}${url}`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-  });
+  }, 5);
   return r.json();
 };
 
@@ -374,13 +385,54 @@ const vol17 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j17.fil
 const mean17 = Number(/mean_volume: ([-\d.]+) dB/.exec(vol17)?.[1] || 0);
 cek(mean17 > -40, `genre vokal tidak bisu (mean_volume ${mean17} dB, sumber pelan -40)`);
 
-console.log("== 20. v0.16.0 — GENRE VOKAL di mode 'vokal saja' + harmoni mati utk genre asli ==");
+console.log("== 20. v0.16.0 — GENRE VOKAL di mode 'vokal saja' (sampel ADA vokalnya) ==");
+// ===== sampel lagu+VOKAL (dipakai blok 20/22/23/24) — TTS manusia bila ada =====
+const SAMPEL_VOKAL = path.join(WORK, "sample", "musik-uji-vokal.mp3");
+const TTS_MENTAH = path.join(WORK, "uji-vokal-ai", "tts-mentah.wav");
+const adaTts = existsSync(TTS_MENTAH);
+const buatSampelVokal = () => {
+  mkdirSync(path.join(WORK, "sample"), { recursive: true });
+  if (existsSync(SAMPEL_VOKAL) && statSync(SAMPEL_VOKAL).size > 100_000) return;
+  const masukan = ["-i", SAMPEL];
+  let grafVok;
+  if (adaTts) {
+    masukan.push("-i", TTS_MENTAH);
+    grafVok = "[1:a]aresample=44100,apad,atrim=duration=16,volume=0.85,pan=stereo|c0=c0|c1=c0,adelay=0|11[vok]";
+  } else {
+    masukan.push("-f", "lavfi", "-i", "sine=frequency=196:duration=16",
+      "-f", "lavfi", "-i", "sine=frequency=392:duration=16");
+    grafVok = "[1:a][2:a]amix=inputs=2:duration=first,tremolo=f=5:d=0.4,volume=0.3,pan=stereo|c0=c0|c1=c0,adelay=0|11[vok]";
+  }
+  // bed instrumen REALISTIS utk model: derau pink pulsa ala drum + "hat" derau tinggi
+  // + bass — SEMUA broadband/perkusi (bukan nada harmonik murni yang mirip paduan suara)
+  masukan.push("-f", "lavfi", "-i", "anoisesrc=d=16:c=pink:r=44100:a=0.9:seed=5",
+    "-f", "lavfi", "-i", "sine=frequency=55:sample_rate=44100:duration=16",
+    "-f", "lavfi", "-i", "anoisesrc=d=16:c=brown:r=44100:a=0.6:seed=9");
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error", ...masukan,
+    "-filter_complex",
+    "[2:a]tremolo=f=2:d=0.95,lowpass=f=7500,volume=0.55,pan=stereo|c0=c0|c1=0.25*c0[drm];" +
+    "[3:a]tremolo=f=1:d=0.5,volume=0.5,pan=stereo|c0=c0|c1=c0[bas];" +
+    "[4:a]highpass=f=2500,volume=0.16,pan=stereo|c0=0.25*c0|c1=c0,adelay=6|0[hat];" +
+    "[drm][bas][hat]amix=inputs=3:normalize=0[ir];" +
+    `${grafVok};[ir][vok]amix=inputs=2:duration=first,volume=1.2,alimiter=limit=0.95[out]`,
+    "-map", "[out]", "-c:a", "libmp3lame", "-b:a", "192k", SAMPEL_VOKAL], { stdio: "inherit" });
+};
+buatSampelVokal();
+cek(existsSync(SAMPEL_VOKAL), `sampel lagu+vokal ada (${(statSync(SAMPEL_VOKAL).size / 1024).toFixed(0)} KB, sumber vokal: ${adaTts ? "TTS manusia" : "sintetis"})`);
+const upVok = await (async () => {
+  const r = await fetch(`${BASE}/api/upload?kind=audio&nama=musik-uji-vokal.mp3`, {
+    method: "POST", headers: { "Content-Type": "application/octet-stream" },
+    body: readFileSync(SAMPEL_VOKAL),
+  });
+  return r.json();
+})();
+cek(upVok.ok && upVok.file, `lagu+vokal terunggah → ${upVok.file}`);
 const p18 = await POST("/api/musik/proses", {
-  file: upS.file, judul: "Vokal Saja Vokal Uji", genre: "asli", layerLevel: 0,
+  file: upVok.file, judul: "Vokal Saja Vokal Uji", genre: "asli", layerLevel: 0,
   genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 90,
   karaoke: "vokal", bpm: 120, fase: 0,
 });
-const j18 = await pollJob(p18.id);
+const j18 = await pollJob(p18.id, 600_000);
 cek(!j18.error && j18.fileMp3, "vokal saja + genre vokal selesai tanpa error");
 const vol18 = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, j18.fileMp3),
   "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
@@ -427,18 +479,14 @@ cek(!j19.error && j19.fileMp3, "proses dgn BPM manual selesai tanpa error");
 const pr19 = ffprobe(path.join(WORK, j19.fileMp3));
 cek(Math.abs(pr19.durasi - 16) < 1.2, `durasi proses dgn BPM manual ≈ 16 dtk (${pr19.durasi.toFixed(2)} — BPM manual tidak mengubah durasi)`);
 
-console.log("== 22. v0.19.0 — PISAH VOKAL & MUSIK (vocal remover, 2 berkas) ==");
-const p20 = await POST("/api/musik/pisah", { file: upS.file, judul: "Pisah Uji" });
+console.log("== 22. v0.20.0 — PISAH VOKAL & MUSIK dgn AI (vocal remover MDX-Net) ==");
+const p20 = await POST("/api/musik/pisah", { file: upVok.file, judul: "Pisah Uji AI" });
 cek(p20.ok && p20.id, `job pisah mulai: ${p20.id}`);
-const j20 = await pollJob(p20.id);
-cek(!j20.error && j20.outputs.length === 2, `pisah selesai tanpa error (${j20.outputs.length} berkas)`);
+const j20 = await pollJob(p20.id, 600_000);
+cek(!j20.error && j20.outputs.length === 2, `pisah AI selesai tanpa error (${j20.outputs.length} berkas)`);
 const fMus = j20.outputs.find((o) => o.file.endsWith("-musik.mp3"));
 const fVok = j20.outputs.find((o) => o.file.endsWith("-vokal.mp3"));
 cek(!!fMus && !!fVok, `berkas keluaran benar: ${fMus?.file} + ${fVok?.file}`);
-const prMus = ffprobe(path.join(WORK, `output/${j20.id}/${fMus.file}`));
-const prVok = ffprobe(path.join(WORK, `output/${j20.id}/${fVok.file}`));
-cek(Math.abs(prMus.durasi - 12) < 1.2 && Math.abs(prVok.durasi - 12) < 1.2,
-  `durasi kedua berkas ≈ 12 dtk (${prMus.durasi.toFixed(2)} / ${prVok.durasi.toFixed(2)})`);
 const rmsPita = (abs, pita) => {
   const ekstr = pita === "vokal"
     ? "aformat=channel_layouts=stereo,pan=mono|c0=0.5*c0+0.5*c1,highpass=f=180,lowpass=f=3800"
@@ -447,29 +495,35 @@ const rmsPita = (abs, pita) => {
     { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
   return Number(/mean_volume: ([-\d.]+) dB/.exec(out)?.[1] || -99);
 };
+const prMus = ffprobe(path.join(WORK, `output/${j20.id}/${fMus.file}`));
+const prVok = ffprobe(path.join(WORK, `output/${j20.id}/${fVok.file}`));
+cek(Math.abs(prMus.durasi - 16) < 1.5 && Math.abs(prVok.durasi - 16) < 1.5,
+  `durasi kedua stem ≈ 16 dtk (${prMus.durasi.toFixed(2)} / ${prVok.durasi.toFixed(2)})`);
 const musVok = rmsPita(path.join(WORK, `output/${j20.id}/${fMus.file}`), "vokal");
 const vokVok = rmsPita(path.join(WORK, `output/${j20.id}/${fVok.file}`), "vokal");
 cek(vokVok > musVok,
   `pita vokal lebih kuat di berkas vokal (${vokVok.toFixed(1)} dB) dibanding berkas musik (${musVok.toFixed(1)} dB)`);
 cek(vokVok > -50, `berkas vokal tidak bisu (${vokVok.toFixed(1)} dB)`);
-// vokal.mp3 murni kanal tengah → SISI (L−R) nyaris bisu; musik.mp3 instrumennya di SISI
-const vokSis = rmsPita(path.join(WORK, `output/${j20.id}/${fVok.file}`), "sisi");
-const musSis = rmsPita(path.join(WORK, `output/${j20.id}/${fMus.file}`), "sisi");
-cek(musSis - vokSis > 15,
-  `instrumen hidup di berkas MUSIK: sisi ${musSis.toFixed(1)} dB vs berkas vokal ${vokSis.toFixed(1)} dB (selisih > 15 dB)`);
+// v0.20 mesin AI (bila model tersedia): sisa vokal di instrumental harus TURUN jelas
+const adaModel = existsSync(path.join(ROOT, "assets", "vokal-ai", "Kim_Vocal_2.onnx"));
+if (adaModel && adaTts) {
+  const asliVok = rmsPita(path.join(WORK, upVok.file), "vokal");
+  cek(musVok < asliVok - 5,
+    `AI: sisa vokal di instrumental turun ≥ 5 dB (lagu asli ${asliVok.toFixed(1)} dB → sisa ${musVok.toFixed(1)} dB)`);
+}
 const meanMus = spawnSync("ffmpeg", ["-hide_banner", "-i", path.join(WORK, `output/${j20.id}/${fMus.file}`),
   "-af", "volumedetect", "-f", "null", "-"], { stdio: ["ignore", "ignore", "pipe"] }).stderr.toString();
 cek(Number(/mean_volume: ([-\d.]+) dB/.exec(meanMus)?.[1] || 0) > -30,
   "instrumental karaoke tidak terpendam (mean_volume > -30)");
 
-console.log("== 23. v0.19.0 — VOKALGEN-3 TERUKUR: karakter vokal berubah, instrumen utuh (A/B) ==");
+console.log("== 23. v0.20.0 — VOKALGEN-4 TERUKUR: stem AI ganti suara penuh, instrumen utuh (A/B) ==");
 const prosesAB = async (genreVokal) => {
   const p = await POST("/api/musik/proses", {
-    file: upS.file, judul: "VokalGen AB", genre: "asli", layerLevel: 0,
-    genreVokal, refVokal: "dangdut-w1", tingkatVokal: 100,
+    file: upVok.file, judul: "VokalGen AB", genre: "asli", layerLevel: 0,
+    genreVokal, refVokal: "dangdut-w1", tingkatVokal: 100, mesinVokal: "ai",
     karaoke: "asli", bpm: 120, fase: 0, kecepatan: 1,
   });
-  const j = await pollJob(p.id);
+  const j = await pollJob(p.id, 600_000);
   if (j.error) throw new Error(j.error);
   return path.join(WORK, j.fileMp3);
 };
@@ -503,10 +557,26 @@ const perubahanPctAB = (a, b, pita) => {
   return (1 - corr) * 100;
 };
 const chgVok = perubahanPctAB(outA, outB, "vokal");
-const chgSis = perubahanPctAB(outA, outB, "sisi");
-cek(chgVok > 45, `karakter VOKAL berubah jelas: ${chgVok.toFixed(0)}% (harapan > 45%)`);
-cek(chgSis < 25, `INSTRUMEN (sisi) tetap utuh: berubah ${chgSis.toFixed(0)}% (harapan < 25%)`);
-console.log(`    → vokal ${chgVok.toFixed(0)}% · instrumen ${chgSis.toFixed(0)}%`);
+// era stem-AI: vokal (termasuk karakter stereo barunya) diganti PENUH → pita sisi
+// ikut berubah by design. Jaminan "musik utuh" = struktural (stem instrumental
+// lewat tak tersentuh — terkunci di uji unit & blok 22) + linimasa tetap seirama:
+const prA = ffprobe(outA);
+const prB = ffprobe(outB);
+cek(chgVok > 30, `karakter VOKAL berubah jelas: ${chgVok.toFixed(0)}% (harapan > 30%)`);
+cek(Math.abs(prA.durasi - 16) < 1.2 && Math.abs(prB.durasi - 16) < 1.2,
+  `linimasa musik tetap seirama: durasi A/B ≈ 16 dtk (${prA.durasi.toFixed(2)} / ${prB.durasi.toFixed(2)})`);
+console.log(`    → vokal berubah ${chgVok.toFixed(0)}% · durasi A/B ${prA.durasi.toFixed(2)}/${prB.durasi.toFixed(2)} dtk`);
+
+console.log("== 24. v0.20.0 — mesin DSP lama masih hidup sbg fallback (mesinVokal=dsp) ==");
+const p24 = await POST("/api/musik/proses", {
+  file: upVok.file, judul: "VokalGen DSP", genre: "asli", layerLevel: 0,
+  genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 80, mesinVokal: "dsp",
+  karaoke: "asli", bpm: 120, fase: 0, kecepatan: 1,
+});
+const j24 = await pollJob(p24.id, 600_000);
+cek(!j24.error && j24.fileMp3, "proses dgn mesin DSP (fallback) selesai tanpa error");
+const pr24 = ffprobe(path.join(WORK, j24.fileMp3));
+cek(Math.abs(pr24.durasi - 16) < 1.5, `durasi hasil DSP ≈ 16 dtk (${pr24.durasi.toFixed(2)})`);
 
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

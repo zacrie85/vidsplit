@@ -14,7 +14,7 @@ import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tuju
 import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
-  bangunAss, bangunFilterAudio, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
+  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
   formatChordSheet, formatLrc, grafPisahVokalMusik, skalaChord, skalaLirik, transposDgnPerubahan,
   RESEP_GENRE, transposeAuto, type BarisLirik, type IdVisual, type OpsiVisual,
   type OpsiStudioMusik, type SegmenChord,
@@ -22,6 +22,7 @@ import {
 import { buatLayerWav } from "./musikLayer";
 import { buatHarmoniWav, buatIringanWav } from "./musikTransformasi";
 import { analisisMusik } from "./musikAnalisis";
+import { aiTersedia, pastikanStemAi, type HasilStemAi } from "./vokalAi";
 
 export interface InfoJobMusik {
   id: string;
@@ -96,6 +97,8 @@ function pangkasPratinjau() {
 interface KtxRahasia {
   jobId: string;
   onProgres: (f: number) => void;
+  /** v0.20.0 — perbarui pesan tahap (mis. saat pisah AI berjalan). */
+  onPesan?: (s: string) => void;
 }
 
 /** Proses audio: genre + karaoke + layer instrumen (lapisan) ATAU transformasi penuh
@@ -118,12 +121,48 @@ async function prosesAudio(
     o.mode === "remake" ? (o.transpose ?? transposeAuto(o.kemiripan, o.file)) : 0;
   const transposeEfe =
     o.mode === "remake" ? transposDgnPerubahan(transposeDasar, o.tingkatMusik ?? 65) : 0;
-  const { graf, adaLayer, tempo, adaNada } = bangunFilterAudio(
-    { ...o, transpose: transposeEfe },
-    info.sr || 44100,
+  // v0.20.0 — MESIN AI VOKAL: bila mesinVokal = "ai" (bawaan), model tersedia, dan salah
+  // satu dari genre-vokal / karaoke / vokal-saja aktif → pisah STEM AI dulu (cache otomatis
+  // per lagu), lalu pakai graf VOKALGEN-4 di atas stem: vokal diganti PENUH semua frekuensi
+  // (TIDAK MUNGKIN suara dobel), karaoke = instrumental murni.
+  const butuhStem = o.mode !== "penuh" && o.mesinVokal !== "dsp" && (
+    ((!!o.genreVokal && o.genreVokal !== "mati") && (o.tingkatVokal ?? 55) > 0 && o.karaoke !== "karaoke")
+    || o.karaoke !== "asli"
   );
+  let stem: HasilStemAi | null = null;
+  if (butuhStem && (await aiTersedia())) {
+    ktx.onPesan?.("Pisah vokal dengan AI (Kim Vocal 2 — 100% offline, hasil di-cache)…");
+    stem = await pastikanStemAi(
+      srcAbs,
+      (f) => ktx.onProgres(f * 0.55),
+      () => apakahBatal(ktx.jobId),
+      (c) => daftarkanProses(ktx.jobId, c),
+    );
+    if (apakahBatal(ktx.jobId)) throw new Error("DIBATALKAN");
+  }
+  let graf: string;
+  let adaLayer: boolean;
+  let tempo: number;
+  let adaNada: boolean;
+  const args: string[] = ["-y", "-hide_banner"];
+  if (stem) {
+    const g = bangunFilterAudioAi({ ...o, transpose: transposeEfe });
+    graf = g.graf;
+    adaLayer = g.adaLayer;
+    tempo = g.tempo;
+    adaNada = g.adaNada;
+    // input 0 = vokal stem, input 1 = instrumental stem (f32 stereo 44.1k)
+    args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.vokalF32);
+    args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.musikF32);
+  } else {
+    const g = bangunFilterAudio({ ...o, transpose: transposeEfe }, info.sr || 44100);
+    graf = g.graf;
+    adaLayer = g.adaLayer;
+    tempo = g.tempo;
+    adaNada = g.adaNada;
+    args.push("-i", srcAbs);
+  }
   const durasiKeluar = info.durasi / tempo;
-  const args: string[] = ["-y", "-hide_banner", "-i", srcAbs];
   let layerAbs: string | null = null;
   let harmoniAbs: string | null = null;
   // v0.16.0 — LAPISAN HARMONI TERKUNCI-AKOR: nada tambahan khas genre dari chord
@@ -425,6 +464,7 @@ export function mulaiProsesMusik(opsi: OpsiProsesMasuk): string {
       onProgres: (f) => {
         if (job.tahap === "audio") job.progres = Math.min(99, Math.round(f * 100));
       },
+      onPesan: (s) => { job.pesan = s; },
     };
     try {
       job.tahap = "audio";
@@ -478,6 +518,7 @@ export function mulaiPisahMusik(opsi: OpsiPisahMasuk): string {
       onProgres: (f) => {
         if (job.tahap === "audio") job.progres = Math.min(99, Math.round(f * 100));
       },
+      onPesan: (s) => { job.pesan = s; },
     };
     try {
       const ff = await pilihFfmpeg();
@@ -488,16 +529,47 @@ export function mulaiPisahMusik(opsi: OpsiPisahMasuk): string {
       const slug = slugify(opsi.judul) || "lagu";
       const fMus = path.join(folderOut, `${slug}-musik.mp3`);
       const fVok = path.join(folderOut, `${slug}-vokal.mp3`);
-      const args = [
-        "-y", "-hide_banner",
-        "-i", srcAbs,
-        "-filter_complex", grafPisahVokalMusik(),
-        "-map", "[mout]", "-c:a", "libmp3lame", "-b:a", "320k",
-        "-metadata", `title=${opsi.judul} (musik)`, fMus,
-        "-map", "[vout]", "-c:a", "libmp3lame", "-b:a", "320k",
-        "-metadata", `title=${opsi.judul} (vokal)`, fVok,
-      ];
-      await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(id, c));
+      let akselerasi = "ffmpeg (pisah vokal DSP tengah/samping)";
+      if (await aiTersedia()) {
+        // ===== v0.20.0 — PISAH VOKAL AI (MDX-Net Kim_Vocal_2, 100% offline) =====
+        job.pesan = "Memuat mesin AI vokal (Kim Vocal 2 — benar-benar terpisah)…";
+        const stem = await pastikanStemAi(
+          srcAbs,
+          (f) => { job.progres = Math.min(88, Math.round(f * 88)); },
+          () => apakahBatal(id),
+          (c) => daftarkanProses(id, c),
+        );
+        if (apakahBatal(id)) throw new Error("DIBATALKAN");
+        job.tahap = "berkas";
+        job.pesan = stem.dariCache
+          ? "Stem AI sudah ada di cache — menyimpan MP3 320k…"
+          : "Vokal terpisah — menyimpan MP3 320k…";
+        const args = [
+          "-y", "-hide_banner",
+          "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.vokalF32,
+          "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.musikF32,
+          "-map", "0:a", "-c:a", "libmp3lame", "-b:a", "320k",
+          "-metadata", `title=${opsi.judul} (vokal)`, fVok,
+          "-map", "1:a", "-c:a", "libmp3lame", "-b:a", "320k",
+          "-metadata", `title=${opsi.judul} (musik)`, fMus,
+        ];
+        await jalankanFfmpeg(args, info.durasi, (f) => {
+          job.progres = 88 + Math.min(11, Math.round(f * 11));
+        }, ff.bin, (c) => daftarkanProses(id, c));
+        akselerasi = "AI vokal MDX-Net Kim_Vocal_2 (ONNX CPU, offline)";
+      } else {
+        // ===== fallback DSP v0.19 (model/runtime tidak ada di PC ini) =====
+        const args = [
+          "-y", "-hide_banner",
+          "-i", srcAbs,
+          "-filter_complex", grafPisahVokalMusik(),
+          "-map", "[mout]", "-c:a", "libmp3lame", "-b:a", "320k",
+          "-metadata", `title=${opsi.judul} (musik)`, fMus,
+          "-map", "[vout]", "-c:a", "libmp3lame", "-b:a", "320k",
+          "-metadata", `title=${opsi.judul} (vokal)`, fVok,
+        ];
+        await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(id, c));
+      }
       if (apakahBatal(id)) throw new Error("DIBATALKAN");
       if (!existsSync(fMus) || !existsSync(fVok)) throw new Error("Pemisahan gagal — hasil tidak lengkap");
       job.outputs = [
@@ -532,7 +604,7 @@ export function mulaiPisahMusik(opsi: OpsiPisahMasuk): string {
         batalDiminta: false,
         dibatalkan: false,
         dibuat: job.dibuat,
-        akselerasi: "ffmpeg (pisah vokal DSP)",
+        akselerasi,
         paralel: 1,
         folderTersimpan,
         menyalin: false,

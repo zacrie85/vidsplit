@@ -13,6 +13,9 @@ extraResources:
     to: ffmpeg.exe
   - from: node_modules/ffprobe-static/bin/win32/x64/ffprobe.exe
     to: ffprobe.exe
+  # v0.20.0 — model pisah vokal AI (MDX-Net Kim Vocal 2, dibundel — 100% offline)
+  - from: assets/vokal-ai
+    to: vokal-ai
 win:
   target:
     - nsis

@@ -4,7 +4,7 @@
 // Jalankan: bun scripts/uji-musik.ts
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
-  bangunAss, bangunFilterAudio, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
+  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
   clampStudio, faktorAtempo,
   faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
@@ -649,6 +649,35 @@ const hNoChord = buatHarmoniWav({ bpm: 120, fase: 0, durasi: 4, chord: [] }, "po
 cek(hNoChord.length > 1000 && rmsDari(hNoChord) > 0.0005, "tanpa chord → fallback C sepanjang lagu tetap berbunyi");
 cek(DAFTAR_GENRE.every((g) => !!HARMONI_GENRE[g]), "HARMONI_GENRE 17 lengkap");
 cek(!Number.isNaN(rmsDari(buatHarmoniWav(ktxH, "gamelan", 0.8))), "harmoni gamelan finite");
+
+console.log("== 30. VOKALGEN-4 stem AI — bangunFilterAudioAi (v0.20) ==");
+const dasarAi = clampStudio({
+  file: "uji.mp3", judul: "Uji AI", genre: "asli", mode: "remake",
+  genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 55, mesinVokal: "ai",
+  karaoke: "asli",
+});
+const gAiAsli = bangunFilterAudioAi(dasarAi);
+cek(gAiAsli.graf.includes("[0:a]aformat") && gAiAsli.graf.includes("[1:a]aformat"),
+  "graf AI memakai input 0 (vokal stem) + 1 (musik stem)");
+cek(gAiAsli.graf.includes("[ins0][voc1]amix=inputs=2"), "mode asli = remix instrumental + vokal berkarakter");
+cek(gAiAsli.graf.includes("[vok0]bass="), "rantai karakter diterapkan PENUH di stem vokal (bukan crossover 180-3800)");
+cek(!gAiAsli.graf.includes("acrossover"), "graf AI TANPA crossover 3-pita (era v0.19 selesai)");
+cek(gAiAsli.graf.endsWith("alimiter=limit=0.95[aout]"), "ujung graf AI = limiter [aout]");
+const gAiKar = bangunFilterAudioAi({ ...dasarAi, karaoke: "karaoke" });
+cek(gAiKar.graf.includes("[ins0]anull[ksrc]"), "karaoke AI = instrumental stem murni");
+cek(!gAiKar.graf.includes("[vok0]"), "karaoke AI: stem vokal tidak dibangun (tak ada label menggantung)");
+const gAiVok = bangunFilterAudioAi({ ...dasarAi, karaoke: "vokal" });
+cek(gAiVok.graf.includes("[voc1]anull[ksrc]"), "vokal-saja AI = stem vokal utuh semua frekuensi");
+const gAiTr = bangunFilterAudioAi({ ...dasarAi, transpose: 3 });
+const asetCount = gAiTr.graf.match(/asetrate=52444/g)?.length ?? 0; // 44100×2^(3/12) ≈ 52444
+cek(asetCount === 2, `transpos diterapkan IDENTIK di kedua stem (asetrate×${asetCount})`);
+const gAiHar = bangunFilterAudioAi({ ...dasarAi, genre: "dangdut", nadaLevel: 40 });
+cek(gAiHar.graf.includes("[2:a]volume"), "harmoni memakai input 2 di jalur AI");
+const gAiLay = bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, nadaLevel: 50 });
+cek(gAiLay.graf.includes("[2:a]volume") && gAiLay.graf.includes("[3:a]volume"),
+  "harmoni input 2 + lapisan input 3 di jalur AI");
+cek(clampStudio({ mesinVokal: "dsp" }).mesinVokal === "dsp", "clampStudio mempertahankan mesinVokal dsp");
+cek(clampStudio({}).mesinVokal === "ai", "clampStudio bawaan mesinVokal = ai");
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);
 process.exit(gagal ? 1 : 0);

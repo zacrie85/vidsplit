@@ -34,6 +34,36 @@ exports.default = async function afterPack(context) {
     throw new Error("afterPack: server.js tidak ditemukan setelah menyalin standalone");
   }
 
+  // v0.20.0 — mesin pisah vokal AI: pastikan onnxruntime-node (modul native) tersedia
+  // di server/node_modules. Standalone trace bisa saja menyalin versi UTUH (semua platform,
+  // ±290 MB) — ganti dgn salinan PRUNED khusus win32/x64 CPU (±30 MB).
+  const ortSrc = path.join(proyek, "node_modules", "onnxruntime-node");
+  const ortCmnSrc = path.join(proyek, "node_modules", "onnxruntime-common");
+  const nmServer = path.join(target, "node_modules");
+  if (fs.existsSync(ortSrc)) {
+    fs.rmSync(path.join(nmServer, "onnxruntime-node"), { recursive: true, force: true });
+    fs.cpSync(ortSrc, path.join(nmServer, "onnxruntime-node"), { recursive: true, dereference: true });
+    if (fs.existsSync(ortCmnSrc)) {
+      fs.rmSync(path.join(nmServer, "onnxruntime-common"), { recursive: true, force: true });
+      fs.cpSync(ortCmnSrc, path.join(nmServer, "onnxruntime-common"), { recursive: true, dereference: true });
+    }
+    // buang binari platform lain (installer = Windows x64 saja)
+    const binDir = path.join(nmServer, "onnxruntime-node", "bin", "napi-v6");
+    if (fs.existsSync(binDir)) {
+      for (const d of fs.readdirSync(binDir)) {
+        if (d !== "win32") fs.rmSync(path.join(binDir, d), { recursive: true, force: true });
+      }
+      const w64 = path.join(binDir, "win32", "x64");
+      if (fs.existsSync(w64)) {
+        // komponen DirectML (GPU) tidak dipakai — mesin vokal memakai CPU EP
+        for (const f of ["DirectML.dll", "dxcompiler.dll", "dxil.dll"]) {
+          try { fs.rmSync(path.join(w64, f), { force: true }); } catch {}
+        }
+      }
+    }
+    console.log("[afterPack] onnxruntime-node (win32/x64 CPU) tersalin ke server/node_modules");
+  }
+
   // taruh .next/static dan public tepat di sebelah server.js
   fs.cpSync(sumberStatic, path.join(target, ".next", "static"), { recursive: true, dereference: true });
   if (fs.existsSync(sumberPublic)) {
@@ -52,6 +82,11 @@ exports.default = async function afterPack(context) {
     path.join(resDir, "fonts", "DejaVuSans-Bold.ttf"),
     path.join(resDir, "fonts", "BebasNeue.ttf"),
     path.join(resDir, "fonts", "Monoton.ttf"),
+    // v0.20.0 — mesin pisah vokal AI: model + runtime native wajib ada
+    path.join(resDir, "vokal-ai", "Kim_Vocal_2.onnx"),
+    path.join(target, "node_modules", "onnxruntime-node", "bin", "napi-v6", "win32", "x64", "onnxruntime_binding.node"),
+    path.join(target, "node_modules", "onnxruntime-node", "bin", "napi-v6", "win32", "x64", "onnxruntime.dll"),
+    path.join(target, "node_modules", "onnxruntime-common", "package.json"),
   ];
   const kurang = wajib.filter((p) => !fs.existsSync(p));
   if (kurang.length > 0) {

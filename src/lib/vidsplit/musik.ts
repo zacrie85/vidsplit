@@ -745,6 +745,10 @@ export interface OpsiStudioMusik {
   refVokal: string;
   /** v0.16.0 0–100 — tingkat rasa vokal (kekuatan warna genre vokal). Bawaan 55. */
   tingkatVokal: number;
+  /** v0.20.0 — mesin vokal/karaoke: "ai" = PISAH STEM AI (MDX-Net Kim Vocal 2,
+   *  100% offline): vokal diganti PENUH semua frekuensi → TIDAK MUNGKIN suara dobel,
+   *  karaoke benar-benar tanpa vokal. "dsp" = DSP tengah/samping cepat (v0.19). */
+  mesinVokal?: "ai" | "dsp";
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -779,6 +783,7 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
         : "mati",
     refVokal: String(o.refVokal || "").slice(0, 40),
     tingkatVokal: Math.min(100, Math.max(0, Math.round(Number(o.tingkatVokal ?? 55)))),
+    mesinVokal: o.mesinVokal === "dsp" ? "dsp" : "ai",
   };
 }
 
@@ -1065,6 +1070,124 @@ export function bangunFilterAudio(o: OpsiStudioMusik, srSumber = 44100): {
     baris.push(`[${labelAkhir}]alimiter=limit=0.95[aout]`);
   }
   return { graf: baris.join(";"), adaLayer, tempo, adaVokal, transpose, adaNada };
+}
+
+/** v0.20.0 — VOKALGEN-4: graf pemrosesan di atas STEM AI (input 0 = vokal stem,
+ *  input 1 = instrumental stem, keduanya f32 interleave stereo 44.1k dari mesin
+ *  MDX-Net Kim Vocal 2). Bedanya dgn bangunFilterAudio:
+ *  · pita suara TIDAK dipotong crossover — stem vokal = vokal MURNI SEMUA
+ *    frekuensi → rantai karakter genre mengganti suara PENUH → TIDAK MUNGKIN
+ *    ada suara dobel (suara asli tidak pernah masuk jalur keluaran);
+ *  · karaoke = instrumental stem murni (benar-benar tanpa vokal);
+ *  · mode "vokal" = stem vokal utuh (bukan band 150–9500 Hz).
+ *  Transpos (asetrate+atempo) diterapkan IDENTIK pada kedua stem agar tetap
+ *  seirama. Input harmoni/lapisan memakai indeks 2/3 (atau 2 bila lapisan saja).
+ *  Label keluar [aout]. */
+export function bangunFilterAudioAi(o: OpsiStudioMusik): {
+  graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number; adaNada: boolean;
+} {
+  const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
+  const tempoResep = resep ? resep.tempo : 1;
+  const tempo = tempoResep * (o.kecepatan || 1);
+  const remake = o.mode === "remake";
+  const baris: string[] = [];
+  const transpose = Math.min(5, Math.max(-5, Math.round(o.transpose ?? 0)));
+  // siapkan stem — transpos identik supaya pitch vokal & musik tak mungkin beda
+  const prep = (inL: string, outL: string): string => {
+    if (transpose !== 0) {
+      const rasio = Math.pow(2, transpose / 12);
+      return `[${inL}]asetrate=${Math.round(44100 * rasio)},aresample=44100,aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,atempo=${Math.pow(2, -transpose / 12).toFixed(5)}[${outL}]`;
+    }
+    return `[${inL}]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[${outL}]`;
+  };
+  const fxVokalAktif =
+    !!o.genreVokal && o.genreVokal !== "mati" && DAFTAR_GENRE.includes(o.genreVokal)
+    && (o.tingkatVokal ?? 55) > 0;
+  const rantaiVokalAi = (): string[] => {
+    // stem vokal utuh → karakter genre + lapisan pitch dada/kepala (gain 0.85 —
+    // stem sudah bersih, tak perlu penguatan besar seperti era crossover)
+    if (fxVokalAktif && o.genreVokal !== "mati") {
+      const fxV = rantaiVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55).join(",");
+      const gv = geserVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55);
+      if (fxV) return barisVokalKarakter("vok0", "voc1", fxV, gv, 0.85);
+    }
+    return ["[vok0]anull[voc1]"];
+  };
+  if (o.karaoke === "karaoke") {
+    // KARAOKE: hanya instrumental — vokal stem tidak dibangun sama sekali
+    // (semua label filter wajib terpakai; input tak terpakai pun tak di-dekode)
+    baris.push(prep("1:a", "ins0"));
+    baris.push("[ins0]anull[ksrc]");
+  } else if (o.karaoke === "vokal") {
+    // VOKAL SAJA: stem vokal utuh semua frekuensi, instrumental tak dibangun
+    baris.push(prep("0:a", "vok0"));
+    baris.push(...rantaiVokalAi());
+    baris.push("[voc1]anull[ksrc]");
+  } else {
+    // ASLI: remix instrumental + vokal berkarakter
+    baris.push(prep("0:a", "vok0"), prep("1:a", "ins0"));
+    baris.push(...rantaiVokalAi());
+    baris.push("[ins0][voc1]amix=inputs=2:duration=first:normalize=0[ksrc]");
+  }
+  // ---- ujung rantai IDENTIK dgn jalur lama: warna genre + remix perubahan ----
+  const warna = remake && o.genre !== "asli"
+    ? rantaiWarna(o.genre, o.tingkatGenre ?? 55, (o.bpm || 120) * tempo)
+    : [];
+  const rantai = remake
+    ? (warna.join(",") || "anull")
+    : resep ? resep.rantai.join(",") : "anull";
+  const perubahan = remake && o.genre !== "asli"
+    ? Math.min(100, Math.max(0, Number(o.tingkatMusik ?? 65))) / 100
+    : 1;
+  if (remake && warna.length && perubahan <= 0.005) {
+    baris.push("[ksrc]anull[g]");
+  } else if (remake && warna.length && perubahan < 0.995) {
+    const wAsli = (1 - perubahan).toFixed(3);
+    const wGaya = perubahan.toFixed(3);
+    baris.push(
+      "[ksrc]asplit=2[blA][blB]",
+      `[blA]volume=${wAsli}[blAsli]`,
+      `[blB]volume=${wGaya}[blGaya0]`,
+      `[blGaya0]${rantai}[blGaya]`,
+      "[blAsli][blGaya]amix=inputs=2:duration=first:normalize=0[g]",
+    );
+  } else {
+    baris.push(`[ksrc]${rantai}[g]`);
+  }
+  const adaLayer = !!resep && o.layerLevel > 0 && !!resep.layer;
+  const adaNada = remake && o.genre !== "asli" && (o.nadaLevel ?? 0) > 0;
+  const idxNad = 2; // input harmoni selalu 2 (0=vokal, 1=musik)
+  const idxLay = adaNada ? 3 : 2; // lapisan ritme menyusul harmoni bila ada
+  const gAkhir = o.karaoke === "asli" ? "1.9" : "1.3";
+  const gLayer = o.karaoke === "asli" ? "2.0" : "1.6";
+  if (adaLayer) {
+    const lv = (o.layerLevel / 100) * 2;
+    baris.push(`[g]volume=${gLayer}[g2]`);
+    if (adaNada) {
+      const lvN = ((o.nadaLevel ?? 30) / 100) * 2.1;
+      baris.push(`[${idxNad}:a]volume=${lvN.toFixed(3)}[nad]`);
+      baris.push(`[${idxLay}:a]volume=${lv.toFixed(3)}[lay]`);
+      baris.push("[g2][nad][lay]amix=inputs=3:duration=first[mix]");
+    } else {
+      baris.push(`[${idxLay}:a]volume=${lv.toFixed(3)}[lay]`);
+      baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
+    }
+  } else if (adaNada) {
+    const lvN = ((o.nadaLevel ?? 30) / 100) * 2.1;
+    baris.push(`[g]volume=${gAkhir}[g2]`);
+    baris.push(`[${idxNad}:a]volume=${lvN.toFixed(3)}[nad]`);
+    baris.push("[g2][nad]amix=inputs=2:duration=first[mix]");
+  } else {
+    baris.push(`[g]volume=${gAkhir}[mix]`);
+  }
+  const at = faktorAtempo(tempo);
+  if (at.length) {
+    baris.push(`[mix]${at.map((f) => `atempo=${f}`).join(",")}[at]`);
+    baris.push("[at]alimiter=limit=0.95[aout]");
+  } else {
+    baris.push("[mix]alimiter=limit=0.95[aout]");
+  }
+  return { graf: baris.join(";"), adaLayer, tempo, adaVokal: o.karaoke !== "karaoke", transpose, adaNada };
 }
 
 // ============ 15 VISUALISER ============

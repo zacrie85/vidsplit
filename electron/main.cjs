@@ -87,6 +87,9 @@ function nyalakanServer() {
     VIDSPLIT_FONTS: path.join(res, "fonts"),
     VIDSPLIT_FFMPEG: path.join(res, "ffmpeg.exe"),
     VIDSPLIT_FFPROBE: path.join(res, "ffprobe.exe"),
+    // v0.20.0 — mesin pisah vokal AI: folder model MDX-Net + lokasi modul onnxruntime
+    VIDSPLIT_VOKAL_AI: path.join(res, "vokal-ai"),
+    VIDSPLIT_ORT: path.join(res, "server"),
     VIDSPLIT_ELECTRON: "1",
   };
   catat(`Menjalankan server: ${serverJs} (port ${port}, kerja: ${dirKerja})`);

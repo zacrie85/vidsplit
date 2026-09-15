@@ -9,7 +9,7 @@
 // Jalankan: bun scripts/uji-kompat-ffmpeg.ts
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { bangunFilterAudio, bangunRantaiVisual, grafPisahVokalMusik, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
+import { bangunFilterAudio, bangunFilterAudioAi, bangunRantaiVisual, grafPisahVokalMusik, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
 
 const DUR = 2;
 const W = 320, H = 568; // 9:16 kecil — cepat, tetap mewakili resolusi vertikal bawaan
@@ -41,18 +41,34 @@ function uji(bin: string, label: string) {
     file: "uji", judul: "uji", genre: "asli" as const, layerLevel: 0,
     karaoke: "asli" as const, bpm: 120, fase: 0, mode: "remake" as const,
   };
-  const grafAudio: { nama: string; graf: string }[] = [
+  const grafAudio: { nama: string; graf: string; nInput?: number }[] = [
     { nama: "vokalgen-3 dangdut 100", graf: bangunFilterAudio({ ...dasarVok, genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 100 }).graf },
     { nama: "vokalgen-3 rock 80", graf: bangunFilterAudio({ ...dasarVok, genreVokal: "rock", refVokal: "rock-p1", tingkatVokal: 80 }).graf },
     { nama: "vokalgen-3 hiphop 55", graf: bangunFilterAudio({ ...dasarVok, genreVokal: "hiphop", refVokal: "hiphop-p1", tingkatVokal: 55 }).graf },
     { nama: "vokal saja + genre vokal", graf: bangunFilterAudio({ ...dasarVok, karaoke: "vokal", genreVokal: "dangdut", refVokal: "dangdut-p1", tingkatVokal: 90 }).graf },
     { nama: "pisah vokal & musik", graf: grafPisahVokalMusik() },
   ];
-  for (const { nama, graf } of grafAudio) {
+  // ==== v0.20 — graf VOKALGEN-4 (stem AI): input 0 = vokal stem, 1 = musik stem,
+  // 2 = harmoni, 3 = lapisan — bentuk persis dgn prosesAudio jalur AI ====
+  const dasarAi = {
+    file: "uji", judul: "uji", genre: "asli" as const, layerLevel: 0,
+    karaoke: "asli" as const, bpm: 120, fase: 0, mode: "remake" as const,
+    genreVokal: "dangdut" as const, refVokal: "dangdut-p1", tingkatVokal: 55, mesinVokal: "ai" as const,
+  };
+  grafAudio.push(
+    { nama: "vokalgen-4 AI dangdut 55", graf: bangunFilterAudioAi(dasarAi).graf, nInput: 2 },
+    { nama: "vokalgen-4 AI karaoke", graf: bangunFilterAudioAi({ ...dasarAi, karaoke: "karaoke" }).graf, nInput: 2 },
+    { nama: "vokalgen-4 AI vokal-saja", graf: bangunFilterAudioAi({ ...dasarAi, karaoke: "vokal", tingkatVokal: 90 }).graf, nInput: 2 },
+    { nama: "vokalgen-4 AI transpos +3", graf: bangunFilterAudioAi({ ...dasarAi, transpose: 3 }).graf, nInput: 2 },
+    { nama: "vokalgen-4 AI harmoni+lapisan", graf: bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, nadaLevel: 50 }).graf, nInput: 4 },
+  );
+  for (const { nama, graf, nInput } of grafAudio) {
     const pisah = nama.startsWith("pisah");
+    const n = nInput ?? 1;
+    const masukan = Array.from({ length: n }, () => ["-f", "lavfi", "-i", `anoisesrc=d=${DUR}:c=pink:r=48000`]).flat();
     const r = spawnSync(bin, [
       "-hide_banner", "-v", "error",
-      "-f", "lavfi", "-i", `anoisesrc=d=${DUR}:c=pink:r=48000`,
+      ...masukan,
       "-filter_complex", graf,
       // pisah punya DUA keluaran ([mout] + [vout]); graf lain satu [aout]
       ...(pisah ? ["-map", "[mout]", "-map", "[vout]"] : ["-map", "[aout]"]),

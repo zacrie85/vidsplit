@@ -40,6 +40,9 @@ export interface AturMusik {
   refVokal: string;
   /** v0.16.0 0–100 tingkat rasa vokal (bawaan 55) */
   tingkatVokal: number;
+  /** v0.20.0 mesin vokal/karaoke: "ai" = stem AI MDX-Net (bawaan, tanpa suara dobel,
+   *  karaoke benar-benar bersih); "dsp" = DSP tengah/samping cepat (v0.19) */
+  mesinVokal: "ai" | "dsp";
   visual: IdVisual;
   resolusi: "916" | "720" | "1080";
   vis: OpsiVisual;
@@ -58,6 +61,8 @@ export const aturMusikDefault: AturMusik = {
   genreVokal: "mati",
   refVokal: "",
   tingkatVokal: 55,
+  // v0.20.0 — mesin vokal AI (stem MDX-Net) jadi bawaan
+  mesinVokal: "ai",
   karaoke: "asli",
   mode: "remake",
   kecepatan: 1,
@@ -446,19 +451,20 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
   return (
     <Kartu
       judul="4. Vokal, genre vokal & karaoke"
-      deskripsi="Mesin baru v0.17: pita suara DIGANTI sesuai genre + referensi penyanyi"
+      deskripsi="Mesin v0.20: stem vokal AI — suara diganti PENUH (tanpa suara dobel), karaoke benar-benar bersih"
       ikon={<Mic className="h-4 w-4" />}
     >
-      {/* ===== v0.17.0 — GENRE VOKAL VOKALGEN-2 (substitusi pita suara) ===== */}
+      {/* ===== v0.20.0 — GENRE VOKAL VOKALGEN-4 (stem AI — ganti suara PENUH) ===== */}
       <div className="rounded-xl border border-violet-400/25 bg-slate-800/40 p-3">
-        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin baru v0.17</p>
+        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin v0.20 (stem AI)</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
           Terpisah dari genre musik: <b>musiknya</b> diubah lewat menu 2, <b>suara
-          vokalnya</b> diganti karakternya sesuai genre ini. Mesin v0.17
-          <b> mengganti pita suara di tempatnya</b> (crossover 3-pita): EQ timbre
-          kuat, kompresor, getar, ruang, serak + lapisan dada-dalam/kepala-terang
-          dari referensi penyanyi — perubahan kini <b>jelas terdengar</b> dan tetap
-          sinkron 100% dgn musiknya.
+          vokalnya</b> diganti sesuai genre ini. Mesin v0.20 memakai <b>stem vokal AI</b>
+          (model MDX-Net, 100% offline): vokal benar-benar dipisah dari musik lalu
+          <b> suaranya diganti PENUH semua frekuensi</b> — dada, tengah, sampai napas —
+          dgn EQ timbre kuat, kompresor, getar, ruang, serak + lapisan
+          dada-dalam/kepala-terang dari referensi penyanyi. Tanpa sisa suara asli →
+          <b> tidak ada lagi suara dobel</b>, dan tetap sinkron 100% dgn musiknya.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <button
@@ -512,14 +518,43 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
               fmt={(n) => (n === 0 ? "Apa adanya" : `${n}%`)}
               onChange={(n) => ubah({ tingkatVokal: n })}
             />
+            {/* v0.20.0 — pilih mesin: stem AI (bawaan) atau DSP cepat */}
+            <p className="text-[11px] font-medium text-slate-300">Mesin pengubah suara:</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => ubah({ mesinVokal: "ai" })}
+                className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
+                  atur.mesinVokal !== "dsp"
+                    ? "border-emerald-400/80 bg-emerald-400/15 text-emerald-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+                }`}
+              >
+                <span className="block font-medium">AI — stem vokal (disarankan)</span>
+                <span className="block text-[10px] opacity-70">Ganti suara penuh, tanpa suara dobel · proses pertama lebih lama, lalu di-cache</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => ubah({ mesinVokal: "dsp" })}
+                className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
+                  atur.mesinVokal === "dsp"
+                    ? "border-amber-400/80 bg-amber-400/15 text-amber-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+                }`}
+              >
+                <span className="block font-medium">Cepat — DSP (v0.19)</span>
+                <span className="block text-[10px] opacity-70">Detik-an selesai, tapi hanya mengubah pita tengah 180–3800 Hz</span>
+              </button>
+            </div>
             <p className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[10px] leading-relaxed text-slate-500">
               Jujur &amp; transparan: referensi penyanyi = <b>karakter gaya</b> yang
               terinspirasi ciri khas penyanyi itu (warna timbre, dada dalam/kepala
               terang, getar, ruang, serak) — <b>bukan tiruan suara aslinya</b>.
               Mengganti suara menjadi penyanyi tertentu butuh AI raksasa di server
-              GPU, mustahil jalan 100% offline. Semua proses di sini DSP audio murni
-              di PC-mu, dan karena pita suara diganti di tempatnya, hasilnya selalu
-              seirama dgn lagunya.
+              GPU. Mesin AI v0.20 (model MDX-Net, ±65 MB dibundel, jalan penuh di
+              PC-mu tanpa internet) sudah cukup untuk <b>mengganti seluruh suara</b>
+              dgn karakter genre — hasilnya jelas terdengar dan selalu seirama dgn
+              lagunya.
             </p>
           </div>
         )}
@@ -538,30 +573,32 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
           pilihan={[
             { v: "asli", label: "Asli", hint: "Tanpa dipisah" },
             { v: "karaoke", label: "Karaoke", hint: "Vokal dihapus, instrumen tersisa" },
-            { v: "vokal", label: "Vokal saja", hint: "Instrumen diturunkan, vokal menonjol" },
+            { v: "vokal", label: "Vokal saja", hint: "Stem vokal utuh, instrumen dibuang" },
           ]}
         />
       </div>
       <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-        <b className="text-slate-400">Karaoke v0.15:</b> kanal tengah (tempat vokal)
-        dihapus per pita frekuensi, bass &amp; kilau simbal dikembalikan, kepadatan
-        dinaikkan otomatis — hasil <b>nyaring</b>, tidak terpendam. Paling efektif utk
-        MP3 <b>stereo</b> dgn vokal di tengah (umum di lagu komersial); sisa gema vokal
-        yang lebar mungkin masih samar — itu batas DSP offline tanpa AI.
+        <b className="text-slate-400">Karaoke v0.20 (mesin AI):</b> stem instrumental
+        AI — vokal asli <b>benar-benar dihilangkan</b> (bukan cuma kanal tengah),
+        bass &amp; instrumen tetap utuh. Bila mesin AI tak tersedia, otomatis pakai
+        DSP tengah/samping v0.15 (sisa gema vokal mungkin masih samar).
       </p>
 
-      {/* ===== v0.19.0 — PISAH VOKAL & MUSIK (vocal remover) ===== */}
+      {/* ===== v0.20.0 — PISAH VOKAL & MUSIK (AI vocal remover ala HitPaw) ===== */}
       {pisah && (
         <div className="mt-3 rounded-xl border border-cyan-400/25 bg-slate-800/40 p-3">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-cyan-200">
-            <Scissors className="h-3.5 w-3.5" /> Pisah Vokal &amp; Musik — vocal remover
+            <Scissors className="h-3.5 w-3.5" /> Pisah Vokal &amp; Musik — vocal remover AI
           </p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
-            Satu lagu diproses sekali menjadi <b>dua berkas MP3 320k terpisah</b>:
-            <b> …-musik.mp3</b> (instrumen tanpa vokal — siap dipakai karaoke) dan
-            <b> …-vokal.mp3</b> (inti suara penyanyi, bersih &amp; nyaring). Memakai
-            mesin DSP tengah/samping 100% offline — paling efektif utk lagu
-            <b> stereo</b> dgn vokal di tengah (umum di lagu komersial).
+            Satu lagu diproses menjadi <b>dua berkas MP3 320k terpisah</b>:
+            <b> …-musik.mp3</b> (instrumental TANPA vokal — siap karaoke) dan
+            <b> …-vokal.mp3</b> (suara penyanyi utuh). Memakai <b>AI MDX-Net</b>
+            (model Kim Vocal 2 dibundel, jalan 100% offline di PC-mu — teknologi
+            yang sama dgn aplikasi vocal remover berbayar). Hasil dgn mesin DSP lama
+            masih menyisakan vokal besar; mesin AI menghilangkannya sampai
+            <b> benar-benar hilang</b>. Proses pertama beberapa menit tergantung panjang
+            lagu — hasilnya di-cache, proses berikutnya instan.
           </p>
           <button
             type="button"
@@ -569,7 +606,7 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
             disabled={!pisah.bisaMulai || (!!pisah.job && !pisah.job.selesai)}
             className="mt-2 w-full rounded-lg bg-gradient-to-r from-cyan-500 to-sky-500 px-3 py-2 text-xs font-semibold text-white transition hover:from-cyan-400 hover:to-sky-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {pisah.job && !pisah.job.selesai ? "Memisahkan…" : "Pisah Vokal & Musik sekarang"}
+            {pisah.job && !pisah.job.selesai ? "Memisahkan dengan AI…" : "Pisah Vokal & Musik (AI) sekarang"}
           </button>
           {!pisah.bisaMulai && (
             <p className="mt-1 text-[10px] text-slate-500">Impor lagu dulu di kartu 1.</p>
