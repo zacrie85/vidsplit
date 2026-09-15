@@ -6,6 +6,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
 import { dirWork, jalankanFfmpeg, pathAman, pilihFfmpeg } from "./ffmpeg";
 import { probeAudio } from "./musikAnalisis";
@@ -14,8 +15,9 @@ import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tuju
 import type { InfoJob, KeluaranJob } from "./jobs";
 import { slugify } from "./types";
 import {
-  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, clampStudio, faktorWaktuStudio,
-  formatChordSheet, formatLrc, grafPisahVokalMusik, geserVokalSemi, skalaChord, skalaLirik, transposDgnPerubahan,
+  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual,
+  clampStudio, DAFTAR_GENRE, faktorWaktuStudio, formatChordSheet, formatLrc, grafPisahVokalMusik, genderGen, geserVokalSemi,
+  rantaiGenderMusik, rantaiGenderVokal, skalaChord, skalaLirik, transposDgnPerubahan,
   RESEP_GENRE, transposeAuto, type BarisLirik, type IdVisual, type OpsiVisual,
   type OpsiStudioMusik, type SegmenChord,
 } from "./musik";
@@ -24,6 +26,7 @@ import { buatHarmoniWav, buatIringanWav } from "./musikTransformasi";
 import { buatAransemenWav } from "./musikAransemen";
 import { analisisMusik } from "./musikAnalisis";
 import { aiTersedia, pastikanStemAi, type HasilStemAi } from "./vokalAi";
+import { bacaStereoF32, f0MedianPcm, selaraskanLag, terapkanLag, tulisStereoF32 } from "./vokalGender";
 
 export interface InfoJobMusik {
   id: string;
@@ -102,6 +105,37 @@ interface KtxRahasia {
   onPesan?: (s: string) => void;
 }
 
+/** v0.24.0 — info hasil mesin gender (utk meta chord-sheet & UI). */
+export interface InfoGender {
+  /** register digeser (semitone, adaptif hasil ukur F0) */
+  st: number;
+  /** rasio geser formant terpisah (1 = tak digeser) */
+  formant: number;
+  /** "ukur" = F0 suara asli terukur; "bawaan" = fallback statik v0.23 */
+  sumber: "ukur" | "bawaan";
+  /** target F0 register referensi (Hz) */
+  f0Target: number;
+  /** F0 suara asli terukur (Hz) — null bila tak bersuara/tak yakin */
+  f0Sumber: number | null;
+}
+
+/** v0.24.0 — cek filter rubberband tersedia di binary ffmpeg (dihitung 1× per binary).
+ *  Pembawa realisme VOKALGEN-6: pitch-shift dgn FORMANT PRESERVED. */
+const cacheRubber = new Map<string, boolean>();
+function cekRubberband(bin: string): boolean {
+  let v = cacheRubber.get(bin);
+  if (v === undefined) {
+    try {
+      const p = spawnSync(bin, ["-hide_banner", "-h", "filter=rubberband"], { encoding: "utf8", timeout: 20000 });
+      v = p.status === 0 && /rubberband/i.test(`${p.stdout ?? ""}${p.stderr ?? ""}`);
+    } catch {
+      v = false;
+    }
+    cacheRubber.set(bin, v);
+  }
+  return v;
+}
+
 /** Proses audio: genre + karaoke + layer instrumen (lapisan) ATAU transformasi penuh
  *  (iringan asli diganti total) + tempo 0.5×/1×/1.5× → proses.wav & proses.mp3 (320k).
  *  Mengembalikan path relatif keduanya. */
@@ -109,7 +143,7 @@ async function prosesAudio(
   o: OpsiStudioMusik,
   folderOut: string,
   ktx: KtxRahasia,
-): Promise<{ wavRel: string; mp3Rel: string; durasi: number }> {
+): Promise<{ wavRel: string; mp3Rel: string; durasi: number; genderInfo: InfoGender | null }> {
   const ff = await pilihFfmpeg();
   const srcAbs = pathAman(o.file);
   if (!srcAbs || !existsSync(srcAbs)) throw new Error("Berkas sumber tidak ditemukan");
@@ -152,6 +186,72 @@ async function prosesAudio(
     );
     if (apakahBatal(ktx.jobId)) throw new Error("DIBATALKAN");
   }
+  // v0.24.0 — VOKALGEN-6 "AI GENDER REALISTIS": setelah stem siap, pitch & formant
+  // digeser TERPISAH pada berkas stem (rubberband formant-preserved) + register
+  // ADAPTIF dari F0 suara asli terukur. Hasilnya jadi input graf — sinkron dijaga
+  // selaraskanLag (offset rubberband <1 ms). Fallback: rubberband tak ada → jalur ai.
+  let genderInfo: InfoGender | null = null;
+  let vokalGenF32: string | null = null;
+  let musikGenF32: string | null = null;
+  const berkasSementara: string[] = [];
+  let pakaiAigen = false;
+  if (stem && o.mode !== "ganti" && o.mesinVokal === "aigen" && cekRubberband(ff.bin)) {
+    pakaiAigen = true;
+    ktx.onPesan?.("Mesin gender AI (v0.24): mengukur nada dasar suara asli…");
+    const gvAktif = !!o.genreVokal && o.genreVokal !== "mati" && DAFTAR_GENRE.includes(o.genreVokal)
+      && (o.tingkatVokal ?? 55) > 0 && o.karaoke !== "karaoke";
+    const stemV = bacaStereoF32(stem.vokalF32);
+    const f0 = stemV ? f0MedianPcm(stemV.l, stemV.r) : null;
+    const geser = gvAktif && o.genreVokal && o.genreVokal !== "mati"
+      ? genderGen(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55, f0)
+      : { st: 0, formant: 1, sumber: "ukur" as const, f0Target: 0 };
+    genderInfo = { ...geser, f0Sumber: f0 };
+    const pTotal = geser.st + transposeEfe;
+    const butuhVokalGen = o.karaoke !== "karaoke"
+      && (Math.abs(geser.st) > 0.001 || Math.abs(transposeEfe) > 0.001 || Math.abs(geser.formant - 1) > 0.0005);
+    const butuhMusikGen = o.karaoke !== "vokal" && Math.abs(pTotal) > 0.001;
+    const prosesStemF32 = async (src: string, rantai: string, label: string, dariProgres: number): Promise<string> => {
+      const dst = path.join(dirWork("tmp"), `${label}-${ktx.jobId}.f32`);
+      berkasSementara.push(dst);
+      await jalankanFfmpeg(
+        ["-y", "-hide_banner", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", src,
+          "-af", rantai, "-f", "f32le", "-acodec", "pcm_f32le", dst],
+        info.durasi,
+        (f) => ktx.onProgres(dariProgres + f * 0.09),
+        ff.bin,
+        (c) => daftarkanProses(ktx.jobId, c),
+      );
+      if (apakahBatal(ktx.jobId)) throw new Error("DIBATALKAN");
+      return dst;
+    };
+    // selaraskan hasil rubberband vs asal (amplop <1 ms) → pangkas/isi senyap
+    const selaraskan = (asal: string, diproses: string, label: string): string => {
+      const A = bacaStereoF32(asal);
+      const B = bacaStereoF32(diproses);
+      if (!A || !B) return diproses;
+      const lag = selaraskanLag(A, B);
+      if (Math.abs(lag) < 88) return diproses; // <2 ms — biarkan
+      const korek = terapkanLag(B, lag);
+      const dst = path.join(dirWork("tmp"), `${label}-selaras-${ktx.jobId}.f32`);
+      berkasSementara.push(dst);
+      tulisStereoF32(dst, korek.l, korek.r);
+      return dst;
+    };
+    if (butuhVokalGen) {
+      ktx.onPesan?.(`Mesin gender AI: suara ${f0 ? `${Math.round(f0)} Hz` : "(bawaan)"} → register baru (pitch & resonansi dipisah)…`);
+      const mentah = await prosesStemF32(stem.vokalF32, rantaiGenderVokal(geser.st, geser.formant, transposeEfe), "vokal-gender", 0.55);
+      vokalGenF32 = selaraskan(stem.vokalF32, mentah, "vokal-gender");
+    }
+    if (butuhMusikGen) {
+      ktx.onPesan?.("Mesin gender AI: instrumen mengikuti nada dasar baru (formant instrumen dipertahankan)…");
+      const mentahM = await prosesStemF32(stem.musikF32, rantaiGenderMusik(geser.st, transposeEfe), "musik-gender", butuhVokalGen ? 0.64 : 0.55);
+      musikGenF32 = selaraskan(stem.musikF32, mentahM, "musik-gender");
+    }
+    if (apakahBatal(ktx.jobId)) throw new Error("DIBATALKAN");
+  }
+  const onProgresAkhir = pakaiAigen
+    ? (f: number) => ktx.onProgres(0.73 + f * 0.27)
+    : ktx.onProgres;
   let graf: string;
   let adaLayer: boolean;
   let tempo: number;
@@ -162,6 +262,15 @@ async function prosesAudio(
       // v0.22.0 — GANTI INSTRUMEN jalur AI: vokal stem + aransemen baru (input 2)
       const g = bangunFilterAudioGantiAi(o, 2);
       graf = g.graf; adaLayer = g.adaLayer; tempo = g.tempo; adaNada = g.adaNada;
+    } else if (pakaiAigen && genderInfo) {
+      // v0.24.0 — VOKALGEN-6 AI GENDER REALISTIS: stem sudah digeser pitch/formant
+      // terpisah (rubberband) → graf campuran tanpa asetrate; pTotal utk nada akor
+      const pTotal = genderInfo.st + transposeEfe;
+      const g = bangunFilterAudioAiGen(o, genderInfo, pTotal);
+      graf = g.graf;
+      adaLayer = g.adaLayer;
+      tempo = g.tempo;
+      adaNada = g.adaNada;
     } else {
       const g = bangunFilterAudioAi({ ...o, transpose: transposeEfe });
       graf = g.graf;
@@ -169,9 +278,10 @@ async function prosesAudio(
       tempo = g.tempo;
       adaNada = g.adaNada;
     }
-    // input 0 = vokal stem, input 1 = instrumental stem (f32 stereo 44.1k)
-    args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.vokalF32);
-    args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", stem.musikF32);
+    // input 0 = vokal stem, input 1 = instrumental stem (f32 stereo 44.1k);
+    // v0.24.0 jalur aigen: input = hasil rubberband gender (vokal/musik gender)
+    args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", vokalGenF32 ?? stem.vokalF32);
+    args.push("-f", "f32le", "-ar", "44100", "-ac", "2", "-i", musikGenF32 ?? stem.musikF32);
   } else {
     const g = bangunFilterAudio(
       {
@@ -264,8 +374,10 @@ async function prosesAudio(
       const pola = resep?.layer;
       if (pola) {
         // layer hidup di linimasa ASLI (atempo dipakai di ujung rantai graf);
-        // v0.13.0: lapisan mengikuti transpos remake — nada petik/stab ikut digeser
-        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase, transposeEfe + geserRegister);
+        // v0.13.0: lapisan mengikuti transpos remake — nada petik/stab ikut digeser;
+        // v0.24.0: jalur aigen memakai register ADAPTIF hasil ukur F0
+        const geserEfektif = pakaiAigen && genderInfo ? genderInfo.st : geserRegister;
+        const layerWav = buatLayerWav(pola, o.bpm, info.durasi + 0.5, o.fase, transposeEfe + geserEfektif);
         layerAbs = path.join(dirWork("tmp"), `layer-${ktx.jobId}.wav`);
         writeFileSync(layerAbs, layerWav);
         args.push("-i", layerAbs);
@@ -284,13 +396,14 @@ async function prosesAudio(
     "-map", "[amp3]", "-c:a", "libmp3lame", "-b:a", "320k",
     "-metadata", `title=${o.judul}`, path.join(folderOut, "proses.mp3"),
   );
-  await jalankanFfmpeg(args, info.durasi, ktx.onProgres, ff.bin, (c) => daftarkanProses(ktx.jobId, c));
+  await jalankanFfmpeg(args, info.durasi, onProgresAkhir, ff.bin, (c) => daftarkanProses(ktx.jobId, c));
   if (layerAbs) { try { unlinkSync(layerAbs); } catch { /* abaikan */ } }
   if (harmoniAbs) { try { unlinkSync(harmoniAbs); } catch { /* abaikan */ } }
   if (aransemenAbs) { try { unlinkSync(aransemenAbs); } catch { /* abaikan */ } }
+  for (const f of berkasSementara) { try { unlinkSync(f); } catch { /* abaikan */ } }
   const wavRel = `${path.basename(folderOut)}/proses.wav`;
   const mp3Rel = `${path.basename(folderOut)}/proses.mp3`;
-  return { wavRel: `musik/${wavRel}`, mp3Rel: `musik/${mp3Rel}`, durasi: durasiKeluar };
+  return { wavRel: `musik/${wavRel}`, mp3Rel: `musik/${mp3Rel}`, durasi: durasiKeluar, genderInfo };
 }
 
 /** Render MP4 visualizer dari audio terproses + overlay ASS (judul/chord/lirik). */
@@ -377,6 +490,8 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     // tahap 1: audio
     let wavRel = o.wavSiap;
     let mp3Sumber: string | null = null;
+    // v0.24.0 — info register adaptif dari proses (utk meta chord-sheet)
+    let genderInfoRender: InfoGender | null = null;
     if (!o.audioSudahProses || !wavRel) {
       job.tahap = "audio";
       job.pesan = o.mode === "penuh"
@@ -386,6 +501,7 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
       const hasil = await prosesAudio(clampStudio(o), folderProses, ktx);
       wavRel = hasil.wavRel;
       mp3Sumber = hasil.mp3Rel;
+      genderInfoRender = hasil.genderInfo;
       job.fileProses = wavRel;
       job.fileMp3 = mp3Sumber;
     } else {
@@ -409,12 +525,16 @@ async function jalankanRender(id: string, o: OpsiRenderLengkap, folderOut: strin
     job.tahap = "berkas";
     job.pesan = "Menulis berkas chord & lirik…";
     const slug = slugify(o.judul) || "musik";
-    // v0.21.0 — info register suara baru di meta chord-sheet (geser nada dasar)
-    const geserMeta =
-      o.mode !== "penuh" && o.karaoke !== "karaoke" && !!o.genreVokal && o.genreVokal !== "mati"
-      && (o.tingkatVokal ?? 55) > 0 && !!o.mesinVokal && o.mesinVokal !== "dsp"
-      ? geserVokalSemi(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55)
-      : 0;
+    // v0.21.0 — info register suara baru di meta chord-sheet (geser nada dasar);
+    // v0.24.0 — jalur aigen memakai register ADAPTIF hasil ukur F0 (genderInfo)
+    const geserMeta = (() => {
+      if (o.mode === "penuh" || o.karaoke === "karaoke" || !o.genreVokal || o.genreVokal === "mati") return 0;
+      if ((o.tingkatVokal ?? 55) <= 0 || !o.mesinVokal || o.mesinVokal === "dsp") return 0;
+      if (o.mesinVokal === "aigen" && genderInfoRender && genderInfoRender.sumber === "ukur") {
+        return genderInfoRender.st;
+      }
+      return geserVokalSemi(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55);
+    })();
     const meta = `Genre: ${o.genre === "asli" ? "asli" : o.genre} · Mode: ${o.mode === "penuh" ? "transformasi penuh" : "lapisan"} · Tempo: ${o.kecepatan}× · BPM hasil ≈ ${Math.round(o.bpm * faktorWaktuStudio(o))} · Visual: ${o.visual}`
       + (o.mode === "remake" && (o.nadaLevel ?? 0) > 0 && o.genre !== "asli" ? ` · nada akor ${o.nadaLevel}%` : "")
       + (o.genreVokal !== "mati" ? ` · vokal ${o.genreVokal}${o.refVokal ? ` (${o.refVokal})` : ""} ${o.tingkatVokal}%`

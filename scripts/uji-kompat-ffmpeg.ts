@@ -9,7 +9,7 @@
 // Jalankan: bun scripts/uji-kompat-ffmpeg.ts
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
+import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, rantaiGenderMusik, rantaiGenderVokal, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
 
 const DUR = 2;
 const W = 320, H = 568; // 9:16 kecil — cepat, tetap mewakili resolusi vertikal bawaan
@@ -70,6 +70,14 @@ function uji(bin: string, label: string) {
     { nama: "ganti AI vokal-saja", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", karaoke: "vokal" }, 2).graf, nInput: 3 },
     { nama: "ganti AI tempo 1.5x", graf: bangunFilterAudioGantiAi({ ...dasarAi, mode: "ganti", genre: "dangdut", kecepatan: 1.5 }, 2).graf, nInput: 3 },
     { nama: "ganti DSP fallback (aransemen input 1)", graf: bangunFilterAudio({ ...dasarAi, mode: "ganti", genre: "rock", vokalLevel: 100, grooveLevel: 75 }, 44100).graf, nInput: 2 },
+    // ==== v0.24 — VOKALGEN-6 AI GENDER REALISTIS: rantai rubberband (jalan sebagai
+    // -af pada berkas stem terpisah) + graf campuran AiGen (tanpa asetrate di stem) ====
+    { nama: "vokalgen-6 rantai vokal gender (3 tahap rubberband)", graf: `[0:a]${rantaiGenderVokal(6, 1.1095, 0)}[aout]` },
+    { nama: "vokalgen-6 rantai musik gender (1 tahap)", graf: `[0:a]${rantaiGenderMusik(6, 0)}[aout]` },
+    { nama: "vokalgen-6 rantai vokal pria dada", graf: `[0:a]${rantaiGenderVokal(-8, 0.9635, 0)}[aout]` },
+    { nama: "vokalgen-6 graf AiGen wanita", graf: bangunFilterAudioAiGen({ ...dasarAi, refVokal: "dangdut-w1", mesinVokal: "aigen" }, { st: 6, formant: 1.1095 }, 6).graf, nInput: 2 },
+    { nama: "vokalgen-6 graf AiGen karaoke", graf: bangunFilterAudioAiGen({ ...dasarAi, refVokal: "dangdut-w1", mesinVokal: "aigen", karaoke: "karaoke" }, { st: 6, formant: 1.1095 }, 6).graf, nInput: 2 },
+    { nama: "vokalgen-6 graf AiGen nada ikut register", graf: bangunFilterAudioAiGen({ ...dasarAi, genre: "rock", nadaLevel: 40, mesinVokal: "aigen" }, { st: 6, formant: 1.1095 }, 6).graf, nInput: 3 },
   );
   for (const { nama, graf, nInput } of grafAudio) {
     const pisah = nama.startsWith("pisah");

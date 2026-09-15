@@ -634,5 +634,100 @@ cek(Math.abs(prGantiKar.durasi - 16) < 1.5, `durasi ganti-karaoke ≈ 16 dtk (${
 const meanGantiKar = rmsFile(gantiKar);
 cek(meanGantiKar > -40, `instrumental genre tidak bisu (mean ${meanGantiKar.toFixed(1)} dB)`);
 
+console.log("== 27. v0.24.0 — VOKALGEN-6 AI GENDER REALISTIS: F0 terukur menuju register wanita ==");
+// ukur F0 (median autokorelasi pada pita vokal 150–900 Hz) langsung dari PCM f32le
+const ukurF0 = (abs) => {
+  const keluar = path.join(WORK, `tmp-f0-${path.basename(abs)}.f32`);
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-v", "error", "-i", abs,
+    "-af", "pan=mono|c0=0.5*c0+0.5*c1,highpass=f=70,lowpass=f=1000",
+    "-ar", "11025", "-f", "f32le", "-ac", "1", keluar]);
+  const buf = readFileSync(keluar);
+  const x = new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength >> 2);
+  const SR2 = 11025;
+  const jendela = 1024, lompatan = 2048;
+  const lagMin = Math.floor(SR2 / 500), lagMaks = Math.ceil(SR2 / 90);
+  const f0s = [];
+  for (let b = 0; b + jendela <= x.length; b += lompatan) {
+    let rata = 0;
+    for (let i = 0; i < jendela; i++) rata += x[b + i];
+    rata /= jendela;
+    let rms = 0;
+    const y = new Float64Array(jendela);
+    for (let i = 0; i < jendela; i++) {
+      const v = x[b + i] - rata;
+      y[i] = v;
+      rms += v * v;
+    }
+    rms = Math.sqrt(rms / jendela);
+    if (rms < 0.01) continue;
+    let best = -1, bestV = 0;
+    for (let lag = lagMin; lag <= lagMaks; lag++) {
+      let s = 0;
+      for (let i = 0; i < jendela - lag; i += 2) s += y[i] * y[i + lag];
+      s /= jendela - lag;
+      if (s > bestV) { bestV = s; best = lag; }
+    }
+    const e0 = (() => { let s = 0; for (let i = 0; i < jendela; i++) s += y[i] * y[i]; return s / jendela; })();
+    if (best > 0 && bestV / e0 > 0.35) f0s.push(SR2 / best);
+  }
+  try { unlinkSync(keluar); } catch { /* abaikan */ }
+  if (f0s.length < 3) return null;
+  f0s.sort((a, b) => a - b);
+  return f0s[f0s.length >> 1];
+};
+const f0Asli = ukurF0(path.join(WORK, upVok.file));
+const prosesGen = async (ref) => {
+  const p = await POST("/api/musik/proses", {
+    file: upVok.file, judul: "VokalGen6 Gender", genre: "asli", layerLevel: 0,
+    genreVokal: "dangdut", refVokal: ref, tingkatVokal: 100, mesinVokal: "aigen",
+    karaoke: "asli", bpm: 120, fase: 0, kecepatan: 1,
+  });
+  const j = await pollJob(p.id, 600_000);
+  if (j.error) throw new Error(j.error);
+  return path.join(WORK, j.fileMp3);
+};
+const outGenW = await prosesGen("dangdut-w2"); // Inul — target 202 Hz
+cek(existsSync(outGenW), "mesin aigen wanita selesai tanpa error");
+const prGenW = ffprobe(outGenW);
+cek(Math.abs(prGenW.durasi - 16) < 1.2,
+  `durasi hasil aigen ≈ 16 dtk — rubberband pitch TIDAK menggeser linimasa (${prGenW.durasi.toFixed(2)})`);
+const f0HasilW = ukurF0(outGenW);
+console.log(`    → F0 suara asli ≈ ${f0Asli ? f0Asli.toFixed(0) : "?"} Hz → hasil ≈ ${f0HasilW ? f0HasilW.toFixed(0) : "?"} Hz (target register wanita 202 Hz)`);
+if (f0Asli !== null && f0HasilW !== null) {
+  cek(f0HasilW >= 150 && f0HasilW <= 450,
+    `F0 hasil ada di rentang register wanita 150–450 Hz (terukur ${f0HasilW.toFixed(0)} Hz)`);
+  if (f0Asli < 160) {
+    cek(f0HasilW > f0Asli + 20,
+      `suara rendah dinaikkan menuju wanita: ${f0Asli.toFixed(0)} → ${f0HasilW.toFixed(0)} Hz (naik ≥ 20 Hz)`);
+  }
+} else {
+  console.log("    (F0 tak terukur pada salah satu berkas — cek register dilewati, jaminan struktural ada di uji unit)");
+}
+// pria dada: Rhoma — target 112 Hz; pastikan arah sebaliknya bila sumber tinggi
+const outGenP = await prosesGen("dangdut-p1");
+cek(existsSync(outGenP), "mesin aigen pria selesai tanpa error");
+const prGenP = ffprobe(outGenP);
+cek(Math.abs(prGenP.durasi - 16) < 1.2, `durasi aigen pria ≈ 16 dtk (${prGenP.durasi.toFixed(2)})`);
+const f0HasilP = ukurF0(outGenP);
+console.log(`    → F0 hasil pria ≈ ${f0HasilP ? f0HasilP.toFixed(0) : "?"} Hz (target 112 Hz)`);
+if (f0Asli !== null && f0HasilP !== null && f0Asli > 160) {
+  cek(f0HasilP < f0Asli - 20,
+    `suara tinggi diturunkan menuju pria dada: ${f0Asli.toFixed(0)} → ${f0HasilP.toFixed(0)} Hz`);
+}
+// A/B: aigen vs mati — vokal harus berubah jelas (pitch+formant+timbre)
+const p27m = await POST("/api/musik/proses", {
+  file: upVok.file, judul: "VokalGen6 Mati", genre: "asli", layerLevel: 0,
+  genreVokal: "mati", tingkatVokal: 100, mesinVokal: "aigen",
+  karaoke: "asli", bpm: 120, fase: 0, kecepatan: 1,
+});
+const j27m = await pollJob(p27m.id, 600_000);
+if (!j27m.error) {
+  const outMati = path.join(WORK, j27m.fileMp3);
+  const chgGen = perubahanPctAB(outGenW, outMati, "vokal");
+  cek(chgGen > 30, `karakter vokal aigen berubah jelas vs tanpa genre: ${chgGen.toFixed(0)}% (> 30%)`);
+} else {
+  console.log("    (cabang mati gagal — lewati A/B)");
+}
+
 console.log(`\n=== SEMUA UJI E2E STUDIO MUSIK LOLOS ===`);
 process.exit(0);

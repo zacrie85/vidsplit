@@ -4,15 +4,16 @@
 // Jalankan: bun scripts/uji-musik.ts
 import { existsSync, statSync, unlinkSync } from "node:fs";
 import {
-  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioGantiAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
+  bangunAss, bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual, bpmAman, adalahVideoMusik, cariReferensiVokal,
   clampStudio, faktorAtempo,
-  faktorWaktuStudio, formatChordSheet, formatLrc, geserVokal, geserVokalSemi, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiVokal, rantaiWarna,
+  faktorWaktuStudio, formatChordSheet, formatLrc, genderGen, geserVokal, geserVokalSemi, grafPisahVokalMusik, hexKeAss, parseLrc, rantaiGenderMusik, rantaiGenderVokal, rantaiVokal, rantaiWarna,
   adalahWanita,
   transposDgnPerubahan, PILIHAN_KECEPATAN,
   REFERENSI_VOKAL, RESEP_VOKAL_GENRE,
   RESEP_GENRE, DAFTAR_GENRE, INFO_GENRE, VISUAL_MUSIK, opsiVisualDefault, skalaChord,
   skalaLirik, transposeAuto, WARNA_GENRE, type GenreMusik, type PolaLayer, type SegmenChord,
 } from "../src/lib/vidsplit/musik";
+import { f0MedianPcm, selaraskanLag, terapkanLag } from "../src/lib/vidsplit/vokalGender";
 import { beriReverb, buatLayerWav, nadaIns, sampel } from "../src/lib/vidsplit/musikLayer";
 import { buatHarmoniWav, buatIringanWav, buatMelodiBaru, HARMONI_GENRE, IRING_GENRE, MELODI_GENRE, parseChord } from "../src/lib/vidsplit/musikTransformasi";
 import { buatAransemenWav, deskripsiAransemen, drumSampel, RENCANA_GENRE } from "../src/lib/vidsplit/musikAransemen";
@@ -733,7 +734,9 @@ const gAiLay = bangunFilterAudioAi({ ...dasarAi, genre: "rock", layerLevel: 40, 
 cek(gAiLay.graf.includes("[2:a]volume") && gAiLay.graf.includes("[3:a]volume"),
   "harmoni input 2 + lapisan input 3 di jalur AI");
 cek(clampStudio({ mesinVokal: "dsp" }).mesinVokal === "dsp", "clampStudio mempertahankan mesinVokal dsp");
-cek(clampStudio({}).mesinVokal === "ai", "clampStudio bawaan mesinVokal = ai");
+cek(clampStudio({}).mesinVokal === "aigen", "v0.24: clampStudio bawaan mesinVokal = aigen (AI Gender Realistis)");
+cek(clampStudio({ mesinVokal: "ai" }).mesinVokal === "ai", "v0.24: clampStudio mempertahankan mesinVokal ai (lawas)");
+cek(clampStudio({ mesinVokal: "aigen" }).mesinVokal === "aigen", "v0.24: clampStudio mempertahankan mesinVokal aigen");
 
 console.log("== 31. GANTI INSTRUMEN — mode ganti v0.22 (cover genre sejati) ==");
 cek(clampStudio({ mode: "ganti" }).mode === "ganti", "clampStudio menerima mode ganti");
@@ -824,6 +827,136 @@ for (const ins of ["crash", "ride", "tom", "hatOpen", "clap"] as const) {
   let finite = true;
   for (let i = 0; i < s.length; i += 37) if (!Number.isFinite(s[i])) { finite = false; break; }
   cek(s.length > 100 && finite, `drum baru ${ins}: finite + panjang ${s.length}`);
+}
+
+console.log("== 32. VOKALGEN-6 AI GENDER REALISTIS (v0.24) — target adaptif + rubberband ==");
+// ---- genderGen: target F0 adaptif ----
+const genElvi = genderGen("dangdut", "dangdut-w1", 55, 130);
+cek(genElvi.f0Target === 199, `Elvi target F0 = 199 Hz (terukur ${genElvi.f0Target})`);
+cek(genElvi.st === 6, `Elvi 130 Hz @55% → register +6 st (terukur ${genElvi.st}) — jarak pria→wanita NYATA`);
+cek(genElvi.formant === 1.1095, `Elvi formant +11% terpisah (terukur ${genElvi.formant})`);
+cek(genElvi.sumber === "ukur", "sumber = ukur (F0 asli dipakai)");
+const genInul = genderGen("dangdut", "dangdut-w2", 100, 110);
+cek(genInul.st === 10.5, `Inul 110 Hz @100% → +10,5 st (terukur ${genInul.st}) — lantai skala 100% = target penuh`);
+cek(genInul.formant === 1.15, `Inul formant +15% @100% (terukur ${genInul.formant})`);
+const genRhoma = genderGen("dangdut", "dangdut-p1", 55, 196);
+cek(genRhoma.st === -8, `Rhoma dada: suara 196 Hz @55% → −8 st menuju 112 Hz (terukur ${genRhoma.st})`);
+cek(genRhoma.formant < 1, `pria formant turun (terukur ${genRhoma.formant})`);
+const genBawaan = genderGen("dangdut", "dangdut-w1", 55, null);
+cek(genBawaan.sumber === "bawaan" && genBawaan.st === geserVokalSemi("dangdut", "dangdut-w1", 55),
+  "F0 null → fallback statik v0.23 (geserVokalSemi) + sumber bawaan");
+const genSudahW = genderGen("pop", "pop-w1", 55, 196);
+cek(genSudahW.st >= -0.5 && genSudahW.st <= 1,
+  `suara sudah 196 Hz tak dipaksa pindah jauh (terukur ${genSudahW.st} st → ≈202 Hz = target)`);
+const genPriaT = genderGen("metal", "metal-p2", 100, 150);
+cek(genPriaT.f0Target === 133, `Halford (pria tinggi) target 133 Hz (terukur ${genPriaT.f0Target})`);
+// determinisme
+cek(genderGen("dangdut", "dangdut-w1", 55, 130).st === genElvi.st, "genderGen deterministik");
+// ---- rantai rubberband ----
+const rantaiV6 = rantaiGenderVokal(6, 1.1095, 0);
+cek((rantaiV6.match(/formant=preserved/g) || []).length === 2, "rantai vokal: formant PRESERVED pada tahap pitch & tahap balik");
+cek(rantaiV6.includes("rubberband=pitch=1.414214:transients=mixed:formant=preserved"), "tahap 1: pitch +6 st formant preserved");
+cek(rantaiV6.includes("rubberband=pitch=1.109500:formant=shifted") && rantaiV6.includes("rubberband=pitch=0.901307:formant=preserved"),
+  "tahap 2+3: formant +11% terpisah (pitch F lalu 1/F — pitch netral)");
+cek(!rantaiV6.includes("asetrate"), "rantai vokal TANPA asetrate (resonansi tidak ikut naik)");
+const rv1tahap = rantaiGenderVokal(0, 1, 0);
+cek(rv1tahap === "rubberband=pitch=1.000000:transients=mixed:formant=preserved",
+  "formant 1 → satu tahap saja (hemat CPU)");
+const rantaiM6 = rantaiGenderMusik(6, 2);
+cek(rantaiM6 === "rubberband=pitch=1.587401:formant=preserved", "rantai musik: pitch (st+transpos) formant preserved");
+// ---- graf AiGen ----
+const dasarGen = clampStudio({
+  file: "uji.mp3", judul: "Uji Gender", genre: "asli", mode: "remake",
+  genreVokal: "dangdut", refVokal: "dangdut-w1", tingkatVokal: 100,
+  karaoke: "asli", mesinVokal: "aigen",
+});
+const gGenAsli = bangunFilterAudioAiGen(dasarGen, { st: 6, formant: 1.1095 }, 6);
+cek(!gGenAsli.graf.includes("asetrate"), "graf AiGen: TANPA asetrate di stem (pitch sudah terbakar di tahap rubberband)");
+cek(gGenAsli.graf.includes("[0:a]aformat") && gGenAsli.graf.includes("[1:a]aformat"),
+  "graf AiGen: input 0 = vokal gender, input 1 = musik gender");
+cek(gGenAsli.graf.includes("equalizer=f=320") && gGenAsli.graf.includes("equalizer=f=3400"),
+  "graf AiGen: feminisasi timbre v0.23 tetap jalan di atas vokal gender");
+cek(gGenAsli.graf.includes("amix=inputs=2:duration=first:normalize=0") && gGenAsli.graf.endsWith("alimiter=limit=0.95[aout]"),
+  "graf AiGen asli: remix + limiter utuh");
+const gGenKar = bangunFilterAudioAiGen({ ...dasarGen, karaoke: "karaoke" }, { st: 6, formant: 1.1095 }, 6);
+cek(gGenKar.graf.startsWith("[1:a]aformat") && gGenKar.graf.includes("stereo[ksrc]"),
+  "graf AiGen karaoke = instrumental apa adanya (tanpa geser register)");
+cek(!gGenKar.graf.includes("[0:a]"), "graf AiGen karaoke: stem vokal tak dibangun");
+const gGenVok = bangunFilterAudioAiGen({ ...dasarGen, karaoke: "vokal" }, { st: 6, formant: 1.1095 }, 6);
+cek(gGenVok.graf.includes("[0:a]aformat") && gGenVok.graf.includes("[voc1]anull[ksrc]") && !gGenVok.graf.includes("[1:a]"),
+  "graf AiGen vokal-saja: hanya stem vokal gender");
+const gGenNada = bangunFilterAudioAiGen({ ...dasarGen, genre: "rock", nadaLevel: 40 }, { st: 6, formant: 1.1095 }, 6);
+cek(gGenNada.graf.includes("[2:a]asetrate=62367") && gGenNada.graf.includes("atempo=0.70711"),
+  "nada akor ikut nada dasar baru: asetrate 62367 (+6 st) + atempo di graf");
+const gGenNada0 = bangunFilterAudioAiGen({ ...dasarGen, genre: "rock", nadaLevel: 40 }, { st: 0, formant: 1 }, 0);
+cek(gGenNada0.graf.includes("[2:a]volume") && !gGenNada0.graf.includes("[2:a]asetrate"),
+  "pTotal 0 → nada akor tanpa transpos di graf");
+// ---- f0MedianPcm + selaraskanLag (sinyal sintetis deterministik) ----
+{
+  const SR = 44100;
+  const buat = (f0: number, detik: number, getar = 0): { l: Float32Array; r: Float32Array } => {
+    const n = Math.floor(SR * detik);
+    const l = new Float32Array(n);
+    const r = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const t = i / SR;
+      const g = 1 + getar * Math.sin(2 * Math.PI * 5.5 * t);
+      const v = 0.4 * Math.sin(2 * Math.PI * f0 * g * t) + 0.2 * Math.sin(2 * Math.PI * 2 * f0 * t);
+      l[i] = v;
+      r[i] = v * 0.95;
+    }
+    return { l, r };
+  };
+  const suara130 = buat(130, 4);
+  const f0Ukur = f0MedianPcm(suara130.l, suara130.r);
+  cek(f0Ukur !== null && Math.abs(f0Ukur - 130) <= 3, `f0MedianPcm sine 130 Hz → ${f0Ukur?.toFixed(1)} (±3)`);
+  const suara98 = buat(98, 3);
+  const f098 = f0MedianPcm(suara98.l, suara98.r);
+  cek(f098 !== null && Math.abs(f098 - 98) <= 3, `f0MedianPcm sine 98 Hz (pria) → ${f098?.toFixed(1)} (±3)`);
+  const bisu = { l: new Float32Array(SR * 3), r: new Float32Array(SR * 3) };
+  cek(f0MedianPcm(bisu.l, bisu.r) === null, "sinyal senyap → null (fallback bawaan)");
+  // lag dgn sinyal dinamis: amplop GLOBAL berirama (khas musik) + getar kecil
+  const buatDinamis = (): { l: Float32Array; r: Float32Array } => {
+    const n2 = Math.floor(SR * 6);
+    const l2 = new Float32Array(n2);
+    const r2 = new Float32Array(n2);
+    for (let i = 0; i < n2; i++) {
+      const t = i / SR;
+      const amp = 0.15 + 0.85 * Math.abs(Math.sin(2 * Math.PI * 0.7 * t)) * Math.abs(Math.sin(2 * Math.PI * 1.9 * t + 1));
+      const getar = 1 + 0.02 * Math.sin(2 * Math.PI * 5.5 * t);
+      const v = amp * (0.4 * Math.sin(2 * Math.PI * 140 * getar * t) + 0.2 * Math.sin(2 * Math.PI * 280 * t));
+      l2[i] = v;
+      r2[i] = v * 0.95;
+    }
+    for (const t of [1.5, 3.5, 5.2]) {
+      const j = Math.round(t * SR);
+      l2[j] += 0.9;
+      r2[j] += 0.9;
+    }
+    return { l: l2, r: r2 };
+  };
+  const dinamis = buatDinamis();
+  const geser = (s: number): { l: Float32Array; r: Float32Array } => {
+    if (s >= 0) {
+      const l2 = new Float32Array(dinamis.l.length + s);
+      const r2 = new Float32Array(dinamis.r.length + s);
+      l2.set(dinamis.l, s);
+      r2.set(dinamis.r, s);
+      return { l: l2, r: r2 };
+    }
+    return { l: dinamis.l.slice(-s), r: dinamis.r.slice(-s) };
+  };
+  for (const target of [3333, 712, -2000]) {
+    const lag = selaraskanLag(dinamis, geser(target));
+    cek(Math.abs(lag - target) <= 220, `selaraskanLag target ${target} → ${lag} (±220 sampel = ±5 ms)`);
+  }
+  const dipangkas = terapkanLag(geser(3333), 3333);
+  cek(dipangkas.l.length === dinamis.l.length, "terapkanLag positif memangkas kepala persis");
+  const diisi = terapkanLag(geser(-2000), -2000);
+  cek(diisi.l.length === dinamis.l.length && diisi.l[0] === 0,
+    "terapkanLag negatif mengisi senyap di kepala");
+  const lagBalik = selaraskanLag(dinamis, diisi);
+  cek(Math.abs(lagBalik) <= 220, `roundtrip: setelah koreksi lag ≈ 0 (terukur ${lagBalik})`);
 }
 
 console.log(`\nHasil: ${lulus} LOLOS, ${gagal} GAGAL`);

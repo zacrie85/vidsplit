@@ -15,10 +15,9 @@ import { PanelGenre, PanelKaraoke, PanelTempo, PanelVisual, aturMusikDefault, ty
 import { faktorWaktuStudio, bpmAman, parseLrc, formatWaktuLrc, transposeAuto, transposDgnPerubahan, geserVokalSemi, INFO_GENRE } from "@/lib/vidsplit/musik";
 import type { BarisLirik, SegmenChord } from "@/lib/vidsplit/musik";
 
-// v8 (v0.23.0): naikkan kunci — preferensi lama di-reset agar semua pengguna langsung
-// mendapat SATU mode menu 2 "Versi genre" (Ganti instrumen/Musik baru/Lapisan dihapus)
-// + register suara wanita baru (+4–5,5 st).
-const KUNCI_ATUR = "vidsplit-musik-v8";
+// v9 (v0.24.0): naikkan kunci — preferensi lama di-reset agar semua pengguna
+// langsung memakai MESIN BARU "AI Gender Realistis" (Cepat-DSP v0.19 dihapus dr UI).
+const KUNCI_ATUR = "vidsplit-musik-v9";
 
 interface InfoLagu {
   file: string;

@@ -1,12 +1,12 @@
 "use client";
 
-// VidSplit v0.23.0 — STUDIO MUSIK: panel kolom KANAN
+// VidSplit v0.24.0 — STUDIO MUSIK: panel kolom KANAN
 // 2. Pengubah genre (17 genre, SATU mode: VERSI GENRE ala Suno) · 3. Tempo (0.5×–1.5×)
-// 4. Vokal & karaoke (suara wanita register +4–5,5 st) · 5. Visual musik (15 gaya)
+// 4. Vokal & karaoke (mesin AI Gender Realistis — pitch & formant dipisah) · 5. Visual musik (15 gaya)
 import { BarisSlider, ChipPilihan, Kartu, PilihWarna, fmtUkuran } from "@/components/vds/bits";
 import { Mic, Palette, Scissors, SlidersHorizontal, Timer } from "lucide-react";
 import {
-  DAFTAR_GENRE, INFO_GENRE, REFERENSI_VOKAL, VISUAL_MUSIK, transposeAuto, transposDgnPerubahan,
+  DAFTAR_GENRE, INFO_GENRE, REFERENSI_VOKAL, VISUAL_MUSIK, adalahWanita, transposeAuto, transposDgnPerubahan,
   type GenreMusik, type IdVisual, type KaraokeMode, type ModeTransformasi, type OpsiVisual,
 } from "@/lib/vidsplit/musik";
 import { INFO_FONT, type NamaFont } from "@/lib/vidsplit/types";
@@ -40,9 +40,10 @@ export interface AturMusik {
   refVokal: string;
   /** v0.16.0 0–100 tingkat rasa vokal (bawaan 55) */
   tingkatVokal: number;
-  /** v0.20.0 mesin vokal/karaoke: "ai" = stem AI MDX-Net (bawaan, tanpa suara dobel,
-   *  karaoke benar-benar bersih); "dsp" = DSP tengah/samping cepat (v0.19) */
-  mesinVokal: "ai" | "dsp";
+  /** v0.24.0 mesin vokal/karaoke: "aigen" = AI GENDER REALISTIS (BAWAAN — pitch &
+   *  formant dipisah, target F0 adaptif). "ai" = VOKALGEN-5 lawas; "dsp" = v0.19
+   *  lawas (fallback internal — chip Cepat-DSP sudah DIHAPUS dr UI) */
+  mesinVokal: "aigen" | "ai" | "dsp";
   visual: IdVisual;
   resolusi: "916" | "720" | "1080";
   vis: OpsiVisual;
@@ -61,8 +62,9 @@ export const aturMusikDefault: AturMusik = {
   genreVokal: "mati",
   refVokal: "",
   tingkatVokal: 55,
-  // v0.20.0 — mesin vokal AI (stem MDX-Net) jadi bawaan
-  mesinVokal: "ai",
+  // v0.24.0 — satu mesin: AI Gender Realistis (chip Cepat-DSP v0.19 & AI-stem
+  // v0.20 dihapus dr UI; "ai"/"dsp" tinggal fallback internal API)
+  mesinVokal: "aigen",
   karaoke: "asli",
   // v0.23.0 — SATU mode menu 2: Versi genre (remake). Ganti instrumen, Musik baru
   // dari chord, dan Lapisan dihapus dr menu (hasil kurang memuaskan).
@@ -308,33 +310,31 @@ export function PanelKaraoke({ atur, ubah, pisah }: { atur: AturMusik; ubah: Uba
     >
       <span className="block font-medium">{r.nama}</span>
       <span className="block truncate text-[10px] opacity-70">
-        {r.ket}{r.dada ? ` · dada −${r.dada} st` : r.tinggi ? ` · register +${r.tinggi} st` : ""}
+        {r.ket}{r.dada ? ` · target ~${Math.round(118 - (r.dada - 1) * 6)} Hz` : r.tinggi ? ` · target ~${Math.round(adalahWanita(r.id) ? 196 + (r.tinggi - 4) * 6 : 118 + (r.tinggi - 1) * 10)} Hz` : ""}
       </span>
     </button>
   );
   return (
     <Kartu
       judul="4. Vokal, genre vokal & karaoke"
-      deskripsi="Karaoke AI dulu (vokal asli dibuang) → suara genre menggantikan PENUH — wanita kini register +4–5,5 st (v0.23)"
+      deskripsi="AI Gender Realistis v0.24 — suara pria/wanita dari ukur nada dasar + pitch & resonansi dipisah"
       ikon={<Mic className="h-4 w-4" />}
     >
-      {/* ===== v0.21.0 — GENRE VOKAL VOKALGEN-5 (satu suara — tanpa penyanyi kedua) ===== */}
+      {/* ===== v0.24.0 — VOKALGEN-6 AI GENDER REALISTIS ===== */}
       <div className="rounded-xl border border-violet-400/25 bg-slate-800/40 p-3">
-        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin v0.21 (satu suara)</p>
+        <p className="text-xs font-semibold text-violet-200">Genre vokal — mesin v0.24 (AI gender realistis)</p>
         <p className="mt-0.5 text-[11px] leading-relaxed text-slate-400">
           Terpisah dari genre musik: <b>musiknya</b> diubah lewat menu 2, <b>suara
-          vokalnya</b> diganti sesuai genre ini. Alur v0.21 (persis usulan kamu):
-          lagu dipisah AI dulu → <b>vokal asli dibuang</b> (dijadikan karaoke) →
-          lalu suara baru sesuai genre <b>dimasukkan sebagai pengganti penuh</b> —
-          di hasil hanya ada <b>SATU suara</b>, suara asli tidak pernah ikut
-          tercampur (bug “ada 2 penyanyi” era lapisan pitch v0.20 sudah dihapus).
-          Register referensi menggeser nada dasar lagu — vokal &amp; musik bergeser
-          bersama agar tetap selaras, persis penyanyi lain dgn register beda
-          mencover lagu. <b>Baru v0.23:</b> referensi <b>wanita kini bergeser jauh
-          +4–5,5 semitone</b> (jarak register pria→wanita yang nyata) plus
-          feminisasi timbre — resonansi dada pria dipangkas, ring 3,4 kHz
-ditambah — sehingga suaranya benar-benar terdengar wanita, bukan pria yang
-          dinaikkan sedikit.
+          vokalnya</b> diganti sesuai genre ini. Alurnya: lagu dipisah AI dulu →
+          <b> vokal asli dibuang</b> (dijadikan karaoke) → suara baru dimasukkan
+          sebagai pengganti penuh — di hasil hanya ada <b>SATU suara</b>.
+          <b> Baru v0.24 — suara jauh lebih nyata:</b> mesin kini <b>mengukur nada
+          dasar suara asli</b> dulu (analisis AI), lalu menggeser pitch dengan
+          teknologi studio <b>rubberband</b> yang <b>menahan resonansi (formant)
+          tetap di tempatnya</b> — tidak lagi seperti pria falsetto — lalu
+          merenggangkan resonansi khas gender <b>terpisah</b> (wanita = rongga suara
+          lebih kecil, pria = lebih besar). Register target menyesuaikan jarak suara
+          asli: wanita ±196–205 Hz, pria dada 112–118 Hz.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-3">
           <button
@@ -389,48 +389,33 @@ ditambah — sehingga suaranya benar-benar terdengar wanita, bukan pria yang
               onChange={(n) => ubah({ tingkatVokal: n })}
             />
             <p className="text-[10px] text-slate-500">
-              Kekuatan juga menakar geser register: referensi wanita menaikkan nada
-              dasar +3–5,5 st (skala berlantai 0,6 — tetap terasa walau slider
-              55%) dgn timbre difeminisasi; referensi pria dada-dalam menurunkan
-              −1–2,5 st. Vokal &amp; musik selalu bergeser bersama agar selaras.
+              Kekuatan menakar seberapa jauh digeser menuju register target:
+              bawaan 55% sudah terasa, 100% = target penuh. Mesin mengukur nada
+              dasar suara asli dulu, menggeser pitch dengan <b>resonansi ditahan</b>
+              (rubberband), lalu merenggangkan resonansi gender <b>terpisah</b>
+              (wanita +8–15%, pria −3–5%). Vokal &amp; musik bergeser bersama agar
+              selalu selaras — dan sinkron dijaga otomatis (&lt;2 ms).
             </p>
-            {/* v0.20.0 — pilih mesin: stem AI (bawaan) atau DSP cepat */}
+            {/* v0.24.0 — Cepat-DSP (v0.19) DIHAPUS dr UI & digantikan AI Gender
+                Realistis; hanya SATU mesin (fallback internal otomatis) */}
             <p className="text-[11px] font-medium text-slate-300">Mesin pengubah suara:</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => ubah({ mesinVokal: "ai" })}
-                className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
-                  atur.mesinVokal !== "dsp"
-                    ? "border-emerald-400/80 bg-emerald-400/15 text-emerald-200"
-                    : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
-                }`}
-              >
-                <span className="block font-medium">AI — stem vokal (disarankan)</span>
-                <span className="block text-[10px] opacity-70">Ganti suara penuh, tanpa suara dobel · proses pertama lebih lama, lalu di-cache</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => ubah({ mesinVokal: "dsp" })}
-                className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${
-                  atur.mesinVokal === "dsp"
-                    ? "border-amber-400/80 bg-amber-400/15 text-amber-200"
-                    : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
-                }`}
-              >
-                <span className="block font-medium">Cepat — DSP (v0.19)</span>
-                <span className="block text-[10px] opacity-70">Detik-an selesai, tapi hanya mengubah pita tengah 180–3800 Hz dan bisa terdengar dobel (lapisan pitch lawas)</span>
-              </button>
+            <div className="rounded-lg border border-emerald-400/80 bg-emerald-400/15 px-2 py-1.5">
+              <span className="block text-xs font-medium text-emerald-200">AI Gender Realistis (v0.24) — disarankan</span>
+              <span className="block text-[10px] leading-relaxed opacity-90">
+                Chip “Cepat-DSP (v0.19)” dihapus &amp; digantikan mesin ini: stem AI
+                MDX-Net + ukur nada dasar suara + pitch &amp; resonansi dipisah
+                (rubberband studio, 100% offline) + timbre difeminisasi/maskulinisasi.
+              </span>
             </div>
             <p className="rounded-lg border border-slate-700/50 bg-slate-900/40 p-2 text-[10px] leading-relaxed text-slate-500">
               Jujur &amp; transparan: referensi penyanyi = <b>karakter gaya</b> yang
               terinspirasi ciri khas penyanyi itu (warna timbre, register
               dada-dalam/kepala-terang, getar, ruang, serak) — <b>bukan tiruan suara
               aslinya</b>. Mengganti menjadi suara penyanyi tertentu butuh AI raksasa
-              di server GPU. Mesin v0.21 (stem AI MDX-Net ±65 MB dibundel, jalan
-              penuh di PC-mu tanpa internet) menghapus vokal asli lalu memasukkan
-              <b> satu suara baru</b> berkarakter genre + register referensi — hasil
-              tunggal (tanpa penyanyi kedua), selalu seirama dgn lagunya.
+              di server GPU. Mesin v0.24 menggabungkan: stem AI MDX-Net (±65 MB
+              dibundel) + pengukur nada dasar + pitch-shift rubberband dgn resonansi
+              dipertahankan + feminisasi/maskulinisasi timbre — semuanya <b>100%
+              offline di PC-mu</b>, satu suara di hasil, selalu seirama dgn lagunya.
             </p>
           </div>
         )}

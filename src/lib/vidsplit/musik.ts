@@ -639,6 +639,89 @@ export function geserVokalSemi(genre: GenreMusik, refId: string, tingkat: number
   return Math.max(-3, Math.min(3, Math.round(st * t * 4) / 4));
 }
 
+/** v0.24.0 — VOKALGEN-6 "AI GENDER REALISTIS": TARGET GENDER ADAPTIF.
+ *  Dulu (v0.23) register wanita = geseran TETAP +4–5,5 st dgn asetrate — pitch DAN
+ *  resonansi (formant) ikut naik sama besar → terdengar "pria falsetto". Kini:
+ *  (1) MESIN MENGUKUR F0 suara asli (f0MedianPcm — autokorelasi FFT) lalu
+ *      menghitung geseran yang PAS menuju target register gender (wanita ≈196–205
+ *      Hz — jarak pria 110–150 Hz → wanita memang ±7–10 st, BUKAN 4–5,5;
+ *      pria dada ≈112–118 Hz, pria kepala-terang 123–133 Hz);
+ *  (2) PITCH digeser dgn rubberband FORMANT-PRESERVED (resonansi pita suara TIDAK
+ *      ikut naik → tidak ada suara kerucut/falsetto);
+ *  (3) FORMANT digeser TERPISAH (diler % kecil: wanita +8–15%, pria −3–5% = rongga
+ *      mulut lebih kecil/besar) — ciri timbre gender yang dulu tak mungkin diatur.
+ *  f0Sumber null (musik murni/senyap/tak yakin) → kembali ke geserVokalSemi
+ *  statik v0.23 (sumber "bawaan"). Deterministik penuh. */
+export function genderGen(
+  genre: GenreMusik,
+  refId: string,
+  tingkat: number,
+  f0Sumber: number | null,
+): { st: number; formant: number; sumber: "ukur" | "bawaan"; f0Target: number } {
+  const t = Math.min(1, Math.max(0, tingkat / 100));
+  const ref = cariReferensiVokal(refId) ?? REFERENSI_VOKAL[genre]?.pria[0] ?? null;
+  const wanita = ref ? adalahWanita(ref.id) : false;
+  // target F0 register per referensi (Hz) — rentang menyanyi realistis
+  const f0Target = wanita
+    ? 196 + ((ref?.tinggi ?? 4.5) - 4) * 6 // 196–205 Hz (tinggi 4–5,5)
+    : ref?.dada
+      ? 118 - (ref.dada - 1) * 6 // dada dalam: 112–118 Hz
+      : 118 + ((ref?.tinggi ?? 1) - 1) * 10; // pria kepala-terang: 118–133 Hz
+  const skala = 0.6 + 0.4 * t; // lantai 0,6 (slider 55% tetap terasa) — konsep v0.23
+  let st: number;
+  let sumber: "ukur" | "bawaan";
+  if (f0Sumber !== null && f0Sumber >= 50 && f0Sumber <= 700) {
+    const raw = 12 * Math.log2(f0Target / f0Sumber) * skala;
+    // jaga hasil tetap di rentang gender: cap f0 hasil 160–420 Hz (wanita) /
+    // 70–160 Hz (pria) — suara yang SUDAH di register benar tak dipaksa pindah
+    const batasAtas = wanita ? 12 * Math.log2(420 / f0Sumber) : 12 * Math.log2(160 / f0Sumber);
+    const batasBawah = wanita ? 12 * Math.log2(160 / f0Sumber) : 12 * Math.log2(70 / f0Sumber);
+    let terjaga = Math.min(raw, batasAtas);
+    terjaga = Math.max(terjaga, batasBawah);
+    st = Math.min(11, Math.max(-11, terjaga));
+    sumber = "ukur";
+  } else {
+    st = geserVokalSemi(genre, refId, tingkat); // fallback statik v0.23
+    sumber = "bawaan";
+  }
+  st = Math.round(st * 4) / 4;
+  if (Math.abs(st) < 0.25) st = 0;
+  // geseran formant terpisah (rasio frekuensi resonansi): wanita rongga lebih kecil
+  const formant = wanita ? 1 + 0.15 * (0.4 + 0.6 * t) : 1 - 0.05 * (0.4 + 0.6 * t);
+  return {
+    st,
+    formant: Math.round(formant * 10000) / 10000,
+    sumber,
+    f0Target: Math.round(f0Target),
+  };
+}
+
+/** v0.24.0 — rantai rubberband VOKAL (jalan di stem terpisah SEBELUM graf campur):
+ *  (1) pitch register (st+transposeEkstra) dgn FORMANT PRESERVED — resonansi tak
+ *  ikut; (2) pitch +F formant-shifted; (3) pitch −F formant-preserved → pitch
+ *  balik, formant NET +F. Durasi kekal (pitch-only), sinkron dijaga fungsi
+ *  selaraskanLag. transposeEkstra = transpos remake (kemiripan). */
+export function rantaiGenderVokal(st: number, formant: number, transposeEkstra = 0): string {
+  const p = Math.pow(2, (st + transposeEkstra) / 12);
+  const f = Math.max(0.5, Math.min(2, formant));
+  const enam = (x: number) => x.toFixed(6);
+  if (Math.abs(f - 1) < 0.0005) {
+    // tanpa geseran formant — cukup satu tahap
+    return `rubberband=pitch=${enam(p)}:transients=mixed:formant=preserved`;
+  }
+  return [
+    `rubberband=pitch=${enam(p)}:transients=mixed:formant=preserved`,
+    `rubberband=pitch=${enam(f)}:formant=shifted`,
+    `rubberband=pitch=${enam(1 / f)}:formant=preserved`,
+  ].join(",");
+}
+
+/** v0.24.0 — rantai rubberband MUSIK: pitch ikut register baru dgn formant
+ *  preserved → instrumen tetap natural (bukan nightcore asetrate), durasi kekal. */
+export function rantaiGenderMusik(st: number, transposeEkstra = 0): string {
+  const p = Math.pow(2, (st + transposeEkstra) / 12);
+  return `rubberband=pitch=${p.toFixed(6)}:formant=preserved`;
+}
 /** v0.17 — baris graf utk pita berkarakter + lapisan pitch (dipakai jalur "asli"
  *  & "vokal saja"): [inL] → rantai karakter (volume gain) → split → salinan
  *  asetrate/atempo (highpass 260 + lowpass 3200 utk fokus area suara) → amix
@@ -812,10 +895,11 @@ export interface OpsiStudioMusik {
   refVokal: string;
   /** v0.16.0 0–100 — tingkat rasa vokal (kekuatan warna genre vokal). Bawaan 55. */
   tingkatVokal: number;
-  /** v0.20.0 — mesin vokal/karaoke: "ai" = PISAH STEM AI (MDX-Net Kim Vocal 2,
-   *  100% offline): vokal diganti PENUH semua frekuensi → TIDAK MUNGKIN suara dobel,
-   *  karaoke benar-benar tanpa vokal. "dsp" = DSP tengah/samping cepat (v0.19). */
-  mesinVokal?: "ai" | "dsp";
+  /** v0.20.0 — mesin vokal/karaoke. v0.24.0: "aigen" = AI GENDER REALISTIS
+   *  (BAWAAN): stem AI + pitch & formant digeser TERPISAH (rubberband) + target
+   *  F0 adaptif per lagu → suara pria/wanita terdengar nyata. "ai" = VOKALGEN-5
+   *  lawas (asetrate). "dsp" = DSP tengah/samping cepat (v0.19, fallback lawas). */
+  mesinVokal?: "aigen" | "ai" | "dsp";
 }
 
 export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
@@ -850,7 +934,7 @@ export function clampStudio(o: Partial<OpsiStudioMusik>): OpsiStudioMusik {
         : "mati",
     refVokal: String(o.refVokal || "").slice(0, 40),
     tingkatVokal: Math.min(100, Math.max(0, Math.round(Number(o.tingkatVokal ?? 55)))),
-    mesinVokal: o.mesinVokal === "dsp" ? "dsp" : "ai",
+    mesinVokal: o.mesinVokal === "dsp" ? "dsp" : o.mesinVokal === "ai" ? "ai" : "aigen",
   };
 }
 
@@ -1319,6 +1403,127 @@ export function bangunFilterAudioAi(o: OpsiStudioMusik): {
     baris.push("[mix]alimiter=limit=0.95[aout]");
   }
   return { graf: baris.join(";"), adaLayer, tempo, adaVokal: o.karaoke !== "karaoke", transpose, adaNada };
+}
+
+/** v0.24.0 — VOKALGEN-6 "AI GENDER REALISTIS": graf campuran di atas stem yang
+ *  SUDAH diproses rubberband terpisah (musikJobs menjalankan rantaiGenderVokal/
+ *  rantaiGenderMusik pada berkas f32 stem sebelum graf ini). Karena pitch & formant
+ *  sudah terbakar di stem:
+ *  · TIDAK ada asetrate/atempo transpos di kedua stem (input 0 = vokal gender,
+ *    input 1 = musik gender) — durasi & sinkron dijaga di tahap stem;
+ *  · input 2 (harmoni/nada akor — dibangun di nada dasar ASLI) DITRANSPOS di graf
+ *    via asetrate+atempo rasio P_total agar ikut nada dasar baru;
+ *  · rantai karakter genre (rantaiVokal) tetap jalan di atas vokal gender
+ *    (feminisasi timbre v0.23 dsb.);
+ *  · karaoke = instrumental apa adanya (tanpa geser register — instrumen murni);
+ *  · lapisan ritme (input 3) sudah di-generate mengikuti nada dasar baru.
+ *  geser = hasil genderGen; pTotal = geser.st + transposEfe (untuk nada akor). */
+export function bangunFilterAudioAiGen(
+  o: OpsiStudioMusik,
+  geser: { st: number; formant: number },
+  pTotal = 0,
+): { graf: string; adaLayer: boolean; tempo: number; adaVokal: boolean; transpose: number; adaNada: boolean } {
+  const resep = o.genre === "asli" ? null : RESEP_GENRE[o.genre];
+  const tempoResep = resep ? resep.tempo : 1;
+  const tempo = tempoResep * (o.kecepatan || 1);
+  const remake = o.mode === "remake";
+  const baris: string[] = [];
+  const fmt = (inL: string, outL: string) =>
+    `[${inL}]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo[${outL}]`;
+  const fxVokalAktif =
+    !!o.genreVokal && o.genreVokal !== "mati" && DAFTAR_GENRE.includes(o.genreVokal)
+    && (o.tingkatVokal ?? 55) > 0;
+  const rantaiVokalGen = (): string[] => {
+    if (fxVokalAktif && o.genreVokal !== "mati") {
+      const fxV = rantaiVokal(o.genreVokal, o.refVokal, o.tingkatVokal ?? 55).join(",");
+      if (fxV) return [`[vok0]${fxV},volume=0.9[voc1]`];
+    }
+    return ["[vok0]anull[voc1]"];
+  };
+  if (o.karaoke === "karaoke") {
+    // KARAOKE: instrumental murni — stem gender tidak dibangun
+    baris.push(fmt("1:a", "ksrc"));
+  } else if (o.karaoke === "vokal") {
+    // VOKAL SAJA: stem vokal gender + karakter genre
+    baris.push(fmt("0:a", "vok0"));
+    baris.push(...rantaiVokalGen());
+    baris.push("[voc1]anull[ksrc]");
+  } else {
+    // ASLI: remix instrumental gender + vokal gender berkarakter
+    baris.push(fmt("0:a", "vok0"), fmt("1:a", "ins0"));
+    baris.push(...rantaiVokalGen());
+    baris.push("[ins0][voc1]amix=inputs=2:duration=first:normalize=0[ksrc]");
+  }
+  // ---- ujung rantai identik dgn jalur AI lawas: warna genre + remix perubahan ----
+  const warna = remake && o.genre !== "asli"
+    ? rantaiWarna(o.genre, o.tingkatGenre ?? 55, (o.bpm || 120) * tempo)
+    : [];
+  const rantai = remake
+    ? (warna.join(",") || "anull")
+    : resep ? resep.rantai.join(",") : "anull";
+  const perubahan = remake && o.genre !== "asli"
+    ? Math.min(100, Math.max(0, Number(o.tingkatMusik ?? 65))) / 100
+    : 1;
+  if (remake && warna.length && perubahan <= 0.005) {
+    baris.push("[ksrc]anull[g]");
+  } else if (remake && warna.length && perubahan < 0.995) {
+    const wAsli = (1 - perubahan).toFixed(3);
+    const wGaya = perubahan.toFixed(3);
+    baris.push(
+      "[ksrc]asplit=2[blA][blB]",
+      `[blA]volume=${wAsli}[blAsli]`,
+      `[blB]volume=${wGaya}[blGaya0]`,
+      `[blGaya0]${rantai}[blGaya]`,
+      "[blAsli][blGaya]amix=inputs=2:duration=first:normalize=0[g]",
+    );
+  } else {
+    baris.push(`[ksrc]${rantai}[g]`);
+  }
+  const adaLayer = !!resep && o.layerLevel > 0 && !!resep.layer;
+  const adaNada = remake && o.genre !== "asli" && (o.nadaLevel ?? 0) > 0;
+  const idxNad = 2; // 0 = vokal gender, 1 = musik gender
+  const idxLay = adaNada ? 3 : 2;
+  const gAkhir = o.karaoke === "asli" ? "1.9" : "1.3";
+  const gLayer = o.karaoke === "asli" ? "2.0" : "1.6";
+  if (adaLayer) {
+    const lv = (o.layerLevel / 100) * 2;
+    baris.push(`[g]volume=${gLayer}[g2]`);
+    if (adaNada) {
+      const lvN = ((o.nadaLevel ?? 30) / 100) * 2.1;
+      // harmoni dibangun di nada dasar ASLI → ikut transpos di graf (asetrate+atempo)
+      if (Math.abs(pTotal) > 0.001) {
+        const rasio = Math.pow(2, pTotal / 12);
+        baris.push(`[${idxNad}:a]asetrate=${Math.round(44100 * rasio)},aresample=44100,atempo=${Math.pow(2, -pTotal / 12).toFixed(5)},volume=${lvN.toFixed(3)}[nad]`);
+      } else {
+        baris.push(`[${idxNad}:a]volume=${lvN.toFixed(3)}[nad]`);
+      }
+      baris.push(`[${idxLay}:a]volume=${lv.toFixed(3)}[lay]`);
+      baris.push("[g2][nad][lay]amix=inputs=3:duration=first[mix]");
+    } else {
+      baris.push(`[${idxLay}:a]volume=${lv.toFixed(3)}[lay]`);
+      baris.push("[g2][lay]amix=inputs=2:duration=first[mix]");
+    }
+  } else if (adaNada) {
+    const lvN = ((o.nadaLevel ?? 30) / 100) * 2.1;
+    baris.push(`[g]volume=${gAkhir}[g2]`);
+    if (Math.abs(pTotal) > 0.001) {
+      const rasio = Math.pow(2, pTotal / 12);
+      baris.push(`[${idxNad}:a]asetrate=${Math.round(44100 * rasio)},aresample=44100,atempo=${Math.pow(2, -pTotal / 12).toFixed(5)},volume=${lvN.toFixed(3)}[nad]`);
+    } else {
+      baris.push(`[${idxNad}:a]volume=${lvN.toFixed(3)}[nad]`);
+    }
+    baris.push("[g2][nad]amix=inputs=2:duration=first[mix]");
+  } else {
+    baris.push(`[g]volume=${gAkhir}[mix]`);
+  }
+  const at = faktorAtempo(tempo);
+  if (at.length) {
+    baris.push(`[mix]${at.map((f) => `atempo=${f}`).join(",")}[at]`);
+    baris.push("[at]alimiter=limit=0.95[aout]");
+  } else {
+    baris.push("[mix]alimiter=limit=0.95[aout]");
+  }
+  return { graf: baris.join(";"), adaLayer, tempo, adaVokal: o.karaoke !== "karaoke", transpose: 0, adaNada };
 }
 
 // ============ 15 VISUALISER ============
