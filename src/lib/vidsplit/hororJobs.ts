@@ -9,16 +9,32 @@ import type { KeluaranJob } from "./jobs";
 import { buatCerita, estimasiDurasi, type Cerita } from "./hororCerita";
 import { sintesisMusikGenre } from "./hororMusik";
 import { buatNarasiWav, durasiWav } from "./hororTts";
-import { renderHalamanPng } from "./teksLayar";
+import { renderHalamanPng, renderIlustrasiPng, renderTeksPanelPng } from "./teksLayar";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
   MUSIK_BUNDEL, pathMusikBundel,
+  tataLetakKomik, durasiAdeganKomik, buatArgumenSegmenKomik, buatArgumenCampurMusik,
   type OpsiRenderHoror,
 } from "./hororRender";
-import { svgAdegan, defsAdegan } from "./hororIlustrasi";
+import { svgAdegan, defsAdegan, type JenisAdegan } from "./hororIlustrasi";
 import { ambilGenre } from "./videoAi";
+import { bangunPromptVideo, type PromptVideoKomik } from "./videoPrompt";
 import { slugify } from "./types";
+
+/** v0.30.0 — satuan render komik: kartu judul/adegan/kartu tamat */
+interface UnitKomik {
+  teks: string;
+  label?: string;
+  kamera: string;
+  durasi: number;
+  wav: string | null;
+  jenis: JenisAdegan;
+  seedAdegan: number;
+  /** kartu judul/tamat: ilustrasi penuh tanpa teks overlay dlm gambar */
+  kartu?: boolean;
+  skala?: number;
+}
 
 export interface InfoJobHoror {
   id: string;
@@ -62,8 +78,233 @@ export function mulaiRenderHoror(opsi: OpsiHororMasuk): string {
     error: null, selesai: false, batalDiminta: false, dibatalkan: false, dibuat: Date.now(),
   };
   jobs.set(id, job);
-  void jalankanRenderHoror(id, opsi, cerita, judul, genre);
+  // v0.30.0 — bawaan: AI Text-to-Video Generator versi komik (gambar atas +
+  // kolom cerita bawah, adegan berganti ±3 dtk, tersinkron dgn narasi).
+  // gaya "halaman" = jalur lama v0.25–0.29 (masih bisa dipanggil via API).
+  if (opsi.gaya === "halaman") void jalankanRenderHoror(id, opsi, cerita, judul, genre);
+  else void jalankanRenderKomik(id, opsi, cerita, judul, genre);
   return id;
+}
+
+/** Siapkan berkas musik latar (bundel CC-BY / impor / sintesis genre). */
+async function siapkanMusik(
+  folderTmp: string, opsi: OpsiHororMasuk, cerita: Cerita,
+  genre: ReturnType<typeof ambilGenre>, ff: { bin: string },
+  ktx: { maju: (t: InfoJobHoror["tahap"], p: number, m: string) => void },
+): Promise<string> {
+  ktx.maju("musik", 31, `Menyiapkan musik ${genre.nama.toLowerCase()}…`);
+  const musikAbs = path.join(folderTmp, "musik.wav");
+  const bundel = MUSIK_BUNDEL.find((m) => m.id === opsi.sumberMusik);
+  let musikSiap = false;
+  if (bundel) {
+    try {
+      const src = pathMusikBundel(bundel.file);
+      await jalankanFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", musikAbs], 0, undefined, ff.bin);
+      musikSiap = true;
+      ktx.maju("musik", 35, `Musik: ${bundel.nama} (${bundel.kredit})`);
+    } catch { musikSiap = false; }
+  } else if (opsi.sumberMusik === "impor" && opsi.musikImporRel) {
+    try {
+      const pathAman = (await import("./ffmpeg")).pathAman;
+      const src = pathAman(opsi.musikImporRel);
+      await jalankanFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", musikAbs], 0, undefined, ff.bin);
+      musikSiap = true;
+      ktx.maju("musik", 35, "Musik: impor sendiri");
+    } catch { musikSiap = false; }
+  }
+  if (!musikSiap) {
+    await writeFile(musikAbs, sintesisMusikGenre({
+      intensitas: opsi.intensitasMusik ?? genre.intensitasMusik,
+      polaDetik: 60,
+      seed: cerita.seed,
+      mood: genre.moodMusik,
+    }));
+  }
+  return musikAbs;
+}
+
+/** v0.30.0 — PIPELINE AI TEXT-TO-VIDEO GENERATOR (versi komik, tersinkron).
+ *  Alur (permintaan user): AI Story Generator -> teks cerita -> (TTS + prompt
+ *  video komik) -> tiap adegan = gambar atas (berganti ±3 dtk) + kolom cerita
+ *  bawah + narasi di-pad persis sepanjang adegan -> concat -> musik di bawah. */
+async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cerita, judul: string, genre: ReturnType<typeof ambilGenre>): Promise<void> {
+  const job = jobs.get(id)!;
+  const folderTmp = dirWork(`horor/${id}`);
+  const folderOut = dirWork(`output/${id}`);
+  const ktx = {
+    maju: (tahap: InfoJobHoror["tahap"], progres: number, pesan: string) => {
+      if (job.selesai) return;
+      job.tahap = tahap; job.progres = Math.round(progres); job.pesan = pesan;
+    },
+    gagal: (e: unknown) => {
+      if (apakahBatal(id)) {
+        job.dibatalkan = true; job.pesan = "Dibatalkan";
+      } else {
+        job.error = e instanceof Error ? e.message : String(e);
+        job.pesan = "Gagal";
+      }
+      job.selesai = true; bersihkanBatal(id);
+    },
+  };
+  try {
+    await mkdir(folderTmp, { recursive: true });
+    await mkdir(folderOut, { recursive: true });
+    const tema = TEMA_HOROR.find((t) => t.id === opsi.temaId) ?? TEMA_HOROR[0];
+    const [lebar, tinggi] = ukuranHoror(opsi.rasio ?? "9:16", opsi.resolusi ?? "1080p");
+    const ff = await pilihFfmpeg();
+
+    // ---- 1) PROMPT VIDEO AI (0..3) — cerita -> adegan komik ----
+    ktx.maju("narasi", 1, "Membangun prompt video AI…");
+    const prompt: PromptVideoKomik = bangunPromptVideo(cerita, genre.id);
+    const tata = tataLetakKomik(lebar, tinggi);
+    const unit: UnitKomik[] = [];
+    // kartu judul (bukan bab — hanya judul cerita + label genre)
+    unit.push({
+      teks: judul, label: prompt.labelJudul, kamera: "dalam", durasi: 3.5,
+      wav: null, jenis: prompt.adegan[0]?.jenisAdegan ?? "eksterior-rumah",
+      seedAdegan: cerita.seed, kartu: true, skala: 1.2,
+    });
+    for (const a of prompt.adegan) {
+      unit.push({ teks: a.teks, kamera: a.kamera, durasi: 3, wav: null, jenis: a.jenisAdegan, seedAdegan: a.seedAdegan });
+    }
+    unit.push({
+      teks: "Tamat", kamera: "keluar", durasi: 3, wav: null,
+      jenis: prompt.adegan[prompt.adegan.length - 1]?.jenisAdegan ?? "hutan",
+      seedAdegan: (cerita.seed ^ 0xabcdef) >>> 0, kartu: true, skala: 1.1,
+    });
+    const nAdegan = prompt.adegan.length;
+    ktx.maju("narasi", 3, `Prompt video AI: ${nAdegan} adegan komik — gambar berganti ±${prompt.lajuAdeganDetik} dtk`);
+
+    // ---- 2) NARASI TTS PER ADEGAN (3..30) — audio mengunci durasi adegan ----
+    let narasiJadi = 0;
+    let galatNarasiPertama: string | null = null;
+    let metodeNarasi: string | null = null;
+    let gagalBerturut = 0;
+    let cepatHabis = false;
+    for (let i = 1; i <= nAdegan; i++) {
+      if (apakahBatal(id)) throw new Error("dibatalkan");
+      const u = unit[i];
+      const wavAbs = path.join(folderTmp, `narasi-${String(i).padStart(3, "0")}.wav`);
+      let ok = false;
+      if (opsi.narasi && !cepatHabis) {
+        const hasil = await buatNarasiWav(u.teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs, opsi.mesinNarasi ?? "ai");
+        ok = hasil.ok;
+        if (hasil.metode) metodeNarasi = hasil.metode;
+        if (!ok && !galatNarasiPertama && hasil.galat) galatNarasiPertama = hasil.galat;
+      }
+      if (ok) {
+        let durasi = 0;
+        let ukuranWav = 0;
+        try { durasi = await durasiWav(wavAbs); } catch { /* header aneh — estimasi */ }
+        try { ukuranWav = (await import("node:fs")).statSync(wavAbs).size; } catch { /* tak ada berkas */ }
+        if (ukuranWav > 1000) {
+          u.wav = wavAbs;
+          u.durasi = durasiAdeganKomik(durasi, u.teks);
+          narasiJadi++;
+          gagalBerturut = 0;
+        } else {
+          ok = false;
+          if (!galatNarasiPertama) galatNarasiPertama = "berkas narasi kosong/tak lengkap";
+        }
+      }
+      if (!ok) {
+        u.wav = null;
+        u.durasi = durasiAdeganKomik(0, u.teks); // estimasi baca
+        gagalBerturut++;
+        // TTS memang tidak jalan di perangkat ini -> hentikan percobaan, lanjut musik saja
+        if (narasiJadi === 0 && gagalBerturut >= 3) cepatHabis = true;
+      }
+      ktx.maju("narasi", 3 + 27 * (i / Math.max(1, nAdegan)), `Merekam narasi adegan ${i}/${nAdegan}…`);
+    }
+    const pakaiNarasi = narasiJadi > 0;
+    if (opsi.narasi && !pakaiNarasi) {
+      const p = `Pembaca skrip tidak menghasilkan suara: ${galatNarasiPertama ?? "TTS tidak tersedia"}. ` +
+        `Video tetap dibuat dengan musik saja. Coba tombol "Uji Suara" di panel Pembaca Skrip untuk melihat penyebabnya.`;
+      job.peringatan = [p];
+      ktx.maju("narasi", 30, p);
+    }
+
+    // ---- 3) MUSIK (30..36) ----
+    const musikAbs = await siapkanMusik(folderTmp, opsi, cerita, genre, ff, ktx);
+
+    // ---- 4) PANEL KOMIK (36..52): ilustrasi atas + kolom teks bawah ----
+    ktx.maju("halaman", 37, "Menggambar panel komik…");
+    const skalaIlus = 1.35; // ruang zoom kamera
+    const wIlus = Math.round(lebar * skalaIlus);
+    const hIlus = Math.round(tata.panelTinggi * skalaIlus);
+    const ilus: string[] = [];
+    const panel: string[] = [];
+    for (let i = 0; i < unit.length; i++) {
+      if (apakahBatal(id)) throw new Error("dibatalkan");
+      const u = unit[i];
+      const ilusAbs = path.join(folderTmp, `ilus-${String(i).padStart(3, "0")}.png`);
+      const panelAbs = path.join(folderTmp, `panel-${String(i).padStart(3, "0")}.png`);
+      const markup = opsi.ilustrasi === false ? undefined : svgAdegan({
+        jenis: u.jenis, lebar: wIlus, tinggi: hIlus, seed: u.seedAdegan,
+        tema, ambient: false, cerah: genre.cerah,
+      });
+      await writeFile(ilusAbs, renderIlustrasiPng({
+        lebar: wIlus, tinggi: hIlus, adeganSvg: markup,
+        defsSvg: markup ? defsAdegan(tema) : undefined,
+        warnaDasar: tema.grad[1],
+      }));
+      await writeFile(panelAbs, renderTeksPanelPng({
+        lebar, tinggi, areaY: tata.panelTinggi,
+        teks: u.teks, label: u.label,
+        warnaTeks: tema.teks, warnaAksen: tema.aksen,
+        skala: u.skala ?? 1,
+      }));
+      ilus.push(ilusAbs);
+      panel.push(panelAbs);
+      ktx.maju("halaman", 37 + 15 * ((i + 1) / unit.length), `Menggambar panel adegan ${i + 1}/${unit.length}…`);
+    }
+
+    // ---- 5) SEGMEN VIDEO PER ADEGAN (52..88) — sinkron by construction ----
+    const daftarTs: string[] = [];
+    let totalDetik = 0;
+    for (let i = 0; i < unit.length; i++) {
+      if (apakahBatal(id)) throw new Error("dibatalkan");
+      const u = unit[i];
+      const segAbs = path.join(folderTmp, `seg-${String(i).padStart(3, "0")}.mp4`);
+      const args = buatArgumenSegmenKomik({
+        tema, lebar, tinggi, panelTinggi: tata.panelTinggi,
+        ilustrasiAbs: ilus[i], panelTeksAbs: panel[i],
+        kamera: u.kamera, durasi: u.durasi, wavAbs: u.wav,
+        volumeNarasi: Math.min(1.5, Math.max(0, opsi.volumeNarasi ?? 1)),
+        fadeKeluar: i === unit.length - 1,
+        keluar: segAbs,
+      });
+      totalDetik += u.durasi;
+      await jalankanFfmpeg(args, u.durasi, (f) => {
+        ktx.maju("video", 52 + 36 * ((i + f) / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
+      }, ff.bin, (ch) => daftarkanProses(id, ch));
+      daftarTs.push(segAbs);
+    }
+
+    // ---- 6) CONCAT + SISIP MUSIK (88..100) ----
+    ktx.maju("gabung", 90, "Menggabungkan adegan…");
+    const listAbs = path.join(folderTmp, "concat.txt");
+    await writeFile(listAbs, isiListConcat(daftarTs), "utf8");
+    const gabungAbs = path.join(folderTmp, "gabung.mp4");
+    await jalankanFfmpeg(buatArgumenConcat(listAbs, gabungAbs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
+    ktx.maju("gabung", 95, "Menyisipkan musik latar…");
+    const namaMp4 = `${slugify(`video-ai-${judul}`)}.mp4`;
+    const mp4Abs = path.join(folderOut, namaMp4);
+    await jalankanFfmpeg(
+      buatArgumenCampurMusik(gabungAbs, musikAbs, totalDetik, Math.min(1.5, Math.max(0, opsi.volumeMusik ?? 0.8)), mp4Abs),
+      totalDetik, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
+    );
+    const { statSync } = await import("node:fs");
+    job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
+    const ikhtisar = pakaiNarasi
+      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""} + musik siap`
+      : `Selesai — video komik ${unit.length} adegan + musik siap`;
+    ktx.maju("selesai", 100, ikhtisar);
+    job.selesai = true;
+    bersihkanBatal(id);
+  } catch (e) {
+    ktx.gagal(e);
+  }
 }
 
 async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cerita, judul: string, genre: ReturnType<typeof ambilGenre>): Promise<void> {
@@ -154,35 +395,7 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     }
 
     // ---- 2) MUSIK (28..34) — ikut genre: sintesis / MP3 bundel CC-BY / impor sendiri ----
-    ktx.maju("musik", 29, `Menyiapkan musik ${genre.nama.toLowerCase()}…`);
-    const musikAbs = path.join(folderTmp, "musik.wav");
-    const bundel = MUSIK_BUNDEL.find((m) => m.id === opsi.sumberMusik);
-    let musikSiap = false;
-    if (bundel) {
-      try {
-        const src = pathMusikBundel(bundel.file);
-        // cek berkas terbaca lalu konversi ke wav 44.1k stereo dgn volume awal netral (vol diterapkan saat mix)
-        await jalankanFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", musikAbs], 0, undefined, ff.bin);
-        musikSiap = true;
-        ktx.maju("musik", 33, `Musik: ${bundel.nama} (${bundel.kredit})`);
-      } catch { musikSiap = false; }
-    } else if (opsi.sumberMusik === "impor" && opsi.musikImporRel) {
-      try {
-        const pathAman = (await import("./ffmpeg")).pathAman;
-        const src = pathAman(opsi.musikImporRel);
-        await jalankanFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", musikAbs], 0, undefined, ff.bin);
-        musikSiap = true;
-        ktx.maju("musik", 33, "Musik: impor sendiri");
-      } catch { musikSiap = false; }
-    }
-    if (!musikSiap) {
-      await writeFile(musikAbs, sintesisMusikGenre({
-        intensitas: opsi.intensitasMusik ?? genre.intensitasMusik,
-        polaDetik: 60,
-        seed: cerita.seed,
-        mood: genre.moodMusik, // v0.29.0: hangat utk dongeng/motivasi/fakta
-      }));
-    }
+    const musikAbs = await siapkanMusik(folderTmp, opsi, cerita, genre, ff, ktx);
 
     // ---- 3) HALAMAN + LATAR (34..46) ----
     ktx.maju("halaman", 35, "Menggambar halaman cerita…");

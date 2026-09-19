@@ -8,8 +8,11 @@ import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
   MUSIK_BUNDEL, pathMusikBundel,
+  tataLetakKomik, durasiAdeganKomik, ekspresiZoompan, buatArgumenSegmenKomik, buatArgumenCampurMusik,
 } from "../src/lib/vidsplit/hororRender";
 import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
+import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
+import { bangunPromptVideo, pecahKalimat, type Cerita } from "../src/lib/vidsplit/videoPrompt";
 
 let gagal = 0;
 function ok(kondisi: boolean, nama: string) {
@@ -165,6 +168,65 @@ ok(argsChunk[argsChunk.indexOf("-c:v") + 1] === "libx264", "encoder x264");
 const argCon = buatArgumenConcat("/tmp/list.txt", "/tmp/out.mp4");
 ok(argCon.includes("concat") && argCon.includes("-movflags"), "arg concat benar");
 ok(isiListConcat(["/a.ts", "/b'c.ts"]).includes("file '/a.ts'") && isiListConcat(["/a.ts", "/b'c.ts"]).includes("b'\\''c"), "list concat escape aman");
+
+console.log("== 4b. AI Text-to-Video Generator — prompt komik (v0.30.0) ==");
+const pk = bangunPromptVideo(c1);
+ok(pk.gaya === "komik-sinematik", "gaya komik-sinematik");
+ok(pk.layout.gambar === "atas" && pk.layout.teksCerita === "bawah", "layout: gambar ATAS + kolom cerita BAWAH");
+ok(pk.lajuAdeganDetik === 3, "gambar berganti ±3 dtk");
+ok(pk.adegan.length >= 6, `adegan cukup (${pk.adegan.length})`);
+ok(pk.adegan.every((a) => a.teks.trim().length > 3), "teks adegan terisi");
+ok(pk.adegan.every((a) => !/^bab\b/i.test(a.teks.trim())), "TANPA tulisan bab di dalam adegan");
+ok(pk.adegan.every((a, i) => i === 0 || a.jenisAdegan !== pk.adegan[i - 1].jenisAdegan), "ilustrasi SELALU berganti antar-adegan");
+ok(pk.adegan.every((a) => ["dalam", "keluar", "geser-kiri", "geser-kanan"].includes(a.kamera)), "kamera AI valid");
+ok(pk.adegan.every((a) => a.catatan.length > 10), "catatan prompt visual per adegan");
+ok(JSON.stringify(pk) === JSON.stringify(bangunPromptVideo(buatCerita({ tema: "rumah", panjang: "sedang", seed: 42 }))), "prompt deterministik");
+ok(bangunPromptVideo({ ...c1, genre: "motivasi" }).adegan.every((a) => ["gunung", "laut", "kota"].includes(a.jenisAdegan)), "genre motivasi → adegan gunung/laut/kota");
+ok(pk.estimasiDetik >= pk.adegan.length * 3, "estimasi durasi wajar");
+// kalimat sangat panjang dipecah agar panel tetap singkat
+const cPanjang: Cerita = { judul: "Uji", tema: "rumah", seed: 3, bab: [{ judul: "", paragraf: ["Kata penggalan yang sangat panjang sekali terus berlanjut, berjela-jela tanpa henti, berputar-putar membabi buta, dan tetap saja bertambah panjang hingga melampaui dua puluh dua kata pada satu kalimat yang sama di paragraf ini."] }] };
+ok(bangunPromptVideo(cPanjang).adegan.every((a) => a.teks.split(/\s+/).length <= 30), "kalimat panjang dipecah dgn wajar");
+// pecahKalimat
+ok(JSON.stringify(pecahKalimat("Ia pulang. Lalu hujan turun! Siapa di sana?")) === JSON.stringify(["Ia pulang.", "Lalu hujan turun!", "Siapa di sana?"]), "pecahKalimat dasar");
+ok(pecahKalimat("Dia bilang \u201cjangan menoleh\u201d. Setelah itu diam.").length === 2, "tutup kutip ikut kalimatnya");
+ok(pecahKalimat("").length === 0, "teks kosong → 0 kalimat");
+// tata letak + durasi + zoompan
+ok(tataLetakKomik(1080, 1920).panelTinggi === Math.round(1920 * 0.62), "9:16: gambar atas 62%");
+ok(tataLetakKomik(1920, 1080).panelTinggi === Math.round(1080 * 0.6), "16:9: gambar atas 60%");
+ok(durasiAdeganKomik(0, "satu dua tiga") >= 3.0, "durasi adegan min 3 dtk");
+ok(durasiAdeganKomik(8, "teks") >= 8.5, "durasi adegan mengikuti durasi TTS");
+const dz = durasiAdeganKomik(2, "satu dua tiga empat lima");
+ok(Math.abs(dz * 30 - Math.round(dz * 30)) < 1e-9, "durasi kelipatan 1/30 (sinkron frame)");
+ok(ekspresiZoompan("dalam", 90).z.includes("on/90"), "zoompan kamera dalam");
+ok(ekspresiZoompan("geser-kanan", 90).x.includes("on/90"), "zoompan kamera geser");
+const argsSeg = buatArgumenSegmenKomik({
+  tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
+  ilustrasiAbs: "/tmp/i.png", panelTeksAbs: "/tmp/p.png",
+  kamera: "dalam", durasi: 3.5, wavAbs: "/tmp/n.wav", volumeNarasi: 1, keluar: "/tmp/seg.ts",
+});
+ok(argsSeg.join(" ").includes("zoompan") && argsSeg.join(" ").includes("s=1080x1190"), "arg segmen: zoompan di ukuran panel atas");
+ok(argsSeg.join(" ").includes("pad=1080:1920"), "arg segmen: pad ke kanvas penuh");
+ok(argsSeg.join(" ").includes("overlay=0:0"), "arg segmen: overlay kolom teks bawah");
+ok(argsSeg.join(" ").includes("adelay=150|150") && argsSeg.join(" ").includes("apad") && argsSeg.join(" ").includes("atrim=0:3.5"), "arg segmen: audio di-pad PERSIS sepanjang adegan");
+ok(argsSeg[argsSeg.indexOf("-frames:v") + 1] === "105", "arg segmen: 105 frame @ 3.5 dtk");
+ok(!argsSeg.includes("anullsrc"), "arg segmen dgn wav: tanpa anullsrc");
+const argsHening = buatArgumenSegmenKomik({
+  tema, lebar: 720, tinggi: 1280, panelTinggi: 794,
+  ilustrasiAbs: "/tmp/i.png", panelTeksAbs: "/tmp/p.png",
+  kamera: "keluar", durasi: 3, wavAbs: null, volumeNarasi: 1, fadeKeluar: true, keluar: "/tmp/seg2.ts",
+});
+ok(argsHening.join(" ").includes("anullsrc"), "arg segmen tanpa wav: hening");
+ok(argsHening.join(" ").includes("fade=t=out") && argsHening.join(" ").includes("afade"), "adegan terakhir: fade keluar video+audio");
+const argsMix = buatArgumenCampurMusik("/tmp/v.mp4", "/tmp/m.wav", 60, 0.8, "/tmp/out.mp4");
+ok(argsMix[argsMix.indexOf("-c:v") + 1] === "copy" && argsMix.join(" ").includes("amix=inputs=2"), "campur musik: -c:v copy + amix (video tak disentuh)");
+ok(argsMix.join(" ").includes("atrim=0:60.00"), "campur musik: atrim sesuai durasi");
+// PNG panel komik
+const pngIlus = renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) });
+ok(pngIlus.length > 5000 && pngIlus.equals(renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) })), `PNG ilustrasi panel jadi + deterministik (${Math.round(pngIlus.length / 1024)} KB)`);
+const teksAdegan = "Ia mendengar pintu itu berderit perlahan, lalu suara langkah kecil dari dalam.";
+const pngPanel = renderTeksPanelPng({ lebar: 720, tinggi: 1280, areaY: 794, teks: teksAdegan, warnaAksen: tema.aksen, warnaTeks: tema.teks });
+ok(pngPanel.length > 3000 && pngPanel.equals(renderTeksPanelPng({ lebar: 720, tinggi: 1280, areaY: 794, teks: teksAdegan, warnaAksen: tema.aksen, warnaTeks: tema.teks })), `PNG panel teks jadi + deterministik (${Math.round(pngPanel.length / 1024)} KB)`);
+ok(renderTeksPanelPng({ lebar: 720, tinggi: 1280, areaY: 794, teks: teksAdegan.repeat(6), warnaAksen: tema.aksen }).length > 3000, "teks panjang tetap muat (auto-shrink)");
 
 console.log("== 5. Pembaca skrip (TTS multi-mesin) ==");
 // --- durasiWav: pembaca RIFF murni JS (fix "WAV gagal dibaca" oleh probe) ---

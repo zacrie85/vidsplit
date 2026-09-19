@@ -7,12 +7,13 @@
 // (7.0.x — kembaran versi bundel Windows), plus ffmpeg sistem bila ada, sehingga
 // ketidakcocokan versi tertangkap SEBELUM rilis.
 // Jalankan: bun scripts/uji-kompat-ffmpeg.ts
-import { existsSync, mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, rantaiGenderMusik, rantaiGenderVokal, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
-import { buatArgumenLatar, buatArgumenChunk, TEMA_HOROR } from "../src/lib/vidsplit/hororRender";
+import { buatArgumenLatar, buatArgumenChunk, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenConcat, isiListConcat, TEMA_HOROR } from "../src/lib/vidsplit/hororRender";
+import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 
 const DUR = 2;
 const W = 320, H = 568; // 9:16 kecil — cepat, tetap mewakili resolusi vertikal bawaan
@@ -178,6 +179,46 @@ function uji(bin: string, label: string) {
   const okHoror = rHoror.status === 0 && !(rHoror.stderr || "").includes("Option not found");
   if (okHoror) { lulus++; console.log("  LULUS  horor graf chunk penuh"); }
   else { gagal++; daftarGagal.push(`${label} :: horor graf chunk`); console.log(`  GAGAL  horor graf chunk (status=${rHoror.status} signal=${rHoror.signal})\n    ${((rHoror.stderr || "") + (rHoror.stdout || "")).slice(0, 300)}`); }
+
+  // ==== v0.30.0 — AI TEXT-TO-VIDEO GENERATOR (komik): render NYATA 2 segmen
+  // (zoompan+pad+overlay+apad) -> concat -c copy -> campur musik -c:v copy.
+  // Rantai produksi penuh diuji pada kedua versi ffmpeg. ====
+  const panelTinggiK = Math.round(H * 0.62);
+  const pngIlusK = path.join(tmp, "ilus-komik.png");
+  const pngPanelK = path.join(tmp, "panel-komik.png");
+  writeFileSync(pngIlusK, renderIlustrasiPng({ lebar: W * 2, tinggi: panelTinggiK * 2, warnaDasar: "#101018" }));
+  writeFileSync(pngPanelK, renderTeksPanelPng({ lebar: W, tinggi: H, areaY: panelTinggiK, teks: "Uji adegan komik VidSplit v0.30." }));
+  const segK: string[] = [];
+  let gagalSegK = false;
+  for (const [i, kamera] of ["dalam", "geser-kanan"].entries()) {
+    const segTs = path.join(tmp, `seg-komik-${i}.mp4`);
+    const rSeg = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenSegmenKomik({
+      tema: TEMA_HOROR[0], lebar: W, tinggi: H, panelTinggi: panelTinggiK,
+      ilustrasiAbs: pngIlusK, panelTeksAbs: pngPanelK, kamera,
+      durasi: DUR, wavAbs: null, volumeNarasi: 1, keluar: segTs,
+    })], { encoding: "utf8", timeout: 120_000 });
+    const okSeg = rSeg.status === 0 && existsSync(segTs) && statSync(segTs).size > 5000;
+    if (okSeg) { lulus++; console.log(`  LULUS  komik segmen ${kamera} -> mp4`); }
+    else { gagal++; gagalSegK = true; daftarGagal.push(`${label} :: komik segmen ${kamera}`); console.log(`  GAGAL  komik segmen ${kamera}\n    ${((rSeg.stderr || "") + (rSeg.stdout || "")).slice(0, 300)}`); }
+    segK.push(segTs);
+  }
+  if (!gagalSegK) {
+    // v0.30.0: segmen komik = MP4 → concat demuxer -c copy aman di semua build
+    const listK = path.join(tmp, "list-komik.txt");
+    const gabungK = path.join(tmp, "gabung-komik.mp4");
+    writeFileSync(listK, isiListConcat(segK), "utf8");
+    const rGab = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenConcat(listK, gabungK)], { encoding: "utf8", timeout: 60_000 });
+    const okGab = rGab.status === 0 && existsSync(gabungK);
+    if (okGab) { lulus++; console.log("  LULUS  komik concat 2 segmen -c copy"); }
+    else { gagal++; daftarGagal.push(`${label} :: komik concat`); console.log(`  GAGAL  komik concat\n    ${((rGab.stderr || "") + (rGab.stdout || "")).slice(0, 300)}`); }
+    const wavK = path.join(tmp, "musik-komik.wav");
+    spawnSync(bin, ["-hide_banner", "-v", "error", "-f", "lavfi", "-i", `sine=f=200:r=44100:d=${DUR + 5}`, wavK], { encoding: "utf8", timeout: 60_000 });
+    const mp4K = path.join(tmp, "final-komik.mp4");
+    const rMix = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenCampurMusik(gabungK, wavK, DUR * 2, 0.8, mp4K)], { encoding: "utf8", timeout: 60_000 });
+    const okMix = rMix.status === 0 && existsSync(mp4K) && statSync(mp4K).size > 10_000;
+    if (okMix) { lulus++; console.log("  LULUS  komik campur musik (-c:v copy + amix)"); }
+    else { gagal++; daftarGagal.push(`${label} :: komik campur musik`); console.log(`  GAGAL  komik campur musik\n    ${((rMix.stderr || "") + (rMix.stdout || "")).slice(0, 300)}`); }
+  }
 }
 
 for (const [i, bin] of kandidat.entries()) {

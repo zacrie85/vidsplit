@@ -1,12 +1,13 @@
 "use client";
 
-// VidSplit v0.25.0 — STUDIO: mode ketiga. v0.29.0 — AI VIDEO GENERATOR: dari ide
-// apa pun + pilih genre (horor, misteri, legenda, dongeng, motivasi, fakta) ->
-// naskah AI offline -> ilustrasi -> pembaca skrip AI Neural -> musik -> video.
+// VidSplit v0.25.0 — STUDIO: mode ketiga. v0.30.0 — ALUR LENGKAP AI VIDEO GENERATOR:
+// AI Story Generator -> teks dikirim ke Text-to-Speech (TTS) & AI Text-to-Video
+// Generator -> audio TTS disisipkan ke video komik (gambar atas berganti ±3 dtk,
+// kolom cerita di bawah, tanpa tulisan bab) — semuanya disinkronkan otomatis.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  BookOpen, Download, Film, Ghost, Landmark, Loader2, Mic, Music2, Play,
+  ArrowRight, BookOpen, Download, Film, Ghost, Landmark, Loader2, Mic, Music2, Play,
   RefreshCw, Search, Send, Sparkles, Sunrise, Telescope, Volume2, Wand2,
 } from "lucide-react";
 import { Kartu } from "@/components/vds/bits";
@@ -77,6 +78,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
   const [panjang, setPanjang] = useState<PanjangCerita>("sedang");
   const [ide, setIde] = useState("");
   const [cerita, setCerita] = useState<Cerita | null>(null);
+  // v0.30.0 — cerita = SATU KOLOM BESAR (satu alur, tanpa judul bab)
+  const [teks, setTeks] = useState("");
   const [membuatCerita, setMembuatCerita] = useState(false);
 
   const [narasi, setNarasi] = useState(true);
@@ -190,21 +193,12 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
       const j = (await r.json()) as { ok: boolean; cerita?: Cerita; error?: string };
       if (j.ok && j.cerita) {
         setCerita(j.cerita);
+        // v0.30.0 — tampil sebagai satu kolom besar dari awal sampai akhir
+        setTeks(j.cerita.bab.flatMap((b) => b.paragraf).join("\n\n"));
         toast.success(`Cerita "${j.cerita.judul}" siap — silakan sunting skripnya`);
       } else toast.error(j.error || "Gagal membuat cerita");
     } catch { toast.error("Gagal menghubungi server lokal"); }
     finally { setMembuatCerita(false); }
-  };
-
-  const suntingParagraf = (i: number, j: number, teks: string) => {
-    setCerita((c) => {
-      if (!c) return c;
-      const bab = [...c.bab];
-      const paragraf = [...bab[i].paragraf];
-      paragraf[j] = teks;
-      bab[i] = { ...bab[i], paragraf };
-      return { ...c, bab };
-    });
   };
 
   // polling job
@@ -253,15 +247,19 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
   const buatVideo = async () => {
     if (!cerita || jobId && !job?.selesai) return;
-    if (cerita.bab.some((b) => b.paragraf.every((p) => !p.trim()))) {
-      toast.error("Ada bab yang semua paragrafnya kosong — isi atau hapus dulu");
+    // v0.30.0 — cerita dikirim sbg SATU alur paragraf (tanpa judul bab);
+    // mesin komik memecahnya jadi adegan ±3 dtk & menyinkronkan narasi.
+    const paragrafBaru = teks.split(/\n{2,}/).map((s) => s.trim()).filter(Boolean);
+    if (paragrafBaru.length === 0) {
+      toast.error("Cerita masih kosong — tulis dulu di kolom Cerita");
       return;
     }
+    const ceritaKirim: Cerita = { ...cerita, bab: [{ judul: "", paragraf: paragrafBaru }] };
     try {
       const r = await fetch("/api/horor/render", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cerita, judul: cerita.judul, genreId: genre, narasi,
+          cerita: ceritaKirim, judul: cerita.judul, genreId: genre, narasi,
           mesinNarasi: mesin,
           kecepatanNarasi: kecepatan, volumeNarasi,
           suaraNarasi: suara || undefined,
@@ -294,12 +292,23 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.29.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.30.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
-            100% offline: tulis ide → pilih genre (horor, misteri, legenda, dongeng, motivasi, fakta) → naskah + ilustrasi + narasi AI Voice Generator neural + musik → video siap unggah.
+            100% offline — alur penuh: AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → narasi disisipkan ke video komik, semuanya disinkronkan saat membuat video.
           </p>
         </div>
+      </div>
+
+      {/* STRIP ALUR — kerja Mode Cerita (v0.30.0) */}
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-slate-800 bg-slate-900/50 px-3 py-2 text-[11px] text-slate-300">
+        <span className="inline-flex items-center gap-1 rounded-lg bg-amber-400/15 px-2 py-1 font-medium text-amber-200"><Sparkles className="h-3 w-3" /> AI Story Generator</span>
+        <ArrowRight className="h-3.5 w-3.5 text-slate-500" />
+        <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-400/10 px-2 py-1 font-medium text-emerald-200"><Mic className="h-3 w-3" /> Text-to-Speech (TTS)</span>
+        <span className="text-slate-500">+</span>
+        <span className="inline-flex items-center gap-1 rounded-lg bg-sky-400/10 px-2 py-1 font-medium text-sky-200"><Film className="h-3 w-3" /> AI Text-to-Video Generator</span>
+        <ArrowRight className="h-3.5 w-3.5 text-slate-500" />
+        <span className="inline-flex items-center gap-1 rounded-lg bg-rose-400/10 px-2 py-1 font-medium text-rose-200"><Wand2 className="h-3 w-3" /> Sinkron jadi satu video</span>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,420px)]">
@@ -356,24 +365,20 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
           {cerita && (
             <Kartu
-              judul="2. Skrip — bisa kamu sunting"
-              deskripsi="Ubah judul, nama tokoh, atau detail kejadian. Yang tertulis di sini yang dibacakan & tampil di video."
+              judul="2. Cerita — satu alur utuh (AI Story Generator)"
+              deskripsi="Satu kolom besar dari awal sampai akhir — tanpa keterangan BAB. Yang tertulis di sini dibacakan TTS & tampil di kolom cerita bawah video."
               ikon={<BookOpen className="h-4 w-4" />}
             >
               <input value={cerita.judul} onChange={(e) => setCerita({ ...cerita, judul: e.target.value })}
                 className="w-full rounded-xl border border-slate-700 bg-slate-800/70 px-4 py-2.5 text-base font-semibold text-slate-100 outline-none focus:border-amber-400/70"
                 placeholder="Judul cerita" />
-              <div className="mt-3 max-h-[420px] space-y-4 overflow-y-auto pr-1">
-                {cerita.bab.map((bab, i) => (
-                  <div key={i} className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
-                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-300/80">BAB {i + 1} — {bab.judul}</p>
-                    {bab.paragraf.map((p, j) => (
-                      <textarea key={j} value={p} rows={3} onChange={(e) => suntingParagraf(i, j, e.target.value)}
-                        className="mb-2 w-full resize-y rounded-lg border border-slate-700 bg-slate-800/60 px-3 py-2 text-sm leading-relaxed text-slate-200 outline-none focus:border-amber-400/60" />
-                    ))}
-                  </div>
-                ))}
-              </div>
+              <textarea value={teks} rows={16}
+                onChange={(e) => setTeks(e.target.value)}
+                className="mt-3 max-h-[620px] w-full resize-y rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-sm leading-relaxed text-slate-200 outline-none focus:border-amber-400/60"
+                placeholder="Cerita utuh dari awal sampai akhir…" />
+              <p className="mt-1 text-[11px] text-slate-500">
+                {teks.split(/\n{2,}/).filter((s) => s.trim()).length} paragraf — mesin video memecahnya jadi adegan komik berganti tiap ±3 detik.
+              </p>
             </Kartu>
           )}
         </div>
@@ -486,12 +491,12 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
           </Kartu>
 
           <Kartu
-            judul="5. Video Ilustrasi"
-            deskripsi="Ilustrasi komik prosedural sesuai genre (rumah berhantu, kota, gunung, laut) + kabut digital + teks narasi."
+            judul="5. AI Text-to-Video Generator (versi komik)"
+            deskripsi="Gambar komik di ATAS berganti tiap ±3 detik mengikuti alur cerita (gerak kamera AI), kolom cerita di BAWAH, tanpa tulisan bab — narasi TTS disisipkan tersinkron."
             ikon={<Film className="h-4 w-4" />}
           >
             <label className="flex items-center justify-between">
-              <span className="text-sm text-slate-300">Ilustrasi komik pada halaman</span>
+              <span className="text-sm text-slate-300">Ilustrasi komik pada adegan</span>
               <button type="button" onClick={() => { setIlustrasi(!ilustrasi); simpanAtur({ ilustrasi: !ilustrasi }); }}
                 className={`h-6 w-11 rounded-full transition ${ilustrasi ? "bg-amber-400" : "bg-slate-700"}`}>
                 <span className={`block h-4 w-4 translate-y-1 rounded-full bg-white transition ${ilustrasi ? "translate-x-6" : "translate-x-1"}`} />

@@ -63,6 +63,9 @@ export interface OpsiRenderHoror {
   mesinNarasi?: "ai" | "windows";
   /** v0.29.0 — genre AI Video Generator (bawaan: ikut cerita.genre / horor) */
   genreId?: GenreId;
+  /** v0.30.0 — gaya video: "komik" (bawaan: gambar atas + kolom cerita bawah,
+   *  adegan berganti ±3 dtk, tanpa tulisan bab) | "halaman" (gaya lama v0.25-0.29) */
+  gaya?: "komik" | "halaman";
 }
 
 export interface HalamanRencana {
@@ -239,6 +242,131 @@ export function buatArgumenConcat(listAbs: string, keluar: string): string[] {
 /** isi file list concat (dipakai jobs) */
 export function isiListConcat(daftarTs: string[]): string {
   return daftarTs.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
+}
+
+// ==================== v0.30.0 — AI TEXT-TO-VIDEO GENERATOR (VERSI KOMIK) ====================
+// Satu adegan = satu segmen video: ilustrasi komik di ATAS dgn gerak kamera AI
+// (zoompan / Ken Burns), kolom teks cerita di BAWAH, audio narasi TTS adegan itu
+// di-pad persis sepanjang adegan → video & suara SINKRON by construction
+// (durasi adegan ditentukan durasi narasinya). Semua segmen di-concat -c copy,
+// musik disisipkan di pos akhir tanpa menyentuh jalur video (-c:v copy).
+
+/** Tata letak panel komik: gambar atas (panelTinggi), kolom cerita di bawahnya. */
+export function tataLetakKomik(lebar: number, tinggi: number): { panelY: number; panelTinggi: number } {
+  const porsi = tinggi > lebar ? 0.62 : 0.6; // 9:16 → 62% gambar; 16:9 → 60% gambar
+  const panelTinggi = Math.max(120, Math.round(tinggi * porsi));
+  return { panelY: 0, panelTinggi };
+}
+
+/** Durasi adegan: mengikuti durasi narasi TTS (+jeda napas), minimum ~3 detik
+ *  supaya gambar berganti ±3 dtk mengikuti alur cerita. Kelipatan 1/30 dtk. */
+export function durasiAdeganKomik(durasiTts: number, teks: string): number {
+  const kata = teks.split(/\s+/).filter(Boolean).length;
+  const target = durasiTts > 0.3 ? durasiTts + 0.55 : Math.max(3.2, kata / 2.6 + 1.6);
+  const frames = Math.max(90, Math.ceil(target * 30)); // minimum 3.0 dtk
+  return frames / 30;
+}
+
+/** Ekspresi zoompan (Ken Burns) per gaya kamera. D = jumlah frame adegan. */
+export function ekspresiZoompan(kamera: string, D: number): { z: string; x: string; y: string } {
+  const cx = "iw/2-(iw/zoom/2)", cy = "ih/2-(ih/zoom/2)";
+  const maju = `min(1,on/${D})`;
+  switch (kamera) {
+    case "keluar":
+      return { z: `max(1.001,1.10-0.10*on/${D})`, x: cx, y: cy };
+    case "geser-kanan":
+      return { z: "1.08", x: `(iw-iw/zoom)*${maju}`, y: `(ih-ih/zoom)/2` };
+    case "geser-kiri":
+      return { z: "1.08", x: `(iw-iw/zoom)*(1-${maju})`, y: `(ih-ih/zoom)/2` };
+    case "dalam":
+    default:
+      return { z: `min(1.10,1+0.10*on/${D})`, x: cx, y: cy };
+  }
+}
+
+export interface OpsiSegmenKomik {
+  tema: TemaHoror;
+  lebar: number;
+  tinggi: number;
+  /** tinggi panel ilustrasi atas (tataLetakKomik) */
+  panelTinggi: number;
+  /** png ilustrasi adegan (lebih besar dr panel utk ruang zoom) */
+  ilustrasiAbs: string;
+  /** png overlay kanvas penuh: kolom teks cerita bawah */
+  panelTeksAbs: string;
+  kamera: string;
+  /** durasi adegan (dtk, kelipatan 1/30) */
+  durasi: number;
+  /** wav narasi adegan (null = hening) */
+  wavAbs: string | null;
+  volumeNarasi: number;
+  /** true utk adegan terakhir: fade keluar */
+  fadeKeluar?: boolean;
+  keluar: string;
+}
+
+/** Argumen ffmpeg SATU SEGMEN ADEGAN KOMIK (mp4, siap concat -c copy).
+ *  Indeks input: 0 = ilustrasi (1 frame, di-zoompan), 1 = panel teks (loop),
+ *  2 = narasi wav ATAU anullsrc. Video D frame @30fps, audio di-pad persis
+ *  sepanjang adegan → sinkron sempurna saat concat.
+ *  v0.30.0: segmen MP4 (bukan mpegts) — stream-copy mp4 jalan di SEMUA build
+ *  ffmpeg (static 7.0.x Windows/sistem baru); mpegts-copy bermasalah di sebagian
+ *  build dan ber-offset PTS 1.4 dtk. */
+export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
+  const D = Math.max(1, Math.round(o.durasi * 30));
+  const durasi = D / 30;
+  const [pw, ph] = [o.lebar, o.panelTinggi];
+  const zp = ekspresiZoompan(o.kamera, D);
+
+  const masuk: string[] = [
+    "-y",
+    "-i", o.ilustrasiAbs, // input 0: satu frame → zoompan memperpanjang
+    "-loop", "1", "-i", o.panelTeksAbs, // input 1
+  ];
+  if (o.wavAbs) masuk.push("-i", o.wavAbs); // input 2
+  else masuk.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
+
+  const fc: string[] = [];
+  fc.push(
+    `[0:v]zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=${D}:s=${pw}x${ph}:fps=30[zb]`,
+  );
+  fc.push(`[zb]fade=t=in:st=0:d=0.35[kb]`);
+  fc.push(`[kb]pad=${o.lebar}:${o.tinggi}:0:0:color=${hexFf(o.tema.grad[0])}[pad]`);
+  fc.push(`[pad][1:v]overlay=0:0[vo]`);
+  const fadeOut = o.fadeKeluar ? `,fade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
+  fc.push(`[vo]format=yuv420p${fadeOut}[vout]`);
+  const aFade = o.fadeKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
+  fc.push(
+    `[2:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad,atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[aout]`,
+  );
+
+  return [
+    ...masuk,
+    "-filter_complex", fc.join(";"),
+    "-map", "[vout]", "-map", "[aout]",
+    "-frames:v", String(D),
+    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
+    "-r", "30", "-pix_fmt", "yuv420p",
+    "-f", "mp4", o.keluar,
+  ];
+}
+
+/** Argumen pos akhir: sisipkan musik DI BAWAH narasi tanpa menyentuh video
+ *  (-c:v copy → sinkron & cepat). */
+export function buatArgumenCampurMusik(videoAbs: string, musikAbs: string, durasi: number, volumeMusik: number, keluar: string): string[] {
+  const fc =
+    `[1:a]atrim=0:${durasi.toFixed(2)},asetpts=PTS-STARTPTS,aresample=44100,aformat=channel_layouts=stereo,` +
+    `volume=${volumeMusik.toFixed(2)},afade=t=out:st=${Math.max(0, durasi - 1.2).toFixed(2)}:d=1.2[m];` +
+    `[0:a][m]amix=inputs=2:duration=first:normalize=0[aout]`;
+  return [
+    "-y", "-i", videoAbs, "-stream_loop", "-1", "-i", musikAbs,
+    "-filter_complex", fc,
+    "-map", "0:v", "-map", "[aout]",
+    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+    "-movflags", "+faststart",
+    keluar,
+  ];
 }
 
 // ---------- v0.26.0 — musik horor bundel (CC-BY, kredit wajib di assets/musik-horor/KREDIT.txt) ----------

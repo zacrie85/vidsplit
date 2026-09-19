@@ -184,3 +184,106 @@ export function renderHalamanPng(o: OpsiHalaman): Buffer {
   });
   return r.render().asPng() as Buffer;
 }
+
+// ==================== v0.30.0 — PANEL KOMIK (AI Text-to-Video Generator) ====================
+// Versi komik: GAMBAR di ATAS (panel ilustrasi penuh), KOLOM TEKS CERITA di BAWAH.
+// Dua PNG terpisah per adegan:
+//   1) renderIlustrasiPng — ilustrasi adegan tanpa teks (dianimasikan zoompan/ken-burns)
+//   2) renderTeksPanelPng — overlay kanvas penuh: atas transparan, bawah panel kolom cerita
+
+export interface OpsiIlustrasiPanel {
+  lebar: number;
+  tinggi: number;
+  /** markup SVG adegan (tanpa wrapper) dari hororIlustrasi */
+  adeganSvg?: string;
+  /** defs global (gradient) milik adegan */
+  defsSvg?: string;
+  /** warna dasar bila tanpa adegan */
+  warnaDasar?: string;
+}
+
+/** Render ilustrasi panel komik (PNG opak, TANPA teks). */
+export function renderIlustrasiPng(o: OpsiIlustrasiPanel): Buffer {
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${o.lebar}" height="${o.tinggi}">`;
+  if (o.defsSvg) svg += o.defsSvg;
+  svg += `<rect width="${o.lebar}" height="${o.tinggi}" fill="${o.warnaDasar ?? "#0b0d13"}"/>`;
+  if (o.adeganSvg) svg += o.adeganSvg;
+  svg += "</svg>";
+  const r = new Resvg(svg, {
+    fitTo: { mode: "original" },
+    font: { fontFiles: [fontDejaVu()], loadSystemFonts: false, defaultFontFamily: "DejaVu" },
+    background: "rgba(0,0,0,0)",
+  });
+  return r.render().asPng() as Buffer;
+}
+
+export interface OpsiTeksPanel {
+  lebar: number;
+  tinggi: number;
+  /** y mulai panel kolom cerita (bawah) */
+  areaY: number;
+  /** kalimat cerita adegan ini (tanpa judul bab) */
+  teks?: string;
+  /** label kecil aksen di atas teks (hanya kartu judul, mis. label genre) */
+  label?: string;
+  warnaTeks?: string;
+  warnaAksen?: string;
+  /** warna latar panel bawah (bawaan gelap netral) */
+  warnaPanel?: string;
+  /** skala font 0.7..1.4 */
+  skala?: number;
+}
+
+/** Render overlay panel kolom cerita: atas TRANSPARAN (ilustrasi terlihat),
+ *  bawah panel gelap dgn teks cerita terbungkus. Teks otomatis mengecil bila
+ *  kepanjangan agar selalu muat di kolom. */
+export function renderTeksPanelPng(o: OpsiTeksPanel): Buffer {
+  const W = o.lebar, H = o.tinggi;
+  const areaY = Math.max(0, Math.min(H - 60, Math.round(o.areaY)));
+  const tinggiArea = H - areaY;
+  const ttf = bacaTtf(fontDejaVu());
+  const teks = o.warnaTeks ?? "#e9e6ee";
+  const aksen = o.warnaAksen ?? "#c1272d";
+  const panel = o.warnaPanel ?? "#0c0e14";
+  const lebarMaks = W * 0.84;
+  const skala = o.skala ?? 1;
+
+  // ukuran font dasar + auto-shrink agar muat
+  let fs = Math.round(Math.min(W * 0.047, tinggiArea * 0.105) * skala);
+  let labelTinggi = o.label ? Math.round(fs * 1.15) : 0;
+  const padAtas = Math.round(fs * 0.9);
+  const padBawah = Math.round(fs * 0.8);
+  let baris: string[] = [];
+  for (let coba = 0; coba < 8; coba++) {
+    baris = o.teks ? bungkusTeks(o.teks, ttf, fs, lebarMaks) : [];
+    const maksBaris = Math.max(1, Math.floor((tinggiArea - padAtas - padBawah - labelTinggi) / (fs * 1.5)));
+    if (baris.length <= maksBaris || fs <= 24) break;
+    fs = Math.max(24, Math.round(fs * 0.9));
+    labelTinggi = o.label ? Math.round(fs * 1.15) : 0;
+  }
+
+  const tinggiIsi = baris.length * fs * 1.5 + labelTinggi;
+  let y = areaY + Math.max(padAtas, (tinggiArea - tinggiIsi) / 2 + padAtas * 0.4);
+
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`;
+  // panel bawah opak + garis aksen komik di puncaknya
+  svg += `<rect x="0" y="${areaY}" width="${W}" height="${tinggiArea}" fill="${panel}"/>`;
+  svg += `<rect x="0" y="${areaY}" width="${W}" height="4" fill="${aksen}" opacity="0.85"/>`;
+  svg += `<rect x="0" y="${areaY + 4}" width="${W}" height="1" fill="${aksen}" opacity="0.3"/>`;
+  if (o.label) {
+    svg += `<text x="${W / 2}" y="${y + fs * 0.62}" font-family="DejaVu" font-size="${Math.round(fs * 0.62)}" fill="${aksen}" text-anchor="middle" letter-spacing="${Math.round(fs * 0.2)}">${esc(o.label.toUpperCase())}</text>`;
+    y += labelTinggi;
+  }
+  for (const b of baris) {
+    svg += `<text x="${W / 2}" y="${y + fs}" font-family="DejaVu" font-size="${fs}" fill="${teks}" text-anchor="middle">${esc(b)}</text>`;
+    y += fs * 1.5;
+  }
+  svg += "</svg>";
+
+  const r = new Resvg(svg, {
+    fitTo: { mode: "original" },
+    font: { fontFiles: [fontDejaVu()], loadSystemFonts: false, defaultFontFamily: "DejaVu" },
+    background: "rgba(0,0,0,0)",
+  });
+  return r.render().asPng() as Buffer;
+}
