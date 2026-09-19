@@ -14,7 +14,7 @@ import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
   MUSIK_BUNDEL, pathMusikBundel,
-  tataLetakKomik, durasiAdeganKomik, buatArgumenSegmenKomik, buatArgumenCampurMusik,
+  tataLetakKomik, durasiAdeganKomik, buatArgumenSegmenKomik,
   type OpsiRenderHoror,
 } from "./hororRender";
 import { svgAdegan, defsAdegan, type JenisAdegan } from "./hororIlustrasi";
@@ -126,7 +126,14 @@ async function siapkanMusik(
 /** v0.30.0 — PIPELINE AI TEXT-TO-VIDEO GENERATOR (versi komik, tersinkron).
  *  Alur (permintaan user): AI Story Generator -> teks cerita -> (TTS + prompt
  *  video komik) -> tiap adegan = gambar atas (berganti ±3 dtk) + kolom cerita
- *  bawah + narasi di-pad persis sepanjang adegan -> concat -> musik di bawah. */
+ *  bawah + narasi di-pad persis sepanjang adegan -> concat -> musik di bawah.
+ *  v0.31.0 PERBAIKAN laporan user ("Merender adegan stak di 2/13" + "backsound
+ *  tidak muncul"): (1) pesan adegan diumumkan di AWAL tiap ffmpeg — counter
+ *  pasti maju per adegan, tak lagi bergantung pada statistik time= ffmpeg yang
+ *  di sebagian ffmpeg Windows tak terkirim utk adegan cepat; (2) musik latar
+ *  DIMASUKKAN langsung ke tiap segmen (amix per adegan — pola per-chunk jalur
+ *  halaman v0.25-0.29 yang terbukti di Windows user) — pass akhir amix +
+ *  stream_loop + -c:v copy dihapus, concat langsung hasilkan MP4 final. */
 async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cerita, judul: string, genre: ReturnType<typeof ambilGenre>): Promise<void> {
   const job = jobs.get(id)!;
   const folderTmp = dirWork(`horor/${id}`);
@@ -185,6 +192,8 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
       const wavAbs = path.join(folderTmp, `narasi-${String(i).padStart(3, "0")}.wav`);
+      // v0.31.0 — umumkan SEBELUM mencoba: counter maju walau TTS lambat/hang
+      ktx.maju("narasi", 3 + 27 * ((i - 1) / Math.max(1, nAdegan)), `Merekam narasi adegan ${i}/${nAdegan}…`);
       let ok = false;
       if (opsi.narasi && !cepatHabis) {
         const hasil = await buatNarasiWav(u.teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs, opsi.mesinNarasi ?? "ai");
@@ -224,8 +233,28 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       ktx.maju("narasi", 30, p);
     }
 
-    // ---- 3) MUSIK (30..36) ----
+    // ---- 3) MUSIK (30..38) ----
     const musikAbs = await siapkanMusik(folderTmp, opsi, cerita, genre, ff, ktx);
+    const totalDetik = unit.reduce((s, u) => s + u.durasi, 0);
+    // v0.31.0 — loop musik ke PANJANG penuh video SEKALI di awal (berkas WAV
+    // tunggal); tiap segmen lalu ambil potongannya dgn -ss input-seek instan.
+    let musikPanjangAbs: string | null = null;
+    if (totalDetik > 0) {
+      ktx.maju("musik", 35, "Menyelaraskan panjang musik latar…");
+      const panjangAbs = path.join(folderTmp, "musik-panjang.wav");
+      try {
+        await jalankanFfmpeg(
+          ["-y", "-stream_loop", "-1", "-i", musikAbs, "-t", (totalDetik + 1).toFixed(2), "-ar", "44100", "-ac", "2", panjangAbs],
+          0, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
+        );
+        musikPanjangAbs = panjangAbs;
+      } catch {
+        musikPanjangAbs = null;
+        const p = "Musik latar gagal disiapkan — video dibuat tanpa musik.";
+        job.peringatan = [...(job.peringatan ?? []), p];
+        ktx.maju("musik", 36, p);
+      }
+    }
 
     // ---- 4) PANEL KOMIK (36..52): ilustrasi atas + kolom teks bawah ----
     ktx.maju("halaman", 37, "Menggambar panel komik…");
@@ -259,46 +288,49 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       ktx.maju("halaman", 37 + 15 * ((i + 1) / unit.length), `Menggambar panel adegan ${i + 1}/${unit.length}…`);
     }
 
-    // ---- 5) SEGMEN VIDEO PER ADEGAN (52..88) — sinkron by construction ----
+    // ---- 5) SEGMEN VIDEO PER ADEGAN (52..90) — sinkron by construction ----
     const daftarTs: string[] = [];
-    let totalDetik = 0;
+    let t0Musik = 0;
     for (let i = 0; i < unit.length; i++) {
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
       const segAbs = path.join(folderTmp, `seg-${String(i).padStart(3, "0")}.mp4`);
+      // v0.31.0 — umumkan adegan SEBELUM ffmpeg jalan: counter pasti maju per
+      // adegan walau ffmpeg tak mengeluarkan statistik time= (adegan cepat /
+      // sebagian build ffmpeg Windows).
+      ktx.maju("video", 52 + 38 * (i / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
       const args = buatArgumenSegmenKomik({
         tema, lebar, tinggi, panelTinggi: tata.panelTinggi,
         ilustrasiAbs: ilus[i], panelTeksAbs: panel[i],
         kamera: u.kamera, durasi: u.durasi, wavAbs: u.wav,
         volumeNarasi: Math.min(1.5, Math.max(0, opsi.volumeNarasi ?? 1)),
+        musikAbs: musikPanjangAbs,
+        mulaiMusik: t0Musik,
+        volumeMusik: Math.min(1.5, Math.max(0, opsi.volumeMusik ?? 0.8)),
+        fadeMusikKeluar: i === unit.length - 1,
         fadeKeluar: i === unit.length - 1,
         keluar: segAbs,
       });
-      totalDetik += u.durasi;
       await jalankanFfmpeg(args, u.durasi, (f) => {
-        ktx.maju("video", 52 + 36 * ((i + f) / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
+        ktx.maju("video", 52 + 38 * ((i + f) / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
       }, ff.bin, (ch) => daftarkanProses(id, ch));
+      t0Musik += u.durasi;
       daftarTs.push(segAbs);
     }
 
-    // ---- 6) CONCAT + SISIP MUSIK (88..100) ----
-    ktx.maju("gabung", 90, "Menggabungkan adegan…");
+    // ---- 6) CONCAT LANGSUNG -> MP4 FINAL (90..100) — musik sudah di dalam ----
+    ktx.maju("gabung", 92, "Menggabungkan adegan…");
     const listAbs = path.join(folderTmp, "concat.txt");
     await writeFile(listAbs, isiListConcat(daftarTs), "utf8");
-    const gabungAbs = path.join(folderTmp, "gabung.mp4");
-    await jalankanFfmpeg(buatArgumenConcat(listAbs, gabungAbs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
-    ktx.maju("gabung", 95, "Menyisipkan musik latar…");
     const namaMp4 = `${slugify(`video-ai-${judul}`)}.mp4`;
     const mp4Abs = path.join(folderOut, namaMp4);
-    await jalankanFfmpeg(
-      buatArgumenCampurMusik(gabungAbs, musikAbs, totalDetik, Math.min(1.5, Math.max(0, opsi.volumeMusik ?? 0.8)), mp4Abs),
-      totalDetik, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
-    );
+    await jalankanFfmpeg(buatArgumenConcat(listAbs, mp4Abs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
     const { statSync } = await import("node:fs");
     job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
+    const suaraMusik = musikPanjangAbs ? " + musik" : " (tanpa musik)";
     const ikhtisar = pakaiNarasi
-      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""} + musik siap`
-      : `Selesai — video komik ${unit.length} adegan + musik siap`;
+      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap`
+      : `Selesai — video komik ${unit.length} adegan${suaraMusik} siap`;
     ktx.maju("selesai", 100, ikhtisar);
     job.selesai = true;
     bersihkanBatal(id);

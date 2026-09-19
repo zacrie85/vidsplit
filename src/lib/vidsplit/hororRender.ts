@@ -303,12 +303,25 @@ export interface OpsiSegmenKomik {
   /** true utk adegan terakhir: fade keluar */
   fadeKeluar?: boolean;
   keluar: string;
+  // ---- v0.31.0 — musik latar DIMASUKKAN langsung ke TIAP segmen (pola per-chunk
+  // yang terbukti aman di Windows pada jalur halaman v0.25-0.29) — TIDAK lagi lewat
+  // pass akhir amix/-c:v copy yang rawan di sebagian build ffmpeg Windows. ----
+  /** wav musik SUDAH diloop sepanjang video (null/absen = tanpa musik) */
+  musikAbs?: string | null;
+  /** posisi awal adegan ini di linimasa (dtk) — titik -ss potongan musik */
+  mulaiMusik?: number;
+  /** volume musik 0..1.5 */
+  volumeMusik?: number;
+  /** true utk adegan terakhir: musik fade-out 1.2 dtk */
+  fadeMusikKeluar?: boolean;
 }
 
 /** Argumen ffmpeg SATU SEGMEN ADEGAN KOMIK (mp4, siap concat -c copy).
  *  Indeks input: 0 = ilustrasi (1 frame, di-zoompan), 1 = panel teks (loop),
- *  2 = narasi wav ATAU anullsrc. Video D frame @30fps, audio di-pad persis
- *  sepanjang adegan → sinkron sempurna saat concat.
+ *  2 = narasi wav ATAU anullsrc, 3 = musik latar (v0.31.0, opsional).
+ *  Video D frame @30fps, audio di-pad persis sepanjang adegan → sinkron
+ *  sempurna saat concat. Musik DISISIPKAN langsung di sini (amix dgn narasi)
+ *  — pola per-chunk yang terbukti di Windows — bukan lewat pass akhir.
  *  v0.30.0: segmen MP4 (bukan mpegts) — stream-copy mp4 jalan di SEMUA build
  *  ffmpeg (static 7.0.x Windows/sistem baru); mpegts-copy bermasalah di sebagian
  *  build dan ber-offset PTS 1.4 dtk. */
@@ -317,6 +330,7 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const durasi = D / 30;
   const [pw, ph] = [o.lebar, o.panelTinggi];
   const zp = ekspresiZoompan(o.kamera, D);
+  const adaMusik = !!o.musikAbs && (o.volumeMusik ?? 0) > 0;
 
   const masuk: string[] = [
     "-y",
@@ -325,6 +339,10 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   ];
   if (o.wavAbs) masuk.push("-i", o.wavAbs); // input 2
   else masuk.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
+  if (adaMusik) {
+    // input 3: potongan musik mulai posisi adegan ini (-ss input-seek, instan utk WAV)
+    masuk.push("-ss", Math.max(0, o.mulaiMusik ?? 0).toFixed(3), "-t", (durasi + 0.25).toFixed(3), "-i", o.musikAbs!);
+  }
 
   const fc: string[] = [];
   fc.push(
@@ -336,9 +354,17 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const fadeOut = o.fadeKeluar ? `,fade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
   fc.push(`[vo]format=yuv420p${fadeOut}[vout]`);
   const aFade = o.fadeKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
+  // narasi (atau hening) di-pad PERSIS sepanjang adegan — input PERTAMA amix
   fc.push(
-    `[2:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad,atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[aout]`,
+    `[2:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad,atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[nar]`,
   );
+  if (adaMusik) {
+    const mFade = o.fadeMusikKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 1.2).toFixed(2)}:d=1.2` : "";
+    fc.push(`[3:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${(o.volumeMusik ?? 0.8).toFixed(2)}${mFade}[ms]`);
+    fc.push(`[nar][ms]amix=inputs=2:duration=first:normalize=0[aout]`);
+  } else {
+    fc.push(`[nar]anull[aout]`);
+  }
 
   return [
     ...masuk,

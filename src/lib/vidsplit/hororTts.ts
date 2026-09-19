@@ -145,11 +145,13 @@ async function ttsPiper(
     "--output_file", keluar,
   ];
   const envTambah = process.platform === "win32" ? undefined : { LD_LIBRARY_PATH: p.dir };
-  const h = await jalankan(p.bin, args, 150_000, teks + "\n", envTambah);
+  // v0.31.0 — batas 90 dtk (dulu 150): piper yang sehat < 10 dtk/kalimat;
+  // menggantung di Windows jangan memakan 2,5 menit per adegan.
+  const h = await jalankan(p.bin, args, 90_000, teks + "\n", envTambah);
   if (!h.spawnGagal && h.kode === 0) {
     return { ok: true, metode: "AI Neural (suara Indonesia)" };
   }
-  const alasan = h.timeout ? "timeout 150 dtk" : potong(h.galat || h.keluar);
+  const alasan = h.timeout ? "timeout 90 dtk" : potong(h.galat || h.keluar);
   kumpul(`Piper-AI: exit ${h.kode ?? "-"} — ${alasan}`);
   return { ok: false };
 }

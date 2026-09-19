@@ -292,7 +292,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.30.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.31.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
             100% offline — alur penuh: AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → narasi disisipkan ke video komik, semuanya disinkronkan saat membuat video.

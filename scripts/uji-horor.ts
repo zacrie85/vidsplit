@@ -220,6 +220,27 @@ ok(argsHening.join(" ").includes("fade=t=out") && argsHening.join(" ").includes(
 const argsMix = buatArgumenCampurMusik("/tmp/v.mp4", "/tmp/m.wav", 60, 0.8, "/tmp/out.mp4");
 ok(argsMix[argsMix.indexOf("-c:v") + 1] === "copy" && argsMix.join(" ").includes("amix=inputs=2"), "campur musik: -c:v copy + amix (video tak disentuh)");
 ok(argsMix.join(" ").includes("atrim=0:60.00"), "campur musik: atrim sesuai durasi");
+// v0.31.0 — musik latar masuk langsung ke segmen (pola per-chunk terbukti di Windows)
+const argsSegMusik = buatArgumenSegmenKomik({
+  tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
+  ilustrasiAbs: "/tmp/i.png", panelTeksAbs: "/tmp/p.png",
+  kamera: "dalam", durasi: 3.5, wavAbs: "/tmp/n.wav", volumeNarasi: 1,
+  musikAbs: "/tmp/musik-panjang.wav", mulaiMusik: 10.5, volumeMusik: 0.8, keluar: "/tmp/seg3.ts",
+});
+const iMusik = argsSegMusik.indexOf("/tmp/musik-panjang.wav");
+ok(iMusik > 4 && argsSegMusik[iMusik - 5] === "-ss" && argsSegMusik[iMusik - 4] === "10.500" && argsSegMusik[iMusik - 3] === "-t" && argsSegMusik[iMusik - 2] === "3.750" && argsSegMusik[iMusik - 1] === "-i",
+  "arg segmen+musik: potongan -ss 10.5 -t dur+0.25 (input 3)");
+ok(argsSegMusik.join(" ").includes("[nar][ms]amix=inputs=2:duration=first:normalize=0"), "arg segmen+musik: amix narasi+musik (narasi pertama = durasi adegan)");
+ok(argsSegMusik.join(" ").includes("volume=0.80"), "arg segmen+musik: volume musik di filter");
+ok(!argsSegMusik.join(" ").includes("afade=t=out:st=2.30"), "arg segmen+musik: tanpa fade musik di adegan biasa");
+const argsSegMusikAkhir = buatArgumenSegmenKomik({
+  tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
+  ilustrasiAbs: "/tmp/i.png", panelTeksAbs: "/tmp/p.png",
+  kamera: "dalam", durasi: 3.5, wavAbs: null, volumeNarasi: 1,
+  musikAbs: "/tmp/musik-panjang.wav", mulaiMusik: 0, volumeMusik: 0.9, fadeMusikKeluar: true, keluar: "/tmp/seg4.ts",
+});
+ok(argsSegMusikAkhir.join(" ").includes("afade=t=out:st=2.30:d=1.2"), "adegan akhir: musik fade-out 1.2 dtk");
+ok(argsSegMusikAkhir.join(" ").includes("volume=0.90") && argsSegMusikAkhir.join(" ").includes("anullsrc"), "adegan akhir tanpa narasi: hening + musik tetap disisipkan");
 // PNG panel komik
 const pngIlus = renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) });
 ok(pngIlus.length > 5000 && pngIlus.equals(renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) })), `PNG ilustrasi panel jadi + deterministik (${Math.round(pngIlus.length / 1024)} KB)`);

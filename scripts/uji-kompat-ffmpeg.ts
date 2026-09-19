@@ -218,6 +218,18 @@ function uji(bin: string, label: string) {
     const okMix = rMix.status === 0 && existsSync(mp4K) && statSync(mp4K).size > 10_000;
     if (okMix) { lulus++; console.log("  LULUS  komik campur musik (-c:v copy + amix)"); }
     else { gagal++; daftarGagal.push(`${label} :: komik campur musik`); console.log(`  GAGAL  komik campur musik\n    ${((rMix.stderr || "") + (rMix.stdout || "")).slice(0, 300)}`); }
+    // v0.31.0 — musik langsung DI DALAM segmen (amix per adegan, potongan -ss):
+    // pola baru pengganti pass akhir — wajib lolos di kedua build ffmpeg.
+    const segMusik = path.join(tmp, "seg-komik-musik.mp4");
+    const rSegM = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenSegmenKomik({
+      tema: TEMA_HOROR[0], lebar: W, tinggi: H, panelTinggi: panelTinggiK,
+      ilustrasiAbs: pngIlusK, panelTeksAbs: pngPanelK, kamera: "geser-kiri",
+      durasi: DUR, wavAbs: null, volumeNarasi: 1,
+      musikAbs: wavK, mulaiMusik: 1.25, volumeMusik: 0.8, fadeMusikKeluar: true, keluar: segMusik,
+    })], { encoding: "utf8", timeout: 120_000 });
+    const okSegM = rSegM.status === 0 && existsSync(segMusik) && statSync(segMusik).size > 5000;
+    if (okSegM) { lulus++; console.log("  LULUS  komik segmen dgn musik di dalam (amix per adegan)"); }
+    else { gagal++; daftarGagal.push(`${label} :: komik segmen+musik`); console.log(`  GAGAL  komik segmen dgn musik\n    ${((rSegM.stderr || "") + (rSegM.stdout || "")).slice(0, 300)}`); }
   }
 }
 

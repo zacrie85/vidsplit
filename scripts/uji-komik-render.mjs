@@ -104,6 +104,9 @@ if (mp4) {
   const narasi = vol([3.8, 9.5]);  // adegan pertama: musik + narasi AI
   cek(narasi > judul + 2, `SINKRON: narasi adegan-1 lebih keras dr kartu judul (narasi ${narasi.toFixed(1)} dB > judul ${judul.toFixed(1)} dB)`);
   cek(narasi > -35, `narasi AI terdengar jelas (${narasi.toFixed(1)} dB)`);
+  // v0.31.0 — backsound WAJIB terdengar di jendela musik-saja (kartu judul):
+  // mencegah regresi "suara backsound tidak muncul" pada pass sisip apa pun
+  cek(judul > -40, `backsound terdengar di kartu judul (${judul.toFixed(1)} dB > -40)`);
   // frame bukan hitam
   const frame = path.join(WORK, "frame-komik.jpg");
   try { require("node:child_process").execFileSync("node_modules/ffmpeg-static/ffmpeg", ["-y", "-ss", "12", "-i", abs, "-frames:v", "1", frame], { stdio: "ignore" }); } catch { /* cek YAVG menangkap */ }
