@@ -20,11 +20,13 @@ export async function GET() {
 
 export async function POST(req: Request) {
   let mesin: MesinNarasi = "ai";
+  let pria = false;
   try {
-    const b = (await req.json()) as { mesin?: MesinNarasi };
+    const b = (await req.json()) as { mesin?: MesinNarasi; pria?: boolean };
     if (b?.mesin === "windows" || b?.mesin === "ai") mesin = b.mesin;
+    pria = b?.pria === true; // v0.33.0 — uji suara dgn nada pria bila dipilih
   } catch { /* tanpa isi — pakai bawaan "ai" */ }
-  const h = await ujiTts(mesin);
+  const h = await ujiTts(mesin, pria);
   if (!h.ok || !h.wavAbs) {
     return NextResponse.json({ ok: false, metode: h.metode ?? null, galat: h.galat ?? "TTS tidak tersedia" });
   }

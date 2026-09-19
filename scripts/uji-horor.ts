@@ -2,13 +2,13 @@
 import { buatCerita, estimasiDurasi } from "../src/lib/vidsplit/hororCerita";
 import { sintesisMusikHoror, sintesisMusikGenre, sintesisMusikHangat } from "../src/lib/vidsplit/hororMusik";
 import { renderHalamanPng, bungkusTeks, bacaTtf, lebarTeks } from "../src/lib/vidsplit/teksLayar";
-import { buatNarasiWav, ujiTts, ekspresiVbs, durasiWav, piperSiap } from "../src/lib/vidsplit/hororTts";
+import { buatNarasiWav, ujiTts, ekspresiVbs, durasiWav, infoWav, argumenSuaraPria, piperSiap } from "../src/lib/vidsplit/hororTts";
 import { statSync, writeFileSync } from "node:fs";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
   MUSIK_BUNDEL, pathMusikBundel,
-  tataLetakKomik, durasiAdeganKomik, ekspresiZoompan, buatArgumenSegmenKomik, buatArgumenCampurMusik,
+  tataLetakKomik, durasiAdeganKomik, ekspresiZoompan, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenMusikPanjang,
 } from "../src/lib/vidsplit/hororRender";
 import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
@@ -248,6 +248,23 @@ const argsSegMusikAkhir = buatArgumenSegmenKomik({
 });
 ok(argsSegMusikAkhir.join(" ").includes("afade=t=out:st=2.30:d=1.2"), "adegan akhir: musik fade-out 1.2 dtk");
 ok(argsSegMusikAkhir.join(" ").includes("volume=0.90") && argsSegMusikAkhir.join(" ").includes("anullsrc"), "adegan akhir tanpa narasi: hening + musik tetap disisipkan");
+// v0.33.0 — jalur CADANGAN musik: sumber diloop (-stream_loop) + potongan atrim di graf
+const argsSegLoop = buatArgumenSegmenKomik({
+  tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
+  ilustrasiAbs: "/tmp/i.png", panelTeksAbs: "/tmp/p.png",
+  kamera: "dalam", durasi: 3.5, wavAbs: "/tmp/n.wav", volumeNarasi: 1,
+  musikAbs: "/tmp/musik.wav", musikLoopSumber: true, mulaiMusik: 10.5, volumeMusik: 0.8, keluar: "/tmp/seg5.ts",
+});
+ok(argsSegLoop.includes("-stream_loop") && argsSegLoop.includes("-1"), "arg segmen cadangan: musik diloop -stream_loop -1 (tanpa -ss demuxer)");
+ok(!argsSegLoop.join(" ").includes("-ss 10.500"), "arg segmen cadangan: TANPA -ss input (potongan via atrim)");
+ok(argsSegLoop.join(" ").includes("atrim=start=10.500:end=14.250"), "arg segmen cadangan: potongan atrim=start:end sesuai posisi adegan");
+ok(argsSegLoop.join(" ").includes("[nar][ms]amix=inputs=2"), "arg segmen cadangan: amix tetap narasi+musik");
+// v0.33.0 — argumen musik-panjang: loudnorm (penguat) + pola polos utk percobaan ulang
+const argsPanjangKuat = buatArgumenMusikPanjang("/tmp/m.wav", 121, "/tmp/panjang.wav", true);
+const argsPanjangPolos = buatArgumenMusikPanjang("/tmp/m.wav", 121, "/tmp/panjang.wav", false);
+ok(argsPanjangKuat.join(" ").includes("loudnorm=I=-18:TP=-2:LRA=11"), "musik-panjang: loudnorm I=-18 (backsound pasti terdengar di semua genre)");
+ok(argsPanjangKuat.includes("-stream_loop") && argsPanjangKuat[argsPanjangKuat.indexOf("-t") + 1] === "121.00", "musik-panjang: stream_loop + -t total+1");
+ok(!argsPanjangPolos.join(" ").includes("loudnorm"), "musik-panjang polos (percobaan ulang): tanpa loudnorm");
 // PNG panel komik
 const pngIlus = renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) });
 ok(pngIlus.length > 5000 && pngIlus.equals(renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) })), `PNG ilustrasi panel jadi + deterministik (${Math.round(pngIlus.length / 1024)} KB)`);
@@ -273,6 +290,13 @@ const dRiff = await durasiWav("/tmp/vidsplit-uji-riff.wav");
 ok(Math.abs(dRiff - 2.0) < 0.05, `durasiWav membaca RIFF benar (${dRiff.toFixed(2)} dtk)`);
 buatWavSintetis("/tmp/vidsplit-uji-riff2.wav", 0.5, 44100, 2, 16);
 ok(Math.abs((await durasiWav("/tmp/vidsplit-uji-riff2.wav")) - 0.5) < 0.05, "durasiWav stereo 44.1k benar");
+// v0.33.0 — infoWav: sample rate + kanal terbaca (dipakai penurunan nada pria)
+const iw = await infoWav("/tmp/vidsplit-uji-riff.wav");
+ok(iw.sampleRate === 22050 && iw.kanal === 1 && Math.abs(iw.durasi - 2.0) < 0.05, `infoWav: sr+kanal+durasi benar (${iw.sampleRate} Hz, ${iw.kanal} ch)`);
+// v0.33.0 — argumen suara pria: asetrate turun 0.84 + atempo kompensasi
+const argPria = argumenSuaraPria(22050, "/tmp/in.wav", "/tmp/out.wav");
+ok(argPria.join(" ").includes("asetrate=22050*0.84") && argPria.join(" ").includes("atempo=1.19048"), "arg suara pria: asetrate×0.84 + atempo 1.19048 (nada turun, durasi tetap)");
+ok(argumenSuaraPria(44100, "/tmp/in.wav", "/tmp/out.wav").join(" ").includes("asetrate=44100*0.84"), "arg suara pria: ikut sample rate sumber (44.1k)");
 writeFileSync("/tmp/vidsplit-bukan-wav.bin", Buffer.from("BUKAN BERKAS WAV"));
 let tolak = false;
 try { await durasiWav("/tmp/vidsplit-bukan-wav.bin"); } catch { tolak = true; }
@@ -295,6 +319,12 @@ if (ai) {
   ok(statSync("/tmp/vidsplit-uji-ai.wav").size > 50_000, "WAV AI berukuran wajar");
   const ujiAi = await ujiTts("ai");
   ok(ujiAi.ok && (ujiAi.durasi ?? 0) > 1, `ujiTts("ai") lolos + durasi terbaca (${ujiAi.durasi?.toFixed(1)} dtk)`);
+  // v0.33.0 — SUARA PRIA: TTS nyata + penurunan nada, durasi tetap wajar
+  const ujiAiPria = await ujiTts("ai", true);
+  ok(ujiAiPria.ok && (ujiAiPria.metode ?? "").includes("pria"), `ujiTts("ai", pria) lolos — metode: ${ujiAiPria.metode ?? "-"}`);
+  const dPria = ujiAiPria.durasi ?? 0;
+  const dBiasa = ujiAi.durasi ?? 1;
+  ok(dPria > dBiasa * 0.75 && dPria < dBiasa * 1.35, `durasi nada pria tetap wajar (${dPria.toFixed(1)} vs ${dBiasa.toFixed(1)} dtk)`);
 } else {
   ok(true, "piper bundel tidak ada di lingkungan ini — uji AI dilewati");
 }

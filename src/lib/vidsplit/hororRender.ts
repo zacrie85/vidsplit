@@ -61,6 +61,9 @@ export interface OpsiRenderHoror {
   ilustrasi?: boolean;
   /** v0.28.0 — mesin suara pembaca: "ai" (Piper neural, disarankan) | "windows" (SAPI) */
   mesinNarasi?: "ai" | "windows";
+  /** v0.33.0 — jenis suara pembaca: "wanita" (bawaan) | "pria" (nada lebih berat,
+   *  diolah 100% offline dgn penurunan nada — jalan utk mesin AI maupun Windows) */
+  jenisSuaraNarasi?: "wanita" | "pria";
   /** v0.29.0 — genre AI Video Generator (bawaan: ikut cerita.genre / horor) */
   genreId?: GenreId;
   /** v0.30.0 — gaya video: "komik" (bawaan: gambar atas + kolom cerita bawah,
@@ -316,6 +319,9 @@ export interface OpsiSegmenKomik {
   fadeMusikKeluar?: boolean;
   /** v0.32.0 — preset x264 utk percobaan ulang adegan bermasalah (bawaan veryfast) */
   preset?: string;
+  /** v0.33.0 — sumber musik TAK terpotong (stream_loop -1) dan dipotong lewat
+   *  atrim di dalam graf — jalur CADANGAN bila berkas musik-panjang gagal dibuat */
+  musikLoopSumber?: boolean;
 }
 
 /** Argumen ffmpeg SATU SEGMEN ADEGAN KOMIK (mp4, siap concat -c copy).
@@ -340,6 +346,10 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const [pw, ph] = [o.lebar, o.panelTinggi];
   const zp = ekspresiZoompan(o.kamera, D);
   const adaMusik = !!o.musikAbs && (o.volumeMusik ?? 0) > 0;
+  // v0.33.0 — jalur cadangan: sumber musik diloop DEMUXER (-stream_loop -1) dan
+  // potongan diambil lewat atrim di dalam graf (tanpa -ss demuxer yang berperilaku
+  // beda antar build Windows saat dipadukan stream_loop).
+  const musikLoop = !!adaMusik && !!o.musikLoopSumber;
 
   const masuk: string[] = [
     "-y",
@@ -349,8 +359,13 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   if (o.wavAbs) masuk.push("-i", o.wavAbs); // input 2
   else masuk.push("-f", "lavfi", "-t", durasi.toFixed(3), "-i", "anullsrc=r=44100:cl=stereo");
   if (adaMusik) {
-    // input 3: potongan musik mulai posisi adegan ini (-ss input-seek, instan utk WAV)
-    masuk.push("-ss", Math.max(0, o.mulaiMusik ?? 0).toFixed(3), "-t", (durasi + 0.25).toFixed(3), "-i", o.musikAbs!);
+    if (musikLoop) {
+      // input 3 (cadangan): musik diloop terus-menerus; potongan via atrim di graf
+      masuk.push("-stream_loop", "-1", "-i", o.musikAbs!);
+    } else {
+      // input 3: potongan musik mulai posisi adegan ini (-ss input-seek, instan utk WAV)
+      masuk.push("-ss", Math.max(0, o.mulaiMusik ?? 0).toFixed(3), "-t", (durasi + 0.25).toFixed(3), "-i", o.musikAbs!);
+    }
   }
 
   const fc: string[] = [];
@@ -372,7 +387,10 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   );
   if (adaMusik) {
     const mFade = o.fadeMusikKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 1.2).toFixed(2)}:d=1.2` : "";
-    fc.push(`[3:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${(o.volumeMusik ?? 0.8).toFixed(2)}${mFade}[ms]`);
+    const potong = musikLoop
+      ? `atrim=start=${Math.max(0, o.mulaiMusik ?? 0).toFixed(3)}:end=${(Math.max(0, o.mulaiMusik ?? 0) + durasi + 0.25).toFixed(3)},asetpts=PTS-STARTPTS,`
+      : "";
+    fc.push(`[3:a]${potong}aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${(o.volumeMusik ?? 0.8).toFixed(2)}${mFade}[ms]`);
     fc.push(`[nar][ms]amix=inputs=2:duration=first:normalize=0[aout]`);
   } else {
     fc.push(`[nar]anull[aout]`);
@@ -388,6 +406,22 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
     "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
     "-r", "30", "-pix_fmt", "yuv420p",
     "-f", "mp4", o.keluar,
+  ];
+}
+
+/** v0.33.0 — Argumen MENYIAPKAN musik sepanjang video (musik-panjang.wav).
+ *  dgnPenguat=true → loudnorm I=-18 LUFS: musik gelap maupun hangat jadi sama
+ *  jelas terdengar (mood hangat dulu mean −23 dB = nyaris tak terdengar —
+ *  laporan user "backsound tidak muncul"). dgnPenguat=false → pola lama
+ *  (percobaan ulang bila loudnorm gagal di build ffmpeg tertentu). */
+export function buatArgumenMusikPanjang(musikAbs: string, totalDetik: number, keluar: string, dgnPenguat = true): string[] {
+  const af = dgnPenguat ? ["-af", "loudnorm=I=-18:TP=-2:LRA=11"] : [];
+  return [
+    "-y", "-stream_loop", "-1", "-i", musikAbs,
+    ...af,
+    "-t", Math.max(1, totalDetik).toFixed(2),
+    "-ar", "44100", "-ac", "2",
+    keluar,
   ];
 }
 

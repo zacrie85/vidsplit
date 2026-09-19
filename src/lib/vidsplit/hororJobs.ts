@@ -15,6 +15,7 @@ import {
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
   MUSIK_BUNDEL, pathMusikBundel,
   tataLetakKomik, durasiAdeganKomik, buatArgumenSegmenKomik,
+  buatArgumenMusikPanjang,
   type OpsiRenderHoror,
 } from "./hororRender";
 import { svgAdegan, defsAdegan, type JenisAdegan } from "./hororIlustrasi";
@@ -86,7 +87,12 @@ export function mulaiRenderHoror(opsi: OpsiHororMasuk): string {
   return id;
 }
 
-/** Siapkan berkas musik latar (bundel CC-BY / impor / sintesis genre). */
+/** Siapkan berkas musik latar (bundel CC-BY / impor / sintesis genre).
+ *  v0.33.0 — SETELAH sumber siap, musik DIPERKUAT & DISETEL loudnorm I=-18 LUFS
+ *  (musik-kuat.wav): mood hangat (dongeng/motivasi/fakta) dulu mean −23 dB —
+ *  nyaris tak terdengar di speaker laptop → laporan user "backsound tidak
+ *  muncul". Setelah disetel, SEMUA sumber (sintesis gelap/hangat, CC-BY, impor)
+ *  sama jelas terdengar di bawah narasi. Gagal penguat → musik asli tetap dipakai. */
 async function siapkanMusik(
   folderTmp: string, opsi: OpsiHororMasuk, cerita: Cerita,
   genre: ReturnType<typeof ambilGenre>, ff: { bin: string },
@@ -120,6 +126,16 @@ async function siapkanMusik(
       mood: genre.moodMusik,
     }));
   }
+  // v0.33.0 — penguat loudness: target −18 LUFS dgn verifikasi berkas hasil
+  try {
+    const kuatAbs = path.join(folderTmp, "musik-kuat.wav");
+    await jalankanFfmpeg(
+      ["-y", "-i", musikAbs, "-af", "loudnorm=I=-18:TP=-2:LRA=11", "-ar", "44100", "-ac", "2", kuatAbs],
+      0, undefined, ff.bin,
+    );
+    const d = await durasiWav(kuatAbs);
+    if (d > 1) return kuatAbs; // penguat berhasil → sumber musik jadi musik-kuat.wav
+  } catch { /* gagal → musik asli tetap dipakai */ }
   return musikAbs;
 }
 
@@ -196,7 +212,7 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       ktx.maju("narasi", 3 + 27 * ((i - 1) / Math.max(1, nAdegan)), `Merekam narasi adegan ${i}/${nAdegan}…`);
       let ok = false;
       if (opsi.narasi && !cepatHabis) {
-        const hasil = await buatNarasiWav(u.teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs, opsi.mesinNarasi ?? "ai");
+        const hasil = await buatNarasiWav(u.teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi, pria: opsi.jenisSuaraNarasi === "pria" }, wavAbs, opsi.mesinNarasi ?? "ai");
         ok = hasil.ok;
         if (hasil.metode) metodeNarasi = hasil.metode;
         if (!ok && !galatNarasiPertama && hasil.galat) galatNarasiPertama = hasil.galat;
@@ -256,22 +272,34 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     const totalDetik = unit.reduce((s, u) => s + u.durasi, 0);
     // v0.31.0 — loop musik ke PANJANG penuh video SEKALI di awal (berkas WAV
     // tunggal); tiap segmen lalu ambil potongannya dgn -ss input-seek instan.
+    // v0.33.0 — hasil DIVERIFIKASI dgn durasiWav; bila gagal → dicoba ulang
+    // sekali; bila tetap gagal → segmen memakai sumber musik langsung dgn
+    // -stream_loop + atrim (musikLoopSumber) — musik TIDAK mungkin hilang lagi
+    // hanya karena satu berkas persiapan gagal di mesin user.
     let musikPanjangAbs: string | null = null;
     if (totalDetik > 0) {
       ktx.maju("musik", 35, "Menyelaraskan panjang musik latar…");
       const panjangAbs = path.join(folderTmp, "musik-panjang.wav");
-      try {
-        await jalankanFfmpeg(
-          ["-y", "-stream_loop", "-1", "-i", musikAbs, "-t", (totalDetik + 1).toFixed(2), "-ar", "44100", "-ac", "2", panjangAbs],
-          0, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
-        );
-        musikPanjangAbs = panjangAbs;
-      } catch {
-        musikPanjangAbs = null;
-        const p = "Musik latar gagal disiapkan — video dibuat tanpa musik.";
+      for (let coba = 0; coba < 2 && !musikPanjangAbs; coba++) {
+        try {
+          await jalankanFfmpeg(
+            buatArgumenMusikPanjang(musikAbs, totalDetik + 1, panjangAbs, coba === 0),
+            0, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
+          );
+          const d = await durasiWav(panjangAbs).catch(() => 0);
+          if (d > 1) musikPanjangAbs = panjangAbs;
+        } catch { /* coba lagi tanpa penguat, lalu jalur cadangan */ }
+      }
+      if (!musikPanjangAbs) {
+        const p = "Musik latar gagal disiapkan panjang penuh — dipakai jalur cadangan per-adegan.";
         job.peringatan = [...(job.peringatan ?? []), p];
         ktx.maju("musik", 36, p);
       }
+    }
+    // jalur cadangan: potong dgn atrim dari sumber yang diloop — perlu panjang pola
+    let polaMusikDetik = 60;
+    if (!musikPanjangAbs && totalDetik > 0) {
+      polaMusikDetik = Math.max(3, await durasiWav(musikAbs).catch(() => 60));
     }
 
     // ---- 4) PANEL KOMIK (36..52): ilustrasi atas + kolom teks bawah ----
@@ -324,8 +352,9 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
         ilustrasiAbs: ilus[i], panelTeksAbs: panel[i],
         kamera: u.kamera, durasi: u.durasi, wavAbs: u.wav,
         volumeNarasi: Math.min(1.5, Math.max(0, opsi.volumeNarasi ?? 1)),
-        musikAbs: musikPanjangAbs,
-        mulaiMusik: t0Musik,
+        musikAbs: musikPanjangAbs ?? musikAbs,
+        musikLoopSumber: !musikPanjangAbs,
+        mulaiMusik: musikPanjangAbs ? t0Musik : t0Musik % polaMusikDetik,
         volumeMusik: Math.min(1.5, Math.max(0, opsi.volumeMusik ?? 0.8)),
         fadeMusikKeluar: i === unit.length - 1,
         fadeKeluar: i === unit.length - 1,
@@ -426,7 +455,7 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
         const wavAbs = path.join(folderTmp, `narasi-${i}-${j}.wav`);
         let ok = false;
         if (opsi.narasi) {
-          const hasil = await buatNarasiWav(teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs, opsi.mesinNarasi ?? "ai");
+          const hasil = await buatNarasiWav(teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi, pria: opsi.jenisSuaraNarasi === "pria" }, wavAbs, opsi.mesinNarasi ?? "ai");
           ok = hasil.ok;
           if (hasil.metode) metodeNarasi = hasil.metode;
           if (!ok && !galatNarasiPertama && hasil.galat) galatNarasiPertama = hasil.galat;

@@ -12,7 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, rantaiGenderMusik, rantaiGenderVokal, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
-import { buatArgumenLatar, buatArgumenChunk, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenConcat, isiListConcat, TEMA_HOROR } from "../src/lib/vidsplit/hororRender";
+import { buatArgumenLatar, buatArgumenChunk, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenConcat, buatArgumenMusikPanjang, isiListConcat, TEMA_HOROR } from "../src/lib/vidsplit/hororRender";
+import { argumenSuaraPria } from "../src/lib/vidsplit/hororTts";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 
 const DUR = 2;
@@ -230,6 +231,31 @@ function uji(bin: string, label: string) {
     const okSegM = rSegM.status === 0 && existsSync(segMusik) && statSync(segMusik).size > 5000;
     if (okSegM) { lulus++; console.log("  LULUS  komik segmen dgn musik di dalam (amix per adegan)"); }
     else { gagal++; daftarGagal.push(`${label} :: komik segmen+musik`); console.log(`  GAGAL  komik segmen dgn musik\n    ${((rSegM.stderr || "") + (rSegM.stdout || "")).slice(0, 300)}`); }
+    // v0.33.0 — jalur CADANGAN musik: -stream_loop -1 + potongan atrim di graf
+    const segLoop = path.join(tmp, "seg-komik-loop.mp4");
+    const rSegL = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenSegmenKomik({
+      tema: TEMA_HOROR[0], lebar: W, tinggi: H, panelTinggi: panelTinggiK,
+      ilustrasiAbs: pngIlusK, panelTeksAbs: pngPanelK, kamera: "geser-kiri",
+      durasi: DUR, wavAbs: null, volumeNarasi: 1,
+      musikAbs: wavK, musikLoopSumber: true, mulaiMusik: 0.75, volumeMusik: 0.8, keluar: segLoop,
+    })], { encoding: "utf8", timeout: 120_000 });
+    const okSegL = rSegL.status === 0 && existsSync(segLoop) && statSync(segLoop).size > 5000;
+    if (okSegL) { lulus++; console.log("  LULUS  komik segmen cadangan musik (stream_loop + atrim)"); }
+    else { gagal++; daftarGagal.push(`${label} :: komik segmen+musik-loop`); console.log(`  GAGAL  komik segmen cadangan musik\n    ${((rSegL.stderr || "") + (rSegL.stdout || "")).slice(0, 300)}`); }
+    // v0.33.0 — musik-panjang dgn loudnorm I=-18 (backsound konsisten di semua genre)
+    const panjangK = path.join(tmp, "musik-panjang-k.wav");
+    const rPanjang = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenMusikPanjang(wavK, DUR * 2, panjangK, true)], { encoding: "utf8", timeout: 120_000 });
+    const okPanjang = rPanjang.status === 0 && existsSync(panjangK) && statSync(panjangK).size > 10_000;
+    if (okPanjang) { lulus++; console.log("  LULUS  musik-panjang loudnorm I=-18 (stream_loop -1 + -t)"); }
+    else { gagal++; daftarGagal.push(`${label} :: musik-panjang loudnorm`); console.log(`  GAGAL  musik-panjang loudnorm\n    ${((rPanjang.stderr || "") + (rPanjang.stdout || "")).slice(0, 300)}`); }
+    // v0.33.0 — penurunan nada pria (asetrate+aresample+atempo) utk WAV narasi
+    const wavNar = path.join(tmp, "narasi-uji.wav");
+    spawnSync(bin, ["-hide_banner", "-v", "error", "-f", "lavfi", "-i", `sine=f=300:r=22050:d=1.2`, wavNar], { encoding: "utf8", timeout: 60_000 });
+    const wavPria = path.join(tmp, "narasi-pria.wav");
+    const rPria = spawnSync(bin, ["-hide_banner", "-v", "error", ...argumenSuaraPria(22050, wavNar, wavPria)], { encoding: "utf8", timeout: 60_000 });
+    const okPria = rPria.status === 0 && existsSync(wavPria) && statSync(wavPria).size > 5000;
+    if (okPria) { lulus++; console.log("  LULUS  suara pria (asetrate 0.84 + atempo)"); }
+    else { gagal++; daftarGagal.push(`${label} :: suara pria pitch`); console.log(`  GAGAL  suara pria pitch\n    ${((rPria.stderr || "") + (rPria.stdout || "")).slice(0, 300)}`); }
   }
 }
 

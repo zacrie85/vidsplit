@@ -84,6 +84,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
   const [narasi, setNarasi] = useState(true);
   const [mesin, setMesin] = useState<MesinNarasi>("ai");
+  // v0.33.0 — jenis suara pembaca: wanita (bawaan) | pria (nada lebih berat)
+  const [jenisSuara, setJenisSuara] = useState<"wanita" | "pria">("wanita");
   const [adaAi, setAdaAi] = useState(false);
   const [suara, setSuara] = useState("");
   const [daftarSuara, setDaftarSuara] = useState<SuaraTts[]>([]);
@@ -119,10 +121,12 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
           narasi: boolean; kecepatan: number; volumeNarasi: number; intensitas: Intensitas;
           volumeMusik: number; temaVisual: string; rasio: string; resolusi: string;
           sumberMusik: string; ilustrasi: boolean; mesinNarasi: string; genre: string;
+          jenisSuara: string;
         }>;
         if (a.genre && GENRE.some((g) => g.id === a.genre)) setGenre(a.genre as GenreId);
         if (typeof a.narasi === "boolean") setNarasi(a.narasi);
         if (a.mesinNarasi === "ai" || a.mesinNarasi === "windows") setMesin(a.mesinNarasi);
+        if (a.jenisSuara === "pria" || a.jenisSuara === "wanita") setJenisSuara(a.jenisSuara);
         if (a.kecepatan) setKecepatan(Math.min(1.5, Math.max(0.6, a.kecepatan)));
         if (typeof a.volumeNarasi === "number") setVolumeNarasi(a.volumeNarasi);
         if (a.intensitas) setIntensitas(a.intensitas);
@@ -169,7 +173,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
   const ujiSuara = async () => {
     setUji({ sedang: true, ok: null, hasil: null });
     try {
-      const r = await fetch("/api/horor/suara", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mesin }), signal: AbortSignal.timeout(180_000) });
+      const r = await fetch("/api/horor/suara", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mesin, pria: jenisSuara === "pria" }), signal: AbortSignal.timeout(180_000) });
       const j = (await r.json()) as { ok: boolean; metode?: string | null; galat?: string; wav?: string };
       if (j.ok && j.wav) {
         try { void new Audio(j.wav).play(); } catch { /* autoplay diblokir browser */ }
@@ -277,6 +281,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         body: JSON.stringify({
           cerita: ceritaKirim, judul: cerita.judul, genreId: genre, narasi,
           mesinNarasi: mesin,
+          jenisSuaraNarasi: jenisSuara,
           kecepatanNarasi: kecepatan, volumeNarasi,
           suaraNarasi: suara || undefined,
           intensitasMusik: intensitas,
@@ -308,7 +313,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.32.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.33.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
             100% offline — alur penuh: AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → narasi disisipkan ke video komik, semuanya disinkronkan saat membuat video.
@@ -446,6 +451,18 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             </label>
             {narasi && (
               <div className="mt-3 space-y-3">
+                {/* v0.33.0 — jenis suara: wanita / pria (nada lebih berat, diolah offline) */}
+                <div>
+                  <p className="text-xs text-slate-400">Jenis suara:</p>
+                  <div className="mt-1 flex flex-wrap gap-2">
+                    <Chip aktif={jenisSuara === "wanita"} onClick={() => { setJenisSuara("wanita"); simpanAtur({ jenisSuara: "wanita" }); }}>
+                      Wanita <span className="text-xs opacity-70">(bawaan)</span>
+                    </Chip>
+                    <Chip aktif={jenisSuara === "pria"} onClick={() => { setJenisSuara("pria"); simpanAtur({ jenisSuara: "pria" }); }}>
+                      Pria <span className="text-xs opacity-70">(nada lebih berat)</span>
+                    </Chip>
+                  </div>
+                </div>
                 {mesin === "windows" && daftarSuara.length > 0 && (
                   <select value={suara} onChange={(e) => setSuara(e.target.value)}
                     className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-200">
@@ -471,7 +488,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
           <Kartu
             judul="4. Musik (backsound)"
-            deskripsi="Sintesis bawaan mengikuti suasana genre — gelap utk horor/misteri/legenda, hangat utk dongeng/motivasi/fakta. Trek CC-BY & impormu sendiri tetap bisa."
+            deskripsi="Sintesis bawaan mengikuti suasana genre — dan sejak v0.33.0 volume musik selalu DISETEL konsisten (−18 LUFS) supaya backsound pasti terdengar di semua genre, termasuk dongeng/motivasi. Trek CC-BY & impormu sendiri tetap bisa."
             ikon={<Music2 className="h-4 w-4" />}
           >
             <div className="flex flex-wrap gap-2">
@@ -549,7 +566,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
                 </p>
                 {stagnan && (
                   <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-300">
-                    Proses tidak bergerak ±2 menit. v0.32.0 menghentikan otomatis proses beku — bila ini muncul terus, tekan Batalkan lalu ulangi "Buat Video AI".
+                    Proses tidak bergerak ±2 menit. Aplikasi menghentikan otomatis proses beku — bila ini muncul terus, tekan Batalkan lalu ulangi "Buat Video AI".
                   </p>
                 )}
               </div>

@@ -1,4 +1,7 @@
 // VidSplit v0.27.0 — PEMBACA SKRIP (TTS) MULTI-STRATEGI, 100% offline.
+// v0.33.0 — SUARA PRIA: model Piper id-ID hanya punya SATU speaker (wanita), jadi
+// pilihan "pria" diolah SETELAH TTS sukses dgn penurunan nada offline
+// (asetrate+atempo — bukan plugin tambahan) — jalan utk mesin AI maupun SAPI Windows.
 // PERBAIKAN atas v0.25/0.26 (narasi kadang hilang total):
 //   1) Pendeteksi suara dulu timeout 15 dtk -> UI mematikan narasi diam-diam.
 //   2) Jalur tunggal (-File .ps1) mudah diblokir kebijakan Eksekusi GPO / antivirus
@@ -12,10 +15,11 @@
 //      sering lolos saat PowerShell diblokir AV/kebijakan.
 //   C) powershell.exe -File .ps1 (UTF-8 BOM) — jalur lama yang diperkuat.
 import { spawn } from "node:child_process";
-import { writeFile, rm, open, stat } from "node:fs/promises";
+import { writeFile, rm, open, stat, rename } from "node:fs/promises";
 import { statSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { pilihFfmpeg, jalankanFfmpeg } from "./ffmpeg";
 
 export interface InfoSuara {
   id: string; // nama voice
@@ -26,6 +30,8 @@ export interface OpsiNarasi {
   kecepatan?: number; // 0.6..1.5
   volume?: number; // 0..1
   suara?: string; // nama voice SAPI (opsional)
+  /** v0.33.0 — true = nada pria (lebih berat), diolah offline setelah TTS sukses */
+  pria?: boolean;
 }
 
 /** Mesin narasi: "ai" = AI Neural Piper (disarankan) | "windows" = SAPI bawaan. */
@@ -169,9 +175,16 @@ function potong(s: string, maks = 240): string {
 
 const tidur = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** Durasi detik berkas WAV (RIFF) dari header. Coba ulang 3x (AV Windows kadang
- *  mengunci berkas baru beberapa ratus ms). Melempar bila bukan WAV rusak. */
-export async function durasiWav(file: string, cobaMaks = 3): Promise<number> {
+export interface InfoWav {
+  sampleRate: number;
+  kanal: number;
+  bits: number;
+  durasi: number;
+}
+
+/** Baca header WAV (RIFF): sample rate + kanal + bit + durasi. Coba ulang 3x
+ *  (AV Windows kadang mengunci berkas baru beberapa ratus ms). Melempar bila rusak. */
+export async function infoWav(file: string, cobaMaks = 3): Promise<InfoWav> {
   let terakhir: unknown = null;
   for (let coba = 0; coba < cobaMaks; coba++) {
     if (coba > 0) await tidur(350);
@@ -212,7 +225,10 @@ export async function durasiWav(file: string, cobaMaks = 3): Promise<number> {
           const s = await stat(file);
           dataUkuran = Math.max(0, s.size - 44);
         }
-        return dataUkuran / ((sampleRate * kanal * bits) / 8);
+        return {
+          sampleRate, kanal, bits,
+          durasi: dataUkuran / ((sampleRate * kanal * bits) / 8),
+        };
       } finally {
         await fd.close();
       }
@@ -223,7 +239,58 @@ export async function durasiWav(file: string, cobaMaks = 3): Promise<number> {
   throw terakhir instanceof Error ? terakhir : new Error(String(terakhir));
 }
 
+/** Durasi detik berkas WAV (RIFF) dari header. */
+export async function durasiWav(file: string, cobaMaks = 3): Promise<number> {
+  return (await infoWav(file, cobaMaks)).durasi;
+}
+
 const KUTIP_PS = (s: string) => s.replace(/'/g, "''");
+
+// ==================== v0.33.0 — SUARA PRIA (penurunan nada offline) ====================
+
+const FAKTOR_PRIA = 0.84; // ≈ −3 semiton: wanita → nada pria yang jelas berat
+
+/** Argumen ffmpeg penurunan nada (murni — dipakai uji unit). asetrate menurunkan
+ *  nada & laju, aresample mengembalikan laju sampel, atempo memulihkan durasi. */
+export function argumenSuaraPria(sampleRate: number, masuk: string, keluar: string): string[] {
+  const sr = Math.max(8000, Math.min(96000, Math.round(sampleRate) || 22050));
+  return [
+    "-y", "-i", masuk,
+    "-af", `asetrate=${sr}*${FAKTOR_PRIA},aresample=${sr},atempo=${(1 / FAKTOR_PRIA).toFixed(5)}`,
+    "-ar", String(sr),
+    keluar,
+  ];
+}
+
+/** Ubah WAV narasi jadi nada pria (in-place via berkas sementara + verifikasi).
+ *  false = gagal (ffmpeg tak ada / berkas rusak) — suara wanita tetap dipakai. */
+async function suaraPriaOlah(file: string): Promise<boolean> {
+  try {
+    const info = await infoWav(file);
+    if (info.durasi < 0.2) return false;
+    const sementara = `${file}.pria-${Math.floor(Math.random() * 1e6)}.wav`;
+    try {
+      const ff = await pilihFfmpeg();
+      await jalankanFfmpeg(argumenSuaraPria(info.sampleRate, file, sementara), 0, undefined, ff.bin);
+      const d = await infoWav(sementara); // verifikasi hasil BENAR-BENAR terbaca
+      if (d.durasi < info.durasi * 0.75 || d.durasi > info.durasi * 1.35) return false;
+      await rm(file, { force: true });
+      await rename(sementara, file);
+      return true;
+    } finally {
+      try { await rm(sementara, { force: true }); } catch { /* sudah berganti nama */ }
+    }
+  } catch { return false; }
+}
+
+/** Terapkan pilihan "pria" pada hasil TTS yang sudah sukses. */
+async function hasilAkhir(h: HasilTts, keluar: string, pria?: boolean): Promise<HasilTts> {
+  if (!h.ok || !pria) return h;
+  const jadi = await suaraPriaOlah(keluar);
+  return jadi
+    ? { ...h, metode: `${h.metode ?? "TTS"} · nada pria` }
+    : h; // gagal olah → suara asli tetap dipakai (jangan buang narasi)
+}
 
 /** Inti skrip PowerShell SAPI (teks disisipkan via parameter ekspresi). */
 function intiPskrip(keluar: string, rate: number, volume: number, suara: string | undefined, ekspresiTeks: string): string {
@@ -385,7 +452,7 @@ export async function buatNarasiWav(
   // ---- Mesin AI Neural (Piper) — jalur utama, berbeda total dari SAPI ----
   if (mesin === "ai") {
     const a = await ttsPiper(teksBersih, keluar, kecepatan, kumpul);
-    if (a.ok) return a;
+    if (a.ok) return hasilAkhir(a, keluar, opsi.pria);
     if (!piperSiap()) kumpul("Piper-AI: tidak terpasang (folder tts-piper tidak ditemukan)");
   }
   if (process.platform !== "win32") {
@@ -400,11 +467,11 @@ export async function buatNarasiWav(
   try {
     await writeFile(teksPath, "\ufeff" + teksBersih, "utf8"); // BOM -> PowerShell membaca Unicode dgn benar
     const a = await ttsEncoded(teksPath, keluar, rate, volume, opsi.suara, kumpul);
-    if (a.ok) return a;
+    if (a.ok) return hasilAkhir(a, keluar, opsi.pria);
     const b = await ttsCscript(teksBersih, keluar, rate, volume, opsi.suara, vbsPath, kumpul);
-    if (b.ok) return b;
+    if (b.ok) return hasilAkhir(b, keluar, opsi.pria);
     const c = await ttsFile(teksBersih, keluar, rate, volume, opsi.suara, ps1Path, kumpul);
-    if (c.ok) return c;
+    if (c.ok) return hasilAkhir(c, keluar, opsi.pria);
     return { ok: false, galat: diagnosa.join(" | ") || "semua jalur TTS gagal" };
   } catch (e) {
     return { ok: false, galat: diagnosa.join(" | ") + (diagnosa.length ? " | " : "") + (e instanceof Error ? e.message : String(e)) };
@@ -448,10 +515,11 @@ export interface HasilUjiTts extends HasilTts {
 
 /** Uji cepat TTS: hasilkan WAV pendek "Satu dua tiga" + diagnosa.
  *  v0.28.0: durasi dibaca via durasiWav() RIFF murni — TIDAK lewat ffprobe lagi
- *  (probe() menuntut stream video sehingga WAV selalu "gagal dibaca"). */
-export async function ujiTts(mesin: MesinNarasi = "ai"): Promise<HasilUjiTts> {
+ *  (probe() menuntut stream video sehingga WAV selalu "gagal dibaca").
+ *  v0.33.0: pria=true → nada pria (penurunan nada offline) ikut diuji. */
+export async function ujiTts(mesin: MesinNarasi = "ai", pria = false): Promise<HasilUjiTts> {
   const keluar = path.join(os.tmpdir(), `vidsplit-uji-suara-${Date.now()}-${Math.floor(Math.random() * 1e6)}.wav`);
-  const h = await buatNarasiWav("Uji suara VidSplit. Satu, dua, tiga.", { kecepatan: 1, volume: 1 }, keluar, mesin);
+  const h = await buatNarasiWav("Uji suara VidSplit. Satu, dua, tiga.", { kecepatan: 1, volume: 1, pria }, keluar, mesin);
   if (!h.ok) {
     try { await rm(keluar, { force: true }); } catch { /* abaikan */ }
     return { ok: false, galat: h.galat };
