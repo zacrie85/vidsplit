@@ -7,9 +7,12 @@
 // (7.0.x — kembaran versi bundel Windows), plus ffmpeg sistem bila ada, sehingga
 // ketidakcocokan versi tertangkap SEBELUM rilis.
 // Jalankan: bun scripts/uji-kompat-ffmpeg.ts
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, rantaiGenderMusik, rantaiGenderVokal, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
+import { buatArgumenLatar, buatArgumenChunk, TEMA_HOROR } from "../src/lib/vidsplit/hororRender";
 
 const DUR = 2;
 const W = 320, H = 568; // 9:16 kecil — cepat, tetap mewakili resolusi vertikal bawaan
@@ -137,6 +140,44 @@ function uji(bin: string, label: string) {
       console.log(`  GAGAL  ${v.id}\n    ${s}`);
     }
   });
+
+  // ==== v0.25 — STUDIO HOROR: latar gradients + graf chunk (grain+vignette+kilat+
+  // overlay halaman fade+audio narasi/musik loop amix). Induks input di sini lavfi
+  // (setara: 0 dasar, 1 latar, 2-3 halaman, 4 narasi, 5 musik) — GRAF identik dgn produksi.
+  const tmp = mkdtempSync(path.join(tmpdir(), "uji-horor-"));
+  const pngLatar = path.join(tmp, "latar.png");
+  const rLatar = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenLatar(TEMA_HOROR[0], W, H, pngLatar)], { encoding: "utf8", timeout: 60_000 });
+  const okLatar = rLatar.status === 0 && existsSync(pngLatar);
+  if (okLatar) { lulus++; console.log("  LULUS  horor latar gradients -> PNG"); }
+  else { gagal++; daftarGagal.push(`${label} :: horor latar gradients`); console.log(`  GAGAL  horor latar gradients\n    ${(rLatar.stderr || "").slice(0, 200)}`); }
+
+  const fcHoror = buatArgumenChunk({
+    tema: TEMA_HOROR[0], lebar: W, tinggi: H, pngLatar,
+    halaman: [
+      { pngAbs: "P1", t0: 0, t1: 1 },
+      { pngAbs: "P2", t0: 1, t1: 2 },
+    ],
+    wav: [], musikAbs: "MUS", volumeMusik: 0.8, volumeNarasi: 1,
+    durasi: 2, kilat: [0.7], keluar: "OUT",
+  });
+  // ganti placeholder path dgn sumber lavfi: P1/P2 = color, MUS = sine
+  const idxFc = fcHoror.indexOf("-filter_complex");
+  const grafHoror = fcHoror[idxFc + 1];
+  const rHoror = spawnSync(bin, [
+    "-hide_banner", "-v", "error",
+    "-f", "lavfi", "-i", `color=c=black:s=${W}x${H}:r=${FPS}`,
+    "-loop", "1", "-i", pngLatar,
+    "-f", "lavfi", "-i", `color=c=white:s=${W}x${H}`,
+    "-f", "lavfi", "-i", `color=c=gray:s=${W}x${H}`,
+    "-f", "lavfi", "-i", `sine=f=220:r=44100:d=${DUR}`,
+    "-filter_complex", grafHoror,
+    "-map", "[vout]", "-map", "[aout]",
+    "-t", String(DUR),
+    "-f", "null", "-",
+  ], { encoding: "utf8", timeout: 120_000 });
+  const okHoror = rHoror.status === 0 && !(rHoror.stderr || "").includes("Option not found");
+  if (okHoror) { lulus++; console.log("  LULUS  horor graf chunk penuh"); }
+  else { gagal++; daftarGagal.push(`${label} :: horor graf chunk`); console.log(`  GAGAL  horor graf chunk (status=${rHoror.status} signal=${rHoror.signal})\n    ${((rHoror.stderr || "") + (rHoror.stdout || "")).slice(0, 300)}`); }
 }
 
 for (const [i, bin] of kandidat.entries()) {

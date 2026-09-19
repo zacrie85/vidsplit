@@ -8,6 +8,7 @@ import {
   ArrowDown,
   ArrowUp,
   Clapperboard,
+  Ghost,
   Info,
   ListVideo,
   MonitorPlay,
@@ -26,6 +27,7 @@ import {
 } from "@/components/vds/BagianAtur";
 import { Preview } from "@/components/vds/Preview";
 import { StudioMusik } from "@/components/vds/StudioMusik";
+import { StudioHoror } from "@/components/vds/StudioHoror";
 import { GerbangLayar, TombolGantiPassword, sudahTerbuka } from "@/components/vds/Gerbang";
 import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
 import {
@@ -73,14 +75,15 @@ export default function Halaman() {
   const [sibukLogo, setSibukLogo] = useState(false);
   const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({ paralel: 2, pakaiGpu: true });
   // v0.10.0 — sakelar Mode Video / Mode Musik (Studio Musik)
-  const [mode, setMode] = useState<"video" | "musik">("video");
+  // v0.25.0 — mode ketiga: Studio Horor (AI Cerita Horor)
+  const [mode, setMode] = useState<"video" | "musik" | "horor">("video");
   useEffect(() => {
     try {
       const m = localStorage.getItem("vidsplit-mode-v1");
-      if (m === "musik" || m === "video") setMode(m);
+      if (m === "musik" || m === "video" || m === "horor") setMode(m);
     } catch { /* abaikan */ }
   }, []);
-  const gantiMode = (m: "video" | "musik") => {
+  const gantiMode = (m: "video" | "musik" | "horor") => {
     setMode(m);
     try { localStorage.setItem("vidsplit-mode-v1", m); } catch { /* abaikan */ }
   };
@@ -435,11 +438,23 @@ export default function Halaman() {
           >
             <Music className="h-4 w-4" /> Mode Musik
           </button>
+          <button
+            type="button"
+            onClick={() => gantiMode("horor")}
+            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
+              mode === "horor" ? "bg-amber-400 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            }`}
+          >
+            <Ghost className="h-4 w-4" /> Mode Cerita
+          </button>
         </div>
       </header>
 
       {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
       {mode === "musik" && <StudioMusik onKirimKeVideo={kirimKeVideo} />}
+
+      {/* v0.25.0 — Mode Cerita: Studio Horor (AI cerita + narasi + musik + video) */}
+      {mode === "horor" && <StudioHoror onKirimKeVideo={kirimKeVideo} />}
 
       {/* v0.9.1 — DASBOR 3 KOLOM 25% / 50% / 25%:
           KIRI = antrean (muat 15 video) + menu 1 + Ringkasan + Riwayat ekspor ·
