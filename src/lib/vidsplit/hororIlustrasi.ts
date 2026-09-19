@@ -1,9 +1,12 @@
-// VidSplit v0.26.0 — ILUSTRATOR KOMIK HOROR (AI lokal, 100% offline):
-// adegan SVG prosedural bergaya panel komik — bulan, awan, pohon mati, rumah
-// berhantu, pagar, nisan, kabut, sosok, gagak, petir. Deterministik per seed,
-// mengikuti palet tema visual. Ditempel ke dalam SVG halaman (teksLayar) lalu
-// dirender resvg — tanpa internet, tanpa model besar, bebas hak cipta.
-import { type TemaHoror } from "./hororRender";
+// VidSplit v0.26.0 — ILUSTRATOR KOMIK (AI lokal, 100% offline):
+// adegan SVG prosedural bergaya panel komik — bulan/matahari, awan, pohon mati,
+// rumah berhantu, pagar, nisan, kabut, sosok, gagak, petir. v0.29.0: adegan BARU
+// gunung/laut/kota utk genre dongeng/motivasi/fakta/misteri + mode CERAH
+// (matahari, tanpa gagak/petir, kabut tipis). Deterministik per seed, ikut palet
+// tema. Ditempel ke dalam SVG halaman (teksLayar) lalu dirender resvg — tanpa
+// internet, tanpa model besar, bebas hak cipta.
+import type { TemaHoror } from "./hororRender";
+import type { GenreId } from "./videoAi";
 
 function prng(seed: number): () => number {
   let s = (seed || 1) >>> 0;
@@ -17,10 +20,21 @@ function prng(seed: number): () => number {
 
 export const JENIS_ADEGAN = [
   "eksterior-rumah", "pemakaman", "hutan", "kamar", "lorong", "sosok",
+  "gunung", "laut", "kota",
 ] as const;
 export type JenisAdegan = (typeof JENIS_ADEGAN)[number];
 
-interface Ctx { w: number; h: number; r: () => number; tema: TemaHoror; ambient: boolean }
+/** v0.29.0 — daftar adegan per genre (urutan mengikuti suasana) */
+export const ADEGAN_GENRE: Record<GenreId, JenisAdegan[]> = {
+  horor: ["eksterior-rumah", "pemakaman", "hutan", "kamar", "lorong", "sosok"],
+  misteri: ["lorong", "kota", "kamar", "eksterior-rumah", "hutan", "sosok"],
+  legenda: ["gunung", "hutan", "eksterior-rumah", "laut", "sosok"],
+  dongeng: ["gunung", "laut", "hutan", "eksterior-rumah"],
+  motivasi: ["gunung", "laut", "kota"],
+  fakta: ["kota", "gunung", "laut", "lorong"],
+};
+
+interface Ctx { w: number; h: number; r: () => number; tema: TemaHoror; ambient: boolean; cerah: boolean }
 
 // ---------- elemen ----------
 function langit(c: Ctx): string {
@@ -37,6 +51,14 @@ function bulan(c: Ctx): string {
   const x = c.w * (0.18 + r() * 0.5);
   const y = c.h * (0.1 + r() * 0.12);
   const R = Math.min(c.w, c.h) * (0.055 + r() * 0.035);
+  if (c.cerah) {
+    // v0.29.0 — matahari utk genre cerah (dongeng/motivasi/fakta)
+    return `
+  <circle cx="${x}" cy="${y}" r="${R * 2.8}" fill="${c.tema.aksen}" opacity="0.14"/>
+  <circle cx="${x}" cy="${y}" r="${R * 1.9}" fill="${c.tema.aksen}" opacity="0.22"/>
+  <circle cx="${x}" cy="${y}" r="${R}" fill="#ffe9b8" opacity="0.96"/>
+  <circle cx="${x}" cy="${y}" r="${R * 0.72}" fill="#fff6df" opacity="0.85"/>`;
+  }
   return `
   <circle cx="${x}" cy="${y}" r="${R * 2.6}" fill="${c.tema.aksen}" opacity="0.10"/>
   <circle cx="${x}" cy="${y}" r="${R * 1.7}" fill="${c.tema.aksen}" opacity="0.16"/>
@@ -214,7 +236,7 @@ function sosok(c: Ctx): string {
 }
 
 function gagak(c: Ctx): string {
-  if (c.ambient) return "";
+  if (c.ambient || c.cerah) return ""; // v0.29.0: genre cerah tanpa gagak
   const r = c.r;
   let s = "";
   const n = 1 + Math.floor(r() * 3);
@@ -229,18 +251,19 @@ function gagak(c: Ctx): string {
 function kabut(c: Ctx): string {
   const r = c.r;
   let s = "";
-  const n = c.ambient ? 3 : 4 + Math.floor(r() * 3);
+  const n = c.ambient ? 3 : c.cerah ? 2 : 4 + Math.floor(r() * 3);
+  const opsiDasar = c.cerah ? 0.04 : 0.05;
   for (let i = 0; i < n; i++) {
     const y = c.h * (0.6 + i * 0.07 + r() * 0.03);
     const w = c.w * (0.5 + r() * 0.6);
     const x = r() * c.w;
-    s += `<ellipse cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" rx="${w.toFixed(0)}" ry="${(c.h * (0.028 + r() * 0.03)).toFixed(0)}" fill="#aeb6c4" opacity="${(0.05 + r() * 0.09).toFixed(2)}"/>`;
+    s += `<ellipse cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" rx="${w.toFixed(0)}" ry="${(c.h * (0.028 + r() * 0.03)).toFixed(0)}" fill="#aeb6c4" opacity="${(opsiDasar + r() * (c.cerah ? 0.05 : 0.09)).toFixed(2)}"/>`;
   }
   return s;
 }
 
 function petir(c: Ctx): string {
-  if (c.ambient || c.r() > 0.5) return "";
+  if (c.ambient || c.cerah || c.r() > 0.5) return ""; // v0.29.0: genre cerah tanpa petir
   const r = c.r;
   const x0 = c.w * (0.2 + r() * 0.6);
   let x = x0, y = 0;
@@ -269,11 +292,13 @@ export interface OpsiAdegan {
   tema: TemaHoror;
   /** ambient = variasi redup utk halaman narasi (teks tetap terbaca) */
   ambient?: boolean;
+  /** v0.29.0 — genre cerah: matahari, tanpa gagak/petir, kabut tipis */
+  cerah?: boolean;
 }
 
 /** Markup SVG adegan (TANPA wrapper <svg>) — ditempel di dalam SVG halaman */
 export function svgAdegan(o: OpsiAdegan): string {
-  const c: Ctx = { w: o.lebar, h: o.tinggi, r: prng(o.seed >>> 0), tema: o.tema, ambient: !!o.ambient };
+  const c: Ctx = { w: o.lebar, h: o.tinggi, r: prng(o.seed >>> 0), tema: o.tema, ambient: !!o.ambient, cerah: !!o.cerah };
   const bagian: string[] = [langit(c), bintang(c), bulan(c), awan(c)];
   switch (o.jenis) {
     case "eksterior-rumah": bagian.push(hutan(c), rumah(c)); break;
@@ -282,13 +307,111 @@ export function svgAdegan(o: OpsiAdegan): string {
     case "kamar": bagian.push(kamar(c)); break;
     case "lorong": bagian.push(lorong(c)); break;
     case "sosok": bagian.push(hutan(c), sosok(c)); break;
+    case "gunung": bagian.push(gunung(c)); break;
+    case "laut": bagian.push(laut(c)); break;
+    case "kota": bagian.push(kota(c)); break;
   }
   bagian.push(gagak(c), kabut(c), petir(c));
   return bagian.join("");
 }
 
-/** petik jenis adegan utk bab ke-i (berulang dgn urutan beragam) */
-export function jenisAdeganBab(i: number, seed: number): JenisAdegan {
+// ---------- v0.29.0 — adegan baru utk genre non-horor ----------
+
+/** gunung: beberapa punggungan berlapis + jalur puncak + burung kecil */
+function gunung(c: Ctx): string {
+  const r = c.r;
+  let s = "";
+  const warna = ["#161a24", "#10131c", "#0a0c12"];
+  const nPunggung = 3;
+  for (let l = 0; l < nPunggung; l++) {
+    const yDasar = c.h * (0.66 + l * 0.09);
+    const tinggi = c.h * (0.3 - l * 0.06) * (0.85 + r() * 0.3);
+    let d = `M -10 ${c.h + 10} L -10 ${yDasar.toFixed(0)} `;
+    const puncakX = c.w * (0.2 + r() * 0.6);
+    d += `L ${puncakX.toFixed(0)} ${(yDasar - tinggi).toFixed(0)} `;
+    d += `L ${c.w + 10} ${yDasar.toFixed(0)} L ${c.w + 10} ${c.h + 10} Z`;
+    s += `<path d="${d}" fill="${warna[l]}" opacity="${(0.9 - l * 0.12).toFixed(2)}"/>`;
+    // salju/cahaya di puncak punggung terdepan
+    if (l === nPunggung - 1) {
+      s += `<polygon points="${(puncakX - c.w * 0.03).toFixed(0)},${(yDasar - tinggi * 0.82).toFixed(0)} ${puncakX.toFixed(0)},${(yDasar - tinggi).toFixed(0)} ${(puncakX + c.w * 0.03).toFixed(0)},${(yDasar - tinggi * 0.82).toFixed(0)}" fill="${c.tema.aksen}" opacity="0.35"/>`;
+    }
+  }
+  // jalur pendakian halus
+  s += `<path d="M ${(c.w * 0.48).toFixed(0)} ${c.h * 0.95} Q ${(c.w * 0.52).toFixed(0)} ${(c.h * 0.8).toFixed(0)} ${(c.w * 0.56).toFixed(0)} ${(c.h * 0.68).toFixed(0)}" fill="none" stroke="${c.tema.aksen}" stroke-width="2" opacity="0.25"/>`;
+  // burung kecil
+  if (!c.ambient) {
+    const n = 2 + Math.floor(r() * 3);
+    for (let i = 0; i < n; i++) {
+      const bx = r() * c.w, by = c.h * (0.18 + r() * 0.18), bw = c.w * 0.011;
+      s += `<path d="M ${(bx - bw).toFixed(0)} ${by.toFixed(0)} Q ${bx.toFixed(0)} ${(by - bw * 0.8).toFixed(0)} ${(bx + bw).toFixed(0)} ${by.toFixed(0)}" fill="none" stroke="#0b0d12" stroke-width="2"/>`;
+    }
+  }
+  return s;
+}
+
+/** laut: horizon, pantulan matahari/bulan, ombak, perahu kecil */
+function laut(c: Ctx): string {
+  const r = c.r;
+  const yHor = c.h * (0.58 + r() * 0.05);
+  let s = `<rect x="0" y="${yHor.toFixed(0)}" width="${c.w}" height="${(c.h - yHor).toFixed(0)}" fill="#0a0f16"/>`;
+  s += `<line x1="0" y1="${yHor.toFixed(0)}" x2="${c.w}" y2="${yHor.toFixed(0)}" stroke="#1c2531" stroke-width="2"/>`;
+  // pantulan cahaya vertikal
+  const cx = c.w * (0.3 + r() * 0.4);
+  const warnaPantul = c.cerah ? c.tema.aksen : "#e8e4d4";
+  for (let i = 0; i < 7; i++) {
+    const wy = yHor + c.h * (0.03 + i * 0.045);
+    const ww = c.w * (0.1 + r() * 0.08) * (1 - i * 0.07);
+    s += `<rect x="${(cx - ww / 2).toFixed(0)}" y="${wy.toFixed(0)}" width="${ww.toFixed(0)}" height="${(c.h * 0.012).toFixed(0)}" rx="${(c.h * 0.006).toFixed(0)}" fill="${warnaPantul}" opacity="${(0.3 - i * 0.03).toFixed(2)}"/>`;
+  }
+  // ombak
+  const nOmbak = c.ambient ? 5 : 9;
+  for (let i = 0; i < nOmbak; i++) {
+    const ox = r() * c.w, oy = yHor + c.h * (0.05 + r() * 0.3), ow = c.w * (0.1 + r() * 0.2);
+    s += `<path d="M ${(ox - ow).toFixed(0)} ${oy.toFixed(0)} Q ${ox.toFixed(0)} ${(oy - c.h * 0.012).toFixed(0)} ${(ox + ow).toFixed(0)} ${oy.toFixed(0)}" fill="none" stroke="#18212e" stroke-width="${(c.w * 0.003).toFixed(1)}" opacity="0.7"/>`;
+  }
+  // perahu kecil (bukan saat ambient)
+  if (!c.ambient) {
+    const px = c.w * (0.24 + r() * 0.5), py = yHor + c.h * 0.12;
+    const pw = c.w * 0.07;
+    s += `<path d="M ${(px - pw).toFixed(0)} ${py.toFixed(0)} L ${(px + pw).toFixed(0)} ${py.toFixed(0)} L ${(px + pw * 0.55).toFixed(0)} ${(py + pw * 0.3).toFixed(0)} L ${(px - pw * 0.55).toFixed(0)} ${(py + pw * 0.3).toFixed(0)} Z" fill="#06080c"/>`;
+    s += `<line x1="${px.toFixed(0)}" y1="${py.toFixed(0)}" x2="${px.toFixed(0)}" y2="${(py - pw * 0.9).toFixed(0)}" stroke="#06080c" stroke-width="3"/>`;
+    s += `<polygon points="${px.toFixed(0)},${(py - pw * 0.9).toFixed(0)} ${(px + pw * 0.7).toFixed(0)},${(py - pw * 0.1).toFixed(0)} ${px.toFixed(0)},${(py - pw * 0.1).toFixed(0)}" fill="${c.tema.aksen}" opacity="0.5"/>`;
+  }
+  return s;
+}
+
+/** kota: siluet gedung + jendela menyala + antena + bulan/matahari di atas */
+function kota(c: Ctx): string {
+  const r = c.r;
+  let s = "";
+  let x = 0;
+  while (x < c.w) {
+    const bw = c.w * (0.06 + r() * 0.08);
+    const bh = c.h * (0.14 + r() * 0.3);
+    const by = c.h * 0.82 - bh;
+    s += `<rect x="${x.toFixed(0)}" y="${by.toFixed(0)}" width="${bw.toFixed(0)}" height="${(bh + c.h * 0.2).toFixed(0)}" fill="#0a0c11"/>`;
+    // antena di gedung tinggi
+    if (bh > c.h * 0.3 && r() > 0.5) {
+      s += `<line x1="${(x + bw / 2).toFixed(0)}" y1="${by.toFixed(0)}" x2="${(x + bw / 2).toFixed(0)}" y2="${(by - c.h * 0.04).toFixed(0)}" stroke="#0a0c11" stroke-width="2"/>`;
+      s += `<circle cx="${(x + bw / 2).toFixed(0)}" cy="${(by - c.h * 0.04).toFixed(0)}" r="2.5" fill="${c.tema.aksen}" opacity="0.8"/>`;
+    }
+    // jendela
+    const nJ = Math.floor(bw / (c.w * 0.018));
+    for (let j = 0; j < nJ; j++) {
+      for (let k = 0; k < Math.floor(bh / (c.h * 0.045)); k++) {
+        if (r() > 0.72) {
+          s += `<rect x="${(x + c.w * 0.008 + j * c.w * 0.018).toFixed(0)}" y="${(by + c.h * 0.018 + k * c.h * 0.045).toFixed(0)}" width="${(c.w * 0.008).toFixed(0)}" height="${(c.h * 0.018).toFixed(0)}" fill="${c.tema.aksen}" opacity="${(0.25 + r() * 0.5).toFixed(2)}"/>`;
+        }
+      }
+    }
+    x += bw + c.w * 0.008;
+  }
+  return s;
+}
+
+/** petik jenis adegan utk bab ke-i (berulang dgn urutan beragam) — v0.29.0: ikut genre */
+export function jenisAdeganBab(i: number, seed: number, genre?: GenreId | null): JenisAdegan {
+  const daftar = (genre && ADEGAN_GENRE[genre]) || ADEGAN_GENRE.horor;
   const r = prng((seed ^ (i * 2654435761)) >>> 0);
-  return JENIS_ADEGAN[Math.floor(r() * JENIS_ADEGAN.length) % JENIS_ADEGAN.length];
+  return daftar[Math.floor(r() * daftar.length) % daftar.length];
 }

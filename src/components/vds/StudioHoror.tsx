@@ -1,17 +1,18 @@
 "use client";
 
-// VidSplit v0.25.0 — STUDIO HOROR: mode ketiga. AI cerita horor offline ->
-// skrip bisa diedit -> pembaca skrip (TTS bawaan Windows) -> musik horor sintesis
-// (volume diatur) -> video ilustrasi (kabut/grain/kilat) -> kirim ke Mode Video.
+// VidSplit v0.25.0 — STUDIO: mode ketiga. v0.29.0 — AI VIDEO GENERATOR: dari ide
+// apa pun + pilih genre (horor, misteri, legenda, dongeng, motivasi, fakta) ->
+// naskah AI offline -> ilustrasi -> pembaca skrip AI Neural -> musik -> video.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  BookOpen, Download, Film, Ghost, Loader2, Mic, Music2, Play,
-  RefreshCw, Send, Sparkles, Volume2, Wand2,
+  BookOpen, Download, Film, Ghost, Landmark, Loader2, Mic, Music2, Play,
+  RefreshCw, Search, Send, Sparkles, Sunrise, Telescope, Volume2, Wand2,
 } from "lucide-react";
 import { Kartu } from "@/components/vds/bits";
 import type { Cerita } from "@/lib/vidsplit/hororCerita";
 import type { InfoJobHoror } from "@/lib/vidsplit/hororJobs";
+import { GENRE, type GenreId } from "@/lib/vidsplit/videoAi";
 
 const KUNCI_ATUR = "vidsplit-horor-v2";
 
@@ -29,6 +30,11 @@ const TEMA_CERITA: { id: TemaCerita; nama: string }[] = [
   { id: "acak", nama: "Acak" }, { id: "rumah", nama: "Rumah" },
   { id: "sekolah", nama: "Sekolah" }, { id: "kantor", nama: "Kantor" }, { id: "desa", nama: "Desa" },
 ];
+// v0.29.0 — ikon genre (AI Video Generator)
+const IKON_GENRE: Record<GenreId, React.ComponentType<{ className?: string }>> = {
+  horor: Ghost, misteri: Search, legenda: Landmark,
+  dongeng: BookOpen, motivasi: Sunrise, fakta: Telescope,
+};
 const PANJANG: { id: PanjangCerita; nama: string; ket: string }[] = [
   { id: "pendek", nama: "Pendek", ket: "3 bab" }, { id: "sedang", nama: "Sedang", ket: "5 bab" },
   { id: "panjang", nama: "Panjang", ket: "5 bab + epilog" },
@@ -42,6 +48,8 @@ const INTENSITAS: { id: Intensitas; nama: string }[] = [
 const TEMA_VISUAL: { id: string; nama: string }[] = [
   { id: "kelam", nama: "Kelam Api" }, { id: "kabut", nama: "Kabut Sawah" },
   { id: "darah", nama: "Darah Lama" }, { id: "purnama", nama: "Purnama Biru" },
+  { id: "fajar", nama: "Fajar Harapan" }, { id: "permata", nama: "Permata Dongeng" },
+  { id: "lautteduh", nama: "Laut Teduh" },
 ];
 const MUSIK_SINTELIS = { id: "sintesis", nama: "Sintesis bawaan (tanpa atribusi)" };
 const MUSIK_BUNDEL_UI: { id: string; nama: string; kredit: string }[] = [
@@ -64,6 +72,7 @@ function Chip({ aktif, onClick, children }: { aktif: boolean; onClick: () => voi
 }
 
 export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string, nama: string, ukuran: number) => void }) {
+  const [genre, setGenre] = useState<GenreId>("horor");
   const [temaCerita, setTemaCerita] = useState<TemaCerita>("acak");
   const [panjang, setPanjang] = useState<PanjangCerita>("sedang");
   const [ide, setIde] = useState("");
@@ -106,8 +115,9 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         const a = JSON.parse(m) as Partial<{
           narasi: boolean; kecepatan: number; volumeNarasi: number; intensitas: Intensitas;
           volumeMusik: number; temaVisual: string; rasio: string; resolusi: string;
-          sumberMusik: string; ilustrasi: boolean; mesinNarasi: string;
+          sumberMusik: string; ilustrasi: boolean; mesinNarasi: string; genre: string;
         }>;
+        if (a.genre && GENRE.some((g) => g.id === a.genre)) setGenre(a.genre as GenreId);
         if (typeof a.narasi === "boolean") setNarasi(a.narasi);
         if (a.mesinNarasi === "ai" || a.mesinNarasi === "windows") setMesin(a.mesinNarasi);
         if (a.kecepatan) setKecepatan(Math.min(1.5, Math.max(0.6, a.kecepatan)));
@@ -129,6 +139,14 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
       localStorage.setItem(KUNCI_ATUR, JSON.stringify({ ...lama, ...ubah }));
     } catch { /* abaikan */ }
   }, []);
+
+  // v0.29.0 — pilih genre: tema visual otomatis ikut suasana genre
+  const pilihGenre = useCallback((id: GenreId) => {
+    setGenre(id);
+    simpanAtur({ genre: id });
+    const g = GENRE.find((x) => x.id === id);
+    if (g) { setTemaVisual(g.temaVisual); simpanAtur({ temaVisual: g.temaVisual }); }
+  }, [simpanAtur]);
 
   // daftar suara TTS (v0.27.0: TIDAK lagi mematikan narasi otomatis saat
   // pendeteksian gagal/timeout — render tetap mencoba 3 jalur TTS berbeda)
@@ -167,7 +185,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     try {
       const r = await fetch("/api/horor/cerita", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tema: temaCerita, panjang, seed: seedBaru, ide: ide.trim() || undefined }),
+        body: JSON.stringify({ genre, tema: temaCerita, panjang, seed: seedBaru, ide: ide.trim() || undefined }),
       });
       const j = (await r.json()) as { ok: boolean; cerita?: Cerita; error?: string };
       if (j.ok && j.cerita) {
@@ -243,7 +261,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
       const r = await fetch("/api/horor/render", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          cerita, judul: cerita.judul, narasi,
+          cerita, judul: cerita.judul, genreId: genre, narasi,
           mesinNarasi: mesin,
           kecepatanNarasi: kecepatan, volumeNarasi,
           suaraNarasi: suara || undefined,
@@ -275,11 +293,11 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
       <div className="flex items-center justify-between">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
-            <Ghost className="h-5 w-5 text-rose-400" /> Studio Cerita Horor
-            <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300">AI v0.28.0</span>
+            <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.29.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
-            100% offline: cerita dibuat mesin AI lokal, dibacakan suara bawaan perangkat AI Voice Generator neural + 3 jalur cadangan + tombol Uji Suara, musik horor bebas hak cipta.
+            100% offline: tulis ide → pilih genre (horor, misteri, legenda, dongeng, motivasi, fakta) → naskah + ilustrasi + narasi AI Voice Generator neural + musik → video siap unggah.
           </p>
         </div>
       </div>
@@ -288,8 +306,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         {/* ============ KIRI: CERITA & SKRIP ============ */}
         <div className="space-y-4">
           <Kartu
-            judul="1. Buat Cerita (AI offline)"
-            deskripsi="Tulis ide ceritamu (opsional) — kata kuncinya diikuti AI: lokasi, benda, penampakan, tema. Lalu biarkan mesin cerita menulis."
+            judul="1. Buat Video dari Ide (AI offline)"
+            deskripsi="Tulis ide apa pun, pilih genre — mesin AI lokal menulis naskah lengkap: lokasi, tokoh, kejadian, sampai akhir cerita. Kata kuncinya diikuti AI."
             ikon={<Sparkles className="h-4 w-4" />}
           >
             <textarea
@@ -299,6 +317,19 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
               placeholder="Contoh: anak yang pindah ke rumah dekat sumur tua, ada boneka misterius…"
               className="w-full resize-y rounded-xl border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
             />
+            <div className="mt-3 flex flex-wrap gap-2">
+              {GENRE.map((g) => {
+                const Ikon = IKON_GENRE[g.id];
+                return (
+                  <Chip key={g.id} aktif={genre === g.id} onClick={() => pilihGenre(g.id)}>
+                    <span className="inline-flex items-center gap-1.5"><Ikon className="h-3.5 w-3.5" /> {g.nama}</span>
+                  </Chip>
+                );
+              })}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              {GENRE.find((g) => g.id === genre)?.ket} — tema visual & musik otomatis mengikuti genre.
+            </p>
             <div className="mt-3 flex flex-wrap gap-2">
               {TEMA_CERITA.map((t) => (
                 <Chip key={t.id} aktif={temaCerita === t.id} onClick={() => setTemaCerita(t.id)}>{t.nama}</Chip>
@@ -418,8 +449,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
           </Kartu>
 
           <Kartu
-            judul="4. Musik Horor (backsound)"
-            deskripsi="Sintesis bawaan dibuat sendiri (bebas total). Trek MP3 bebas-dipakai CC-BY (kredit tampil otomatis). Bisa juga impormu sendiri."
+            judul="4. Musik (backsound)"
+            deskripsi="Sintesis bawaan mengikuti suasana genre — gelap utk horor/misteri/legenda, hangat utk dongeng/motivasi/fakta. Trek CC-BY & impormu sendiri tetap bisa."
             ikon={<Music2 className="h-4 w-4" />}
           >
             <div className="flex flex-wrap gap-2">
@@ -432,7 +463,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             <input id="unggah-musik-horor" type="file" accept="audio/*" className="hidden"
               onChange={(e) => { void unggahMusikPilihan(e.target.files?.[0]); e.currentTarget.value = ""; }} />
             <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-              {sumberMusik === "sintesis" && "Musik disintesis langsung di aplikasi — drone, detak jantung, bisikan, stinger. 100% bebas hak cipta."}
+              {sumberMusik === "sintesis" && "Musik disintesis langsung di aplikasi — pad akor, arpeggio & suasana sesuai genre. 100% bebas hak cipta."}
               {sumberMusik === "horor-ambient" && "Kredit: \u201CHorror Ambient\u201D oleh Vinrax — CC-BY 3.0 (opengameart.org)."}
               {sumberMusik === "gedung" && "Kredit: \u201CAbandoned Building Ambience\u201D oleh tcarisland — CC-BY 3.0 (opengameart.org)."}
               {sumberMusik === "kedalaman" && "Kredit: \u201CDepth of Despair\u201D oleh Tsorthan Grove — CC-BY 4.0 (opengameart.org)."}
@@ -456,7 +487,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
           <Kartu
             judul="5. Video Ilustrasi"
-            deskripsi="Ilustrasi komik prosedural (rumah berhantu, pemakaman, hutan, sosok) + kabut digital + kilat + teks narasi."
+            deskripsi="Ilustrasi komik prosedural sesuai genre (rumah berhantu, kota, gunung, laut) + kabut digital + teks narasi."
             ikon={<Film className="h-4 w-4" />}
           >
             <label className="flex items-center justify-between">
@@ -481,8 +512,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             </div>
 
             <button type="button" disabled={!cerita || (!!jobId && !job?.selesai)} onClick={buatVideo}
-              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:opacity-50">
-              <Ghost className="h-4 w-4" /> {jobId && !job?.selesai ? "Sedang merender…" : "Buat Video Horor"}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:opacity-50">
+              <Wand2 className="h-4 w-4" /> {jobId && !job?.selesai ? "Sedang merender…" : "Buat Video AI"}
             </button>
 
             {job && !job.selesai && (

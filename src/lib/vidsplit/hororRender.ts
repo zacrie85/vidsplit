@@ -8,6 +8,7 @@ import type { Cerita } from "./hororCerita";
 import { estimasiDurasi } from "./hororCerita";
 import type { IntensitasHoror } from "./hororMusik";
 import { jenisAdeganBab, type JenisAdegan } from "./hororIlustrasi";
+import { ambilGenre, type GenreId } from "./videoAi";
 
 export interface TemaHoror {
   id: string;
@@ -26,6 +27,10 @@ export const TEMA_HOROR: TemaHoror[] = [
   { id: "kabut", nama: "Kabut Sawah", grad: ["#0b1210", "#1c2b24"], aksen: "#8fb996", teks: "#dfe8e0", grain: 10, kilat: 2 },
   { id: "darah", nama: "Darah Lama", grad: ["#120608", "#2a0d12"], aksen: "#ff5c5c", teks: "#f2dede", grain: 8, kilat: 5 },
   { id: "purnama", nama: "Purnama Biru", grad: ["#070d1a", "#101c33"], aksen: "#7fb0ff", teks: "#dde8f7", grain: 6, kilat: 2 },
+  // v0.29.0 — tema visual utk genre cerah (tanpa kilat, grain halus)
+  { id: "fajar", nama: "Fajar Harapan", grad: ["#1a0f0a", "#4a2413"], aksen: "#ffb454", teks: "#f7ead9", grain: 3, kilat: 0 },
+  { id: "permata", nama: "Permata Dongeng", grad: ["#0d0a1a", "#241533"], aksen: "#c9a6ff", teks: "#efe6ff", grain: 3, kilat: 0 },
+  { id: "lautteduh", nama: "Laut Teduh", grad: ["#06121a", "#0f2b3a"], aksen: "#5fd4c8", teks: "#dff4f2", grain: 3, kilat: 0 },
 ];
 
 export type RasioHoror = "9:16" | "16:9";
@@ -56,6 +61,8 @@ export interface OpsiRenderHoror {
   ilustrasi?: boolean;
   /** v0.28.0 — mesin suara pembaca: "ai" (Piper neural, disarankan) | "windows" (SAPI) */
   mesinNarasi?: "ai" | "windows";
+  /** v0.29.0 — genre AI Video Generator (bawaan: ikut cerita.genre / horor) */
+  genreId?: GenreId;
 }
 
 export interface HalamanRencana {
@@ -79,11 +86,14 @@ export function rencanaHoror(cerita: Cerita, opsi: OpsiRenderHoror, durasiParagr
   const halaman: HalamanRencana[] = [];
   const judul = (opsi.judul || cerita.judul).trim();
   const pakaiIlustrasi = opsi.ilustrasi !== false;
+  // v0.29.0 — genre: opsi eksplisit > cerita.genre > horor; adegan & label ikut genre
+  const genreAdegan = (opsi.genreId ?? (cerita.genre as GenreId | undefined) ?? "horor") as GenreId;
+  const gInfo = ambilGenre(genreAdegan);
   const adegan = (i: number, penuh: boolean): { adeganJenis?: JenisAdegan | null; adeganSeed?: number; adeganPenuh?: boolean } =>
     pakaiIlustrasi
-      ? { adeganJenis: jenisAdeganBab(i, cerita.seed), adeganSeed: (cerita.seed ^ (i * 2246822519)) >>> 0, adeganPenuh: penuh }
+      ? { adeganJenis: jenisAdeganBab(i, cerita.seed, genreAdegan), adeganSeed: (cerita.seed ^ (i * 2246822519)) >>> 0, adeganPenuh: penuh }
       : {};
-  halaman.push({ besar: judul, label: "Sebuah Cerita Horor", skala: 1.25, durasi: 7, wav: null, ...adegan(0, true) });
+  halaman.push({ besar: judul, label: gInfo.labelJudul, skala: 1.25, durasi: 7, wav: null, ...adegan(0, true) });
   cerita.bab.forEach((bab, i) => {
     halaman.push({ besar: bab.judul, label: `BAB ${i + 1}`, skala: 1.1, durasi: 3.5, wav: null, ...adegan(i + 1, true) });
     bab.paragraf.forEach((p, j) => {

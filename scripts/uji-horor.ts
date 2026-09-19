@@ -1,6 +1,6 @@
 // VidSplit v0.27.0 — uji smoke cepat mesin horor (cerita, musik, halaman, chunk, args, TTS)
 import { buatCerita, estimasiDurasi } from "../src/lib/vidsplit/hororCerita";
-import { sintesisMusikHoror } from "../src/lib/vidsplit/hororMusik";
+import { sintesisMusikHoror, sintesisMusikGenre, sintesisMusikHangat } from "../src/lib/vidsplit/hororMusik";
 import { renderHalamanPng, bungkusTeks, bacaTtf, lebarTeks } from "../src/lib/vidsplit/teksLayar";
 import { buatNarasiWav, ujiTts, ekspresiVbs, durasiWav, piperSiap } from "../src/lib/vidsplit/hororTts";
 import { statSync, writeFileSync } from "node:fs";
@@ -45,6 +45,28 @@ const ci2 = buatCerita({ panjang: "sedang", seed: 5, ide: "misteri sekolah beras
 ok(ci2.tema === "sekolah", `tema dari ide = sekolah (${ci2.tema})`);
 ok(estimasiDurasi("satu dua tiga empat lima enam") >= 6, "estimasi durasi >= 6 dtk");
 
+console.log("== 1c. Genre AI Video Generator (v0.29.0) ==");
+const gm = buatCerita({ genre: "misteri", panjang: "sedang", seed: 11 });
+ok(gm.genre === "misteri", "cerita misteri menandai genre");
+ok(gm.bab.length === 5 && gm.bab[gm.bab.length - 1].judul === "Terjawab", "bab akhir misteri = Terjawab");
+const gd = buatCerita({ genre: "dongeng", panjang: "pendek", seed: 3 });
+ok(gd.bab[gd.bab.length - 1].judul === "Tamat Cerita", "bab akhir dongeng = Tamat Cerita");
+ok(buatCerita({ genre: "legenda", panjang: "sedang", seed: 8 }).bab[4].judul === "Hikmah", "bab akhir legenda = Hikmah");
+ok(buatCerita({ genre: "motivasi", panjang: "sedang", seed: 8 }).bab[4].judul === "Pelajaran", "bab akhir motivasi = Pelajaran");
+ok(buatCerita({ genre: "fakta", panjang: "sedang", seed: 8 }).bab[4].judul === "Terpesona", "bab akhir fakta = Terpesona");
+for (const g of ["horor", "misteri", "legenda", "dongeng", "motivasi", "fakta"] as const) {
+  const a = buatCerita({ genre: g, panjang: "bab10", seed: 21 });
+  const b2 = buatCerita({ genre: g, panjang: "bab10", seed: 21 });
+  const ps = a.bab.flatMap((b) => b.paragraf);
+  ok(JSON.stringify(a) === JSON.stringify(b2), `genre ${g}: deterministik`);
+  ok(new Set(ps).size >= ps.length * 0.75, `genre ${g}: 10 bab tak repetitif`);
+  ok(a.bab.every((b) => b.paragraf.every((p) => p.length > 40)), `genre ${g}: paragraf wajar`);
+}
+ok(JSON.stringify(buatCerita({ genre: "bukan" as never, panjang: "pendek", seed: 5 })) === JSON.stringify(buatCerita({ panjang: "pendek", seed: 5 })), "genre tak dikenal jatuh ke horor");
+const gm2 = buatCerita({ genre: "misteri", panjang: "sedang", seed: 2, ide: "surat tanpa pengirim di perpustakaan tua" });
+ok(gm2.bab[0].paragraf[0].includes("perpustakaan"), "ide landmark genre (perpustakaan) masuk cerita");
+ok(gm2.bab.flatMap((b) => b.paragraf).some((p) => p.includes("surat") || p.includes("berkas") || p.includes("amplop")), "ide kata kunci genre masuk benda/kejadian");
+
 console.log("== 2. Musik horor ==");
 const m1 = sintesisMusikHoror({ intensitas: "menegangkan", polaDetik: 12, seed: 5 });
 const m1lagi = sintesisMusikHoror({ intensitas: "menegangkan", polaDetik: 12, seed: 5 });
@@ -56,6 +78,18 @@ ok(!m1.equals(m2), "intensitas beda = gelombang beda");
 let puncak = 0;
 for (let i = 44; i < m1.length; i += 997) puncak = Math.max(puncak, Math.abs(m1.readInt16LE(i)));
 ok(puncak > 1000 && puncak < 32767, `puncak amplitudo wajar (${puncak})`);
+
+console.log("== 2b. Musik hangat (v0.29.0: dongeng/motivasi/fakta) ==");
+const mh = sintesisMusikGenre({ intensitas: "santai", polaDetik: 12, seed: 5, mood: "hangat" });
+const mhLagi = sintesisMusikGenre({ intensitas: "santai", polaDetik: 12, seed: 5, mood: "hangat" });
+ok(mh.length === 12 * 44100 * 4 + 44, "musik hangat ukuran PCM pas");
+ok(mh.equals(mhLagi), "musik hangat deterministik");
+ok(!mh.equals(m1), "mood beda = gelombang beda");
+let puncakH = 0;
+for (let i = 44; i < mh.length; i += 997) puncakH = Math.max(puncakH, Math.abs(mh.readInt16LE(i)));
+ok(puncakH > 800 && puncakH < 32767, `puncak amplitudo hangat wajar (${puncakH})`);
+ok(sintesisMusikGenre({ intensitas: "menegangkan", polaDetik: 12, seed: 5 }).equals(sintesisMusikHoror({ intensitas: "menegangkan", polaDetik: 12, seed: 5 })), "dispatcher mood gelap = sintesisMusikHoror");
+ok(sintesisMusikHangat({ polaDetik: 12, seed: 9 }).equals(sintesisMusikGenre({ polaDetik: 12, seed: 9, mood: "hangat" })), "dispatcher mood hangat = sintesisMusikHangat");
 
 console.log("== 3. Halaman teks (resvg) ==");
 const ttf = bacaTtf("assets/fonts/DejaVuSans.ttf");
@@ -74,6 +108,17 @@ ok(adegan.includes("circle") && adegan.includes("polygon"), "adegan berisi eleme
 ok(adegan === adeganLagi, "adegan deterministik");
 ok(svgAdegan({ jenis: "kamar", lebar: 720, tinggi: 1280, seed: 1, tema }) !== svgAdegan({ jenis: "lorong", lebar: 720, tinggi: 1280, seed: 1, tema }), "jenis adegan beda = gambar beda");
 ok(JSON.stringify([jenisAdeganBab(0, 5)]) === JSON.stringify([jenisAdeganBab(0, 5)]), "jenisAdeganBab deterministik");
+
+console.log("== 3c. Ilustrasi genre (v0.29.0) ==");
+const adeganGunung = svgAdegan({ jenis: "gunung", lebar: 720, tinggi: 1280, seed: 42, tema, cerah: true });
+ok(adeganGunung.includes("path") && adeganGunung.includes("polygon"), "adegan gunung berisi punggungan");
+const adeganLaut = svgAdegan({ jenis: "laut", lebar: 720, tinggi: 1280, seed: 42, tema, cerah: true });
+ok(adeganLaut.includes("polygon") && adeganLaut.includes("line"), "adegan laut berisi perahu/ombak");
+const adeganKota = svgAdegan({ jenis: "kota", lebar: 720, tinggi: 1280, seed: 42, tema });
+ok(adeganKota.includes("rect"), "adegan kota berisi gedung");
+ok(svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 1280, seed: 7, tema, cerah: true }) !== svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 1280, seed: 7, tema }), "mode cerah mengubah gambar");
+ok([0, 1, 2, 3, 4, 5, 6, 7].every((i) => ["gunung", "laut", "kota"].includes(jenisAdeganBab(i, 9, "motivasi"))), "jenisAdeganBab motivasi hanya gunung/laut/kota");
+ok([0, 1, 2, 3, 4, 5, 6, 7].every((i) => ["lorong", "kota", "kamar", "eksterior-rumah", "hutan", "sosok"].includes(jenisAdeganBab(i, 9, "misteri"))), "jenisAdeganBab misteri sesuai daftar");
 const pngAdegan = renderHalamanPng({ lebar: 720, tinggi: 1280, besar: "Uji adegan", label: "BAB 1", adeganSvg: adegan, defsSvg: defsAdegan(tema), adeganRedup: 0.75 });
 ok(pngAdegan.length > 20000, `PNG dgn adegan lebih besar (${Math.round(pngAdegan.length / 1024)} KB > 20)`);
 for (const m of MUSIK_BUNDEL) {
@@ -92,6 +137,11 @@ ok(plan.length === 17, `rencana: judul(1)+5 label+10 paragraf+tamat(1) = 17 (${p
 ok(plan.every((h) => h.adeganJenis && h.adeganSeed !== undefined), "semua halaman punya adegan (ilustrasi aktif)");
 const planTanpa = rencanaHoror(c1, { cerita: c1, narasi: false, ilustrasi: false }, durasi, wav);
 ok(planTanpa.every((h) => !h.adeganJenis), "tanpa ilustrasi: tak ada adegan");
+ok(plan[0].label === "Sebuah Cerita Horor", `label judul bawaan horor (${plan[0].label})`);
+const c1M = { ...c1, genre: "misteri" as const };
+const planM = rencanaHoror(c1M, { cerita: c1M, narasi: false, ilustrasi: true, genreId: "misteri" }, durasi, wav);
+ok(planM[0].label === "Sebuah Kisah Misteri", `label judul ikut genre (${planM[0].label})`);
+ok(planM.every((h) => h.adeganJenis && ["lorong", "kota", "kamar", "eksterior-rumah", "hutan", "sosok"].includes(h.adeganJenis)), "adegan rencana misteri sesuai genre");
 const chunk = pecahChunk(plan);
 ok(chunk.flat().length === plan.length, "semua halaman tercakup chunk");
 ok(chunk.every((ch) => ch.length <= 14), "chunk <= 14 halaman");

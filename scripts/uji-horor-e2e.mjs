@@ -60,6 +60,15 @@ cek(jC.ok && jC.cerita?.bab?.length === 3, `cerita dibuat (3 bab, judul: ${jC.ce
 cek(jC.cerita?.tema === "desa", `tema dari ide = desa (${jC.cerita?.tema})`);
 cek(JSON.stringify(jC.cerita).includes("makam") || JSON.stringify(jC.cerita).includes("pemakaman"), "kata kunci ide masuk ke cerita");
 
+// ---- 1b) v0.29.0 — genre AI Video Generator via API ----
+const rG = await fetch(`${BASE}/api/horor/cerita`, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ genre: "motivasi", panjang: "pendek", seed: 77 }),
+});
+const jG = await rG.json();
+cek(jG.ok && jG.cerita?.genre === "motivasi", `API genre motivasi ok (judul: ${jG.cerita?.judul ?? "?"})`);
+cek(jG.cerita?.bab?.[jG.cerita.bab.length - 1]?.judul === "Pelajaran", "bab akhir motivasi = Pelajaran");
+
 // ---- 2) daftar suara + UJI SUARA AI NEURAL (Piper, bila bundel ada di env) ----
 const rS = await fetch(`${BASE}/api/horor/suara`);
 const jS = await rS.json();
@@ -70,7 +79,12 @@ const rAi = await fetch(`${BASE}/api/horor/suara`, {
   body: JSON.stringify({ mesin: "ai" }),
 });
 const jAi = await rAi.json();
-cek(jAi.ok === true && typeof jAi.wav === "string" && jAi.wav.startsWith("data:audio/wav"), `UJI SUARA AI NEURAL lolos (${jAi.metode ?? jAi.galat ?? "-"})`);
+if (jS.adaAi) {
+  cek(jAi.ok === true && typeof jAi.wav === "string" && jAi.wav.startsWith("data:audio/wav"), `UJI SUARA AI NEURAL lolos (${jAi.metode ?? jAi.galat ?? "-"})`);
+} else {
+  // lingkungan uji tanpa bundel Piper (mis. Linux tanpa binari piper) — perilaku benar = galat rapi, bukan crash
+  cek(jAi.ok === false && typeof jAi.galat === "string" && jAi.wav === undefined, `UJI SUARA AI dilewati dgn galat rapi (${jAi.galat ?? "-"})`);
+}
 const rW = await fetch(`${BASE}/api/horor/suara`, {
   method: "POST", headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ mesin: "windows" }),

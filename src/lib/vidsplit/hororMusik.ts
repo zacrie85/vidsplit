@@ -1,9 +1,13 @@
 // VidSplit v0.25.0 — MESIN MUSIK HOROR (sintesis PCM murni, deterministik, 100% bebas
 // hak cipta & offline): drone rendah detune + sub, detak jantung, lapisan bisikan,
 // stinger disonan terjadwal + riser. Pola 60 dtk di-loop ffmpeg (aloop) saat render.
+// v0.29.0 — MOOD HANGAT utk AI Video Generator genre dongeng/motivasi/fakta:
+// pad akor mayor C-G-Am-F + arpeggio pentatonik + bass lembut + shaker halus.
 export const SR_MUSIK = 44100;
 
 export type IntensitasHoror = "santai" | "menegangkan" | "menghantui";
+/** v0.29.0 — suasana musik: gelap (horor/misteri/legenda) | hangat (dongeng/motivasi/fakta) */
+export type MoodMusik = "gelap" | "hangat";
 
 export interface OpsiMusikHoror {
   intensitas?: IntensitasHoror;
@@ -150,4 +154,132 @@ export function sintesisMusikHoror(opsi: OpsiMusikHoror = {}): Buffer {
   h.write("data", 36);
   h.writeUInt32LE(pcm.length, 40);
   return Buffer.concat([h, pcm]);
+}
+
+// ---------- v0.29.0 — MOOD HANGAT (dongeng/motivasi/fakta) ----------
+// pad akor C–G–Am–F (4 dtk/akor) + bass akar + arpeggio pentatonik C mayor +
+// shaker halus. Tidak ada stinger/detak jantung — terasa hangat & penuh harap.
+
+const AKOR_HANGAT: number[][] = [
+  [261.63, 329.63, 392.0],   // C: C4 E4 G4
+  [196.0, 246.94, 293.66],   // G: G3 B3 D4
+  [220.0, 261.63, 329.63],   // Am: A3 C4 E4
+  [174.61, 220.0, 261.63],   // F: F3 A3 C4
+];
+const AKAR_HANGAT = [65.41, 49.0, 55.0, 43.65]; // C2 G1 A1 F1
+const PENTA = [523.25, 587.33, 659.26, 783.99, 880.0]; // C5 D5 E5 G5 A5
+const DTK_AKOR = 4;
+
+function pluckHangat(kiri: Float32Array, kanan: Float32Array, t: number, nada: number, gain: number, kananLebih: boolean): void {
+  const n = Math.floor(0.5 * SR_MUSIK);
+  for (let i = 0; i < n && t + i < kiri.length; i++) {
+    const d = i / SR_MUSIK;
+    const env = Math.min(1, d / 0.004) * Math.exp(-d * 7.5) * gain;
+    const v = Math.sin(2 * Math.PI * nada * d) * env;
+    if (kananLebih) {
+      kiri[t + i] += v * 0.7;
+      kanan[t + i] += v;
+    } else {
+      kiri[t + i] += v;
+      kanan[t + i] += v * 0.7;
+    }
+  }
+}
+
+function shakerHangat(kiri: Float32Array, kanan: Float32Array, t: number, gain: number, noise: () => number): void {
+  const n = Math.floor(0.05 * SR_MUSIK);
+  let hp = 0, hp2 = 0;
+  for (let i = 0; i < n && t + i < kiri.length; i++) {
+    const d = i / SR_MUSIK;
+    const env = Math.exp(-d * 90) * gain;
+    hp2 += (noise() - hp2) * 0.6;
+    hp = hp2 - hp * 0.4; // high-pass sederhana
+    const v = hp * env;
+    kiri[t + i] += v * 0.6;
+    kanan[t + i] += v * 0.6;
+  }
+}
+
+/** Sintesis musik hangat -> WAV PCM16 stereo (deterministik). */
+export function sintesisMusikHangat(opsi: OpsiMusikHoror = {}): Buffer {
+  const total = Math.min(60, Math.max(10, opsi.polaDetik ?? 60));
+  const sampel = Math.floor(total * SR_MUSIK);
+  const kiri = new Float32Array(sampel);
+  const kanan = new Float32Array(sampel);
+  const noise = buatPrng((opsi.seed ?? 77) >>> 0);
+  const r = buatPrng(((opsi.seed ?? 77) ^ 0x2f1a3d5b) >>> 0);
+  // intensitas mengatur kepadatan arpeggio (agar slider tetap berfungsi utk mood hangat)
+  const dens = { santai: 0.5, menegangkan: 0.68, menghantui: 0.85 }[opsi.intensitas ?? "santai"];
+  const gainArp = { santai: 0.085, menegangkan: 0.105, menghantui: 0.125 }[opsi.intensitas ?? "santai"];
+
+  const dtkPer8 = 60 / 92 / 2; // 92 BPM not per-8
+  // --- pad akor + bass ---
+  for (let c = 0; c * DTK_AKOR < total; c++) {
+    const akor = AKOR_HANGAT[c % AKOR_HANGAT.length];
+    const akar = AKAR_HANGAT[c % AKAR_HANGAT.length];
+    const t0 = c * DTK_AKOR * SR_MUSIK;
+    const nAkor = Math.floor(DTK_AKOR * SR_MUSIK);
+    for (let i = 0; i < nAkor && t0 + i < sampel; i++) {
+      const d = i / SR_MUSIK;
+      // amplop: naik 1.1 dtk, turun 0.9 dtk terakhir
+      const env = Math.min(1, d / 1.1) * Math.min(1, (DTK_AKOR - d) / 0.9);
+      let v = 0;
+      for (let k = 0; k < akor.length; k++) {
+        v += Math.sin(2 * Math.PI * akor[k] * d) * 0.5;
+        v += Math.sin(2 * Math.PI * akor[k] * 1.0015 * d) * 0.18; // detune hangat
+      }
+      const bass = Math.sin(2 * Math.PI * akar * d) * 0.55;
+      const vok = (v * 0.16 + bass * 0.22) * env;
+      const sway = 0.94 + 0.06 * Math.sin(2 * Math.PI * 0.09 * d + c);
+      kiri[Math.floor(t0) + i] += vok * sway;
+      kanan[Math.floor(t0) + i] += vok * (2 - sway);
+    }
+    // --- arpeggio pentatonik di atas akor ---
+    const mulai8 = Math.round((c * DTK_AKOR) / dtkPer8);
+    const banyak8 = Math.round(DTK_AKOR / dtkPer8);
+    for (let e = 0; e < banyak8; e++) {
+      if (r() > dens) continue;
+      const t = Math.floor((mulai8 + e) * dtkPer8 * SR_MUSIK);
+      const nada = PENTA[Math.floor(r() * PENTA.length) % PENTA.length];
+      pluckHangat(kiri, kanan, t, nada, gainArp * (0.8 + r() * 0.4), e % 2 === 1);
+    }
+    // --- shaker tiap ketukan ---
+    for (let b = 0; b < Math.round(DTK_AKOR * 92 / 60); b++) {
+      const t = Math.floor((c * DTK_AKOR + (b * 60) / 92) * SR_MUSIK);
+      shakerHangat(kiri, kanan, t, 0.028 + r() * 0.014, noise);
+    }
+  }
+  // --- fade in/out supaya loop mulus ---
+  const fade = Math.floor(0.8 * SR_MUSIK);
+  for (let i = 0; i < fade; i++) {
+    const g = i / fade;
+    kiri[i] *= g; kanan[i] *= g;
+    kiri[sampel - 1 - i] *= g; kanan[sampel - 1 - i] *= g;
+  }
+  const pcm = Buffer.alloc(sampel * 4);
+  for (let i = 0; i < sampel; i++) {
+    const l = Math.min(0.97, Math.max(-0.97, kiri[i] * 0.62));
+    const r2 = Math.min(0.97, Math.max(-0.97, kanan[i] * 0.62));
+    pcm.writeInt16LE(Math.round(l * 32767), i * 4);
+    pcm.writeInt16LE(Math.round(r2 * 32767), i * 4 + 2);
+  }
+  const h = Buffer.alloc(44);
+  h.write("RIFF", 0);
+  h.writeUInt32LE(36 + pcm.length, 4);
+  h.write("WAVEfmt ", 8);
+  h.writeUInt32LE(16, 16);
+  h.writeUInt16LE(1, 20);
+  h.writeUInt16LE(2, 22);
+  h.writeUInt32LE(SR_MUSIK, 24);
+  h.writeUInt32LE(SR_MUSIK * 4, 28);
+  h.writeUInt16LE(4, 32);
+  h.writeUInt16LE(16, 34);
+  h.write("data", 36);
+  h.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([h, pcm]);
+}
+
+/** v0.29.0 — dispatcher mood: hangat -> sintesisMusikHangat, gelap -> sintesisMusikHoror */
+export function sintesisMusikGenre(opsi: OpsiMusikHoror & { mood?: MoodMusik } = {}): Buffer {
+  return opsi.mood === "hangat" ? sintesisMusikHangat(opsi) : sintesisMusikHoror(opsi);
 }

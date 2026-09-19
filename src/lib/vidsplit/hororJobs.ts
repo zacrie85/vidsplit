@@ -7,7 +7,7 @@ import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./bata
 import { dirWork, jalankanFfmpeg, pilihFfmpeg } from "./ffmpeg";
 import type { KeluaranJob } from "./jobs";
 import { buatCerita, estimasiDurasi, type Cerita } from "./hororCerita";
-import { sintesisMusikHoror } from "./hororMusik";
+import { sintesisMusikGenre } from "./hororMusik";
 import { buatNarasiWav, durasiWav } from "./hororTts";
 import { renderHalamanPng } from "./teksLayar";
 import {
@@ -17,6 +17,7 @@ import {
   type OpsiRenderHoror,
 } from "./hororRender";
 import { svgAdegan, defsAdegan } from "./hororIlustrasi";
+import { ambilGenre } from "./videoAi";
 import { slugify } from "./types";
 
 export interface InfoJobHoror {
@@ -55,16 +56,17 @@ export function mulaiRenderHoror(opsi: OpsiHororMasuk): string {
   const id = randomBytes(5).toString("hex");
   const cerita = opsi.cerita ?? buatCerita({ seed: undefined });
   const judul = (opsi.judul || cerita.judul).trim();
+  const genre = ambilGenre(opsi.genreId ?? cerita.genre);
   const job: InfoJobHoror = {
     id, tahap: "narasi", progres: 0, pesan: "Menyiapkan…", judul, outputs: [],
     error: null, selesai: false, batalDiminta: false, dibatalkan: false, dibuat: Date.now(),
   };
   jobs.set(id, job);
-  void jalankanRenderHoror(id, opsi, cerita, judul);
+  void jalankanRenderHoror(id, opsi, cerita, judul, genre);
   return id;
 }
 
-async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cerita, judul: string): Promise<void> {
+async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cerita, judul: string, genre: ReturnType<typeof ambilGenre>): Promise<void> {
   const job = jobs.get(id)!;
   const folderTmp = dirWork(`horor/${id}`);
   const folderOut = dirWork(`output/${id}`);
@@ -91,7 +93,7 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     const ff = await pilihFfmpeg();
 
     // ---- 1) NARASI TTS (0..28) ----
-    ktx.maju("narasi", 2, "Membaca skrip (suara bawaan Windows)…");
+    ktx.maju("narasi", 2, "Membaca skrip…");
     const wavParagraf: (string | null)[][] = [];
     const durasiParagraf: number[][] = [];
     let narasiJadi = 0;
@@ -151,8 +153,8 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
       ktx.maju("narasi", 28, p);
     }
 
-    // ---- 2) MUSIK HOROR (28..34) — sintesis / MP3 bundel CC-BY / impor sendiri ----
-    ktx.maju("musik", 29, "Menyiapkan musik horor…");
+    // ---- 2) MUSIK (28..34) — ikut genre: sintesis / MP3 bundel CC-BY / impor sendiri ----
+    ktx.maju("musik", 29, `Menyiapkan musik ${genre.nama.toLowerCase()}…`);
     const musikAbs = path.join(folderTmp, "musik.wav");
     const bundel = MUSIK_BUNDEL.find((m) => m.id === opsi.sumberMusik);
     let musikSiap = false;
@@ -174,10 +176,11 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
       } catch { musikSiap = false; }
     }
     if (!musikSiap) {
-      await writeFile(musikAbs, sintesisMusikHoror({
-        intensitas: opsi.intensitasMusik ?? "menegangkan",
+      await writeFile(musikAbs, sintesisMusikGenre({
+        intensitas: opsi.intensitasMusik ?? genre.intensitasMusik,
         polaDetik: 60,
         seed: cerita.seed,
+        mood: genre.moodMusik, // v0.29.0: hangat utk dongeng/motivasi/fakta
       }));
     }
 
@@ -191,7 +194,7 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
       const h = rencana[i];
       const pngAbs = path.join(folderTmp, `halaman-${String(i).padStart(3, "0")}.png`);
       const adeganMarkup = h.adeganJenis && h.adeganSeed !== undefined
-        ? svgAdegan({ jenis: h.adeganJenis, lebar, tinggi, seed: h.adeganSeed, tema, ambient: !h.adeganPenuh })
+        ? svgAdegan({ jenis: h.adeganJenis, lebar, tinggi, seed: h.adeganSeed, tema, ambient: !h.adeganPenuh, cerah: genre.cerah })
         : undefined;
       await writeFile(pngAbs, renderHalamanPng({
         lebar, tinggi,
@@ -249,7 +252,7 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     ktx.maju("gabung", 92, "Menggabungkan bagian video…");
     const listAbs = path.join(folderTmp, "concat.txt");
     await writeFile(listAbs, isiListConcat(daftarTs), "utf8");
-    const namaMp4 = `${slugify(`cerita-horor-${judul}`)}.mp4`;
+    const namaMp4 = `${slugify(`video-ai-${judul}`)}.mp4`;
     const mp4Abs = path.join(folderOut, namaMp4);
     await jalankanFfmpeg(buatArgumenConcat(listAbs, mp4Abs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
     const { statSync } = await import("node:fs");
