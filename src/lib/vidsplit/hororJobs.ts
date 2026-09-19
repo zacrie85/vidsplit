@@ -31,6 +31,7 @@ export interface InfoJobHoror {
   batalDiminta: boolean;
   dibatalkan: boolean;
   dibuat: number;
+  peringatan?: string[]; // diagnosa non-fatal (mis. TTS gagal -> musik saja)
 }
 
 const jobs = new Map<string, InfoJobHoror>();
@@ -94,6 +95,10 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     const wavParagraf: (string | null)[][] = [];
     const durasiParagraf: number[][] = [];
     let narasiJadi = 0;
+    let galatNarasiPertama: string | null = null;
+    let metodeNarasi: string | null = null;
+    let gagalBerturut = 0;
+    let cepatHabis = false;
     const totalParagraf = cerita.bab.reduce((s, b) => s + b.paragraf.length, 0);
     for (let i = 0; i < cerita.bab.length; i++) {
       wavParagraf.push([]);
@@ -104,7 +109,10 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
         const wavAbs = path.join(folderTmp, `narasi-${i}-${j}.wav`);
         let ok = false;
         if (opsi.narasi) {
-          ok = await buatNarasiWav(teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs);
+          const hasil = await buatNarasiWav(teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs);
+          ok = hasil.ok;
+          if (hasil.metode) metodeNarasi = hasil.metode;
+          if (!ok && !galatNarasiPertama && hasil.galat) galatNarasiPertama = hasil.galat;
         }
         if (ok) {
           try {
@@ -117,13 +125,22 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
         if (!ok) {
           durasiParagraf[i][j] = 0; // dihitung ulang oleh rencanaHoror (estimasi)
           wavParagraf[i][j] = null;
-        }
+          gagalBerturut++;
+          // TTS memang rusak di perangkat ini -> jangan buang waktu mencoba semua paragraf
+          if (narasiJadi === 0 && gagalBerturut >= 3) { cepatHabis = true; break; }
+        } else gagalBerturut = 0;
         ktx.maju("narasi", 2 + (28 * (wavParagraf.flat().filter(Boolean).length)) / Math.max(1, totalParagraf),
           `Merekam narasi ${Math.min(totalParagraf, wavParagraf.flat().filter(Boolean).length + 1)}/${totalParagraf}…`);
       }
+    if (cepatHabis && i < cerita.bab.length - 1) break;
     }
     const pakaiNarasi = narasiJadi > 0;
-    if (opsi.narasi && !pakaiNarasi) ktx.maju("narasi", 28, "Suara TTS tidak tersedia — lanjut dengan musik saja");
+    if (opsi.narasi && !pakaiNarasi) {
+      const p = `Pembaca skrip tidak menghasilkan suara: ${galatNarasiPertama ?? "TTS tidak tersedia"}. ` +
+        `Video tetap dibuat dengan musik saja. Coba tombol "Uji Suara" di panel Pembaca Skrip untuk melihat penyebabnya.`;
+      job.peringatan = [p];
+      ktx.maju("narasi", 28, p);
+    }
 
     // ---- 2) MUSIK HOROR (28..34) — sintesis / MP3 bundel CC-BY / impor sendiri ----
     ktx.maju("musik", 29, "Menyiapkan musik horor…");
@@ -228,7 +245,10 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     await jalankanFfmpeg(buatArgumenConcat(listAbs, mp4Abs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
     const { statSync } = await import("node:fs");
     job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
-    ktx.maju("selesai", 100, pakaiNarasi ? "Selesai — video + narasi + musik siap" : "Selesai — video + musik siap");
+    const ikhtisar = pakaiNarasi
+      ? `Selesai — video + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""} + musik siap`
+      : "Selesai — video + musik siap";
+    ktx.maju("selesai", 100, ikhtisar);
     job.selesai = true;
     bersihkanBatal(id);
   } catch (e) {

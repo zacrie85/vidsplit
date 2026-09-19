@@ -1,7 +1,8 @@
-// VidSplit v0.25.0 — uji smoke cepat mesin horor (cerita, musik, halaman, chunk, args)
+// VidSplit v0.27.0 — uji smoke cepat mesin horor (cerita, musik, halaman, chunk, args, TTS)
 import { buatCerita, estimasiDurasi } from "../src/lib/vidsplit/hororCerita";
 import { sintesisMusikHoror } from "../src/lib/vidsplit/hororMusik";
 import { renderHalamanPng, bungkusTeks, bacaTtf, lebarTeks } from "../src/lib/vidsplit/teksLayar";
+import { buatNarasiWav, ujiTts, ekspresiVbs } from "../src/lib/vidsplit/hororTts";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
@@ -113,6 +114,18 @@ ok(argsChunk[argsChunk.indexOf("-c:v") + 1] === "libx264", "encoder x264");
 const argCon = buatArgumenConcat("/tmp/list.txt", "/tmp/out.mp4");
 ok(argCon.includes("concat") && argCon.includes("-movflags"), "arg concat benar");
 ok(isiListConcat(["/a.ts", "/b'c.ts"]).includes("file '/a.ts'") && isiListConcat(["/a.ts", "/b'c.ts"]).includes("b'\\''c"), "list concat escape aman");
+
+console.log("== 5. Pembaca skrip (TTS multi-strategi) ==");
+const hTts = await buatNarasiWav("Uji suara.", {}, "/tmp/vidsplit-uji-tts.wav");
+ok(!hTts.ok, "di luar Windows: TTS tak mengaku berhasil");
+ok(!!hTts.galat && hTts.galat.includes("Windows"), `galat jelas & tidak senyap (${hTts.galat?.slice(0, 60)}…)`);
+ok(ekspresiVbs('dia bilang "jangan"') === '"dia bilang ""jangan"""', "vbs: kutip ganda diekapsulasi aman");
+ok(ekspresiVbs("cahaya…").includes("ChrW(8230)"), "vbs: non-ASCII lewat ChrW");
+ok(!ekspresiVbs("abc").includes("ChrW"), "vbs: ASCII murni tanpa ChrW");
+ok(ekspresiVbs("") === '""', "vbs: teks kosong aman");
+ok(ekspresiVbs("baris\nbaru").includes("ChrW(10)"), "vbs: baris-baru lewat ChrW");
+const hUji = await ujiTts();
+ok(!hUji.ok && !!hUji.galat, "ujiTts di luar Windows -> galat jelas");
 
 console.log(gagal === 0 ? "\nSEMUA SMOKE LOLOS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

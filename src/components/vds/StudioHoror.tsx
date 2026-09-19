@@ -67,6 +67,10 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
   const [narasi, setNarasi] = useState(true);
   const [suara, setSuara] = useState("");
   const [daftarSuara, setDaftarSuara] = useState<SuaraTts[]>([]);
+  const [cekSuaraSedang, setCekSuaraSedang] = useState(false);
+  const [uji, setUji] = useState<{ sedang: boolean; ok: boolean | null; hasil: string | null }>(
+    { sedang: false, ok: null, hasil: null },
+  );
   const [kecepatan, setKecepatan] = useState(1);
   const [volumeNarasi, setVolumeNarasi] = useState(1);
 
@@ -117,15 +121,36 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     } catch { /* abaikan */ }
   }, []);
 
-  // daftar suara TTS
-  useEffect(() => {
-    fetch("/api/horor/suara").then((r) => r.json()).then((j) => {
-      if (j.ok && Array.isArray(j.suara)) {
-        setDaftarSuara(j.suara);
-        if (!j.adaTts) setNarasi(false);
-      }
-    }).catch(() => setDaftarSuara([]));
+  // daftar suara TTS (v0.27.0: TIDAK lagi mematikan narasi otomatis saat
+  // pendeteksian gagal/timeout — render tetap mencoba 3 jalur TTS berbeda)
+  const cekSuara = useCallback(async () => {
+    setCekSuaraSedang(true);
+    try {
+      const r = await fetch("/api/horor/suara", { signal: AbortSignal.timeout(40_000) });
+      const j = (await r.json()) as { ok: boolean; suara?: SuaraTts[] };
+      if (j.ok && Array.isArray(j.suara)) setDaftarSuara(j.suara);
+    } catch { setDaftarSuara([]); }
+    finally { setCekSuaraSedang(false); }
   }, []);
+  useEffect(() => { void cekSuara(); }, [cekSuara]);
+
+  // Uji suara: hasilkan WAV pendek + putar langsung + tampilkan diagnosa
+  const ujiSuara = async () => {
+    setUji({ sedang: true, ok: null, hasil: null });
+    try {
+      const r = await fetch("/api/horor/suara", { method: "POST", signal: AbortSignal.timeout(180_000) });
+      const j = (await r.json()) as { ok: boolean; metode?: string | null; galat?: string; wav?: string };
+      if (j.ok && j.wav) {
+        try { void new Audio(j.wav).play(); } catch { /* autoplay diblokir browser */ }
+        setUji({ sedang: false, ok: true, hasil: `Suara uji diputar${j.metode ? ` — ${j.metode}` : ""}. Kalau terdengar, narasi siap dipakai.` });
+        if (!narasi) { setNarasi(true); simpanAtur({ narasi: true }); }
+      } else {
+        setUji({ sedang: false, ok: false, hasil: `Gagal: ${j.galat ?? "TTS tidak tersedia"}` });
+      }
+    } catch {
+      setUji({ sedang: false, ok: false, hasil: "Gagal menghubungi server lokal" });
+    }
+  };
 
   const buatCerita = async (seedBaru?: number) => {
     setMembuatCerita(true);
@@ -168,7 +193,10 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             setBatalDiminta(false);
             if (j.job.error) toast.error(`Render gagal: ${j.job.error}`);
             else if (j.job.dibatalkan) toast.info("Render dibatalkan");
-            else toast.success("Video horor selesai dibuat!");
+            else {
+              toast.success("Video horor selesai dibuat!");
+              if (j.job.peringatan?.length) toast.warning(j.job.peringatan[0]);
+            }
           }
         }
       } catch { /* jaringan lokal — coba lagi */ }
@@ -237,10 +265,10 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Ghost className="h-5 w-5 text-rose-400" /> Studio Cerita Horor
-            <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300">AI v0.25.0</span>
+            <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300">AI v0.27.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
-            100% offline: cerita dibuat mesin AI lokal, dibacakan suara bawaan perangkat, musik horor disintesis sendiri — bebas hak cipta.
+            100% offline: cerita dibuat mesin AI lokal, dibacakan suara bawaan perangkat (3 jalur anti-gagal + tombol Uji Suara), musik horor bebas hak cipta.
           </p>
         </div>
       </div>
@@ -312,10 +340,27 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div className="space-y-4">
           <Kartu
             judul="3. Pembaca Skrip"
-            deskripsi={daftarSuara.length ? `${daftarSuara.length} suara bawaan perangkat ditemukan` : "Suara bawaan perangkat tidak tersedia — video tetap dibuat dengan musik saja"}
+            deskripsi={daftarSuara.length
+              ? `${daftarSuara.length} suara bawaan perangkat ditemukan`
+              : "Mendeteksi suara bawaan perangkat… (jika tak terdeteksi, narasi tetap dicoba saat render lewat 3 jalur berbeda)"}
             ikon={<Mic className="h-4 w-4" />}
           >
-            <label className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={uji.sedang} onClick={() => void ujiSuara()}
+                className="flex items-center gap-2 rounded-lg border border-amber-400/50 bg-amber-400/10 px-3 py-1.5 text-sm font-medium text-amber-200 transition hover:border-amber-400 disabled:opacity-50">
+                {uji.sedang ? <Loader2 className="h-4 w-4 animate-spin" /> : <Volume2 className="h-4 w-4" />} Uji Suara
+              </button>
+              <button type="button" disabled={cekSuaraSedang} onClick={() => void cekSuara()}
+                className="flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-1.5 text-sm text-slate-400 transition hover:border-slate-500 disabled:opacity-50">
+                {cekSuaraSedang ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Cek ulang suara
+              </button>
+            </div>
+            {uji.hasil && (
+              <p className={`mt-2 rounded-lg border p-2 text-xs leading-relaxed ${
+                uji.ok ? "border-emerald-400/40 bg-emerald-400/10 text-emerald-200" : "border-rose-500/40 bg-rose-500/10 text-rose-200"
+              }`}>{uji.hasil}</p>
+            )}
+            <label className="mt-3 flex items-center justify-between">
               <span className="text-sm text-slate-300">Narasi (suara pembaca)</span>
               <button type="button" onClick={() => { setNarasi(!narasi); simpanAtur({ narasi: !narasi }); }}
                 className={`h-6 w-11 rounded-full transition ${narasi ? "bg-amber-400" : "bg-slate-700"}`}>
@@ -449,6 +494,9 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             {job?.selesai && job.error && (
               <p className="mt-2 rounded-lg border border-rose-500/40 bg-rose-500/10 p-2 text-xs text-rose-200">{job.error}</p>
             )}
+            {job?.peringatan?.map((p, i) => (
+              <p key={i} className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-200">{p}</p>
+            ))}
           </Kartu>
         </div>
       </div>
