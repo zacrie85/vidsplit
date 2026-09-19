@@ -423,32 +423,81 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   return { args, total };
 }
 
+export interface OpsiFfmpeg {
+  /** batas ABSOLUT wall-clock (ms) — proses dibunuh walau time= masih mengalir.
+   *  Bawaan 240_000. Panggilan adegan komik mengirim max(150 dtk, durasi×15). */
+  absolutMs?: number;
+  /** batas tanpa statistik time= di stderr (ms). Bawaan 40_000. */
+  diamMs?: number;
+  /** liveness: dipanggil tiap ±5 dtk dgn detik berlalu — UI tampil proses hidup */
+  onDetik?: (detik: number) => void;
+}
+
+/** Bunuh proses + SELURUH pohon anaknya (Windows: taskkill /T /F — SIGKILL Node
+ *  kadang tak mematikan ffmpeg yang sedang menulis; POSIX: SIGKILL cukup). */
+function bunuhPohon(c: ChildProcess): void {
+  try {
+    if (process.platform === "win32" && c.pid) {
+      spawn("taskkill", ["/PID", String(c.pid), "/T", "/F"], { windowsHide: true });
+    } else {
+      c.kill("SIGKILL");
+    }
+  } catch {
+    try { c.kill("SIGKILL"); } catch { /* sudah mati */ }
+  }
+}
+
 /** Jalankan ffmpeg, laporkan progres 0..1 dari parsing time= stderr.
  *  bin boleh kosong — akan dipilih otomatis via pilihFfmpeg().
- *  Detektor macet: bila 40 detik TANPA progres time= sama sekali, proses dibunuh
- *  (input korup dgn -loop bisa membuat ffmpeg menggantung tanpa keluar). */
+ *  v0.32.0 PERBAIKAN "Merender adegan stak selamanya" (laporan user v0.31):
+ *  (1) -nostdin + stdin diabaikan — ffmpeg yang dit_spawn dari Node punya stdin
+ *  pipe yang tak pernah tertutup; sebagian build ffmpeg Windows menunggu stdin
+ *  dan BEKU tanpa jejak (penyebab paling mungkin laporan user);
+ *  (2) batas ABSOLUT wall-clock — proses dibunuh walau time= masih mengalir
+ *  (audio branch yang tak pernah EOF tak lagi bisa menggantung selamanya);
+ *  (3) Windows: taskkill /T /F membunuh seluruh pohon proses;
+ *  (4) pesan galat macet kini menyertakan ekor stderr utk diagnosa. */
 export async function jalankanFfmpeg(
   args: string[],
   totalDetik: number,
   onProgres?: (fraksi: number) => void,
   bin?: string,
   onSpawn?: (child: ChildProcess) => void,
+  opsi?: OpsiFfmpeg,
 ): Promise<void> {
   const binFinal = bin || (await pilihFfmpeg()).bin;
+  const diamMs = opsi?.diamMs ?? 40_000;
+  // batas absolut: eksplisit > skala durasi utk stream terpanjang > bawaan 4 menit
+  const absolutMs = opsi?.absolutMs
+    ?? (totalDetik > 0 ? Math.max(150_000, Math.ceil(totalDetik) * 15_000) : 240_000);
+  // -nostdin HARUS di depan (opsi global); hindari dobel bila pemanggil sudah mengirim
+  const argumen = args[0] === "-nostdin" ? args : ["-nostdin", ...args];
   await new Promise<void>((resolve, reject) => {
-    const c = spawn(binFinal, args, { windowsHide: true });
+    const c = spawn(binFinal, argumen, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
     onSpawn?.(c);
+    const mulai = Date.now();
     let stderr = "";
     let terakhirProgres = Date.now();
+    const berhenti = () => clearInterval(pemeriksa);
     const pemeriksa = setInterval(() => {
-      if (Date.now() - terakhirProgres > 40_000) {
-        clearInterval(pemeriksa);
-        try {
-          c.kill("SIGKILL");
-        } catch {}
+      const lewat = Date.now() - mulai;
+      opsi?.onDetik?.(Math.round(lewat / 1000));
+      if (Date.now() - terakhirProgres > diamMs) {
+        berhenti();
+        bunuhPohon(c);
         reject(
           new Error(
-            "ffmpeg macet (tidak ada progres 40 detik) — kemungkinan file sumber/background rusak",
+            `ffmpeg macet (tidak ada progres ${Math.round(diamMs / 1000)} detik) — kemungkinan file sumber/background rusak. stderr: ${stderr.slice(-400)}`,
+          ),
+        );
+        return;
+      }
+      if (lewat > absolutMs) {
+        berhenti();
+        bunuhPohon(c);
+        reject(
+          new Error(
+            `ffmpeg melewati batas waktu ${Math.round(absolutMs / 1000)} detik — proses dihentikan agar tidak menggantung. stderr: ${stderr.slice(-400)}`,
           ),
         );
       }
@@ -467,11 +516,11 @@ export async function jalankanFfmpeg(
       }
     });
     c.on("error", (e) => {
-      clearInterval(pemeriksa);
+      berhenti();
       reject(new Error(`ffmpeg gagal dijalankan: ${e.message}`));
     });
     c.on("close", (code) => {
-      clearInterval(pemeriksa);
+      berhenti();
       if (code === 0) resolve();
       else reject(new Error(`ffmpeg keluar dengan kode ${code}: ${stderr.slice(-600)}`));
     });

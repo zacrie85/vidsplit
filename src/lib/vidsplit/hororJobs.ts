@@ -207,7 +207,25 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
         try { durasi = await durasiWav(wavAbs); } catch { /* header aneh — estimasi */ }
         try { ukuranWav = (await import("node:fs")).statSync(wavAbs).size; } catch { /* tak ada berkas */ }
         if (ukuranWav > 1000) {
-          u.wav = wavAbs;
+          // v0.32.0 — NORMALISASI wav narasi via ffmpeg ke 44100/stereo/s16 PCM:
+          // keluaran Piper/SAPI apa pun (22050 mono, float, header aneh) diubah
+          // ke format SERAGAM sebelum masuk filter segmen — membuang kelas bug
+          // "adegan pertama dgn narasi hang di ffmpeg Windows" + wav divalidasi ulang.
+          const wavFix = path.join(folderTmp, `narasi-fix-${String(i).padStart(3, "0")}.wav`);
+          let ternormalisasi = false;
+          try {
+            await jalankanFfmpeg(
+              ["-y", "-i", wavAbs, "-ar", "44100", "-ac", "2", "-c:a", "pcm_s16le", wavFix],
+              0, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
+            );
+            const { statSync: stat } = await import("node:fs");
+            if (stat(wavFix).size > 1000) {
+              const d2 = await durasiWav(wavFix).catch(() => durasi);
+              if (d2 > 0.3) { durasi = d2; }
+              ternormalisasi = true;
+            }
+          } catch { /* gagal normalisasi -> pakai wav asli apa adanya */ }
+          u.wav = ternormalisasi ? wavFix : wavAbs;
           u.durasi = durasiAdeganKomik(durasi, u.teks);
           narasiJadi++;
           gagalBerturut = 0;
@@ -289,17 +307,19 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     }
 
     // ---- 5) SEGMEN VIDEO PER ADEGAN (52..90) — sinkron by construction ----
+    // v0.32.0: tiap adegan (1) diawasi batas ABSOLUT wall-clock — ffmpeg beku
+    // dibunuh otomatis, job TIDAK PERNAH menggantung selamanya lagi; (2) pesan
+    // menampilkan detik berjalan (UI terlihat hidup walau time= tak mengalir);
+    // (3) adegan yang gagal dicoba SEKALI lagi dgn preset ultrafast.
     const daftarTs: string[] = [];
     let t0Musik = 0;
     for (let i = 0; i < unit.length; i++) {
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
       const segAbs = path.join(folderTmp, `seg-${String(i).padStart(3, "0")}.mp4`);
-      // v0.31.0 — umumkan adegan SEBELUM ffmpeg jalan: counter pasti maju per
-      // adegan walau ffmpeg tak mengeluarkan statistik time= (adegan cepat /
-      // sebagian build ffmpeg Windows).
+      // umumkan adegan SEBELUM ffmpeg jalan: counter pasti maju per adegan
       ktx.maju("video", 52 + 38 * (i / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
-      const args = buatArgumenSegmenKomik({
+      const dasar = {
         tema, lebar, tinggi, panelTinggi: tata.panelTinggi,
         ilustrasiAbs: ilus[i], panelTeksAbs: panel[i],
         kamera: u.kamera, durasi: u.durasi, wavAbs: u.wav,
@@ -310,10 +330,32 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
         fadeMusikKeluar: i === unit.length - 1,
         fadeKeluar: i === unit.length - 1,
         keluar: segAbs,
-      });
-      await jalankanFfmpeg(args, u.durasi, (f) => {
-        ktx.maju("video", 52 + 38 * ((i + f) / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
-      }, ff.bin, (ch) => daftarkanProses(id, ch));
+      };
+      const opsiFfmpegAdegan = {
+        absolutMs: Math.max(150_000, Math.ceil(u.durasi) * 15_000),
+        onDetik: (d: number) => {
+          if (d >= 5) ktx.maju("video", 52 + 38 * ((i + 1) / unit.length), `Merender adegan ${i + 1}/${unit.length} — ${d} dtk…`);
+        },
+      };
+      try {
+        await jalankanFfmpeg(buatArgumenSegmenKomik(dasar), u.durasi, (f) => {
+          ktx.maju("video", 52 + 38 * ((i + f) / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
+        }, ff.bin, (ch) => daftarkanProses(id, ch), opsiFfmpegAdegan);
+      } catch (ePertama) {
+        if (apakahBatal(id)) throw new Error("dibatalkan");
+        // percobaan kedua: preset tercepat — bila tetap gagal, galat asli dilempar
+        try {
+          ktx.maju("video", 52 + 38 * (i / unit.length), `Mencoba ulang adegan ${i + 1}/${unit.length}…`);
+          await jalankanFfmpeg(
+            buatArgumenSegmenKomik({ ...dasar, preset: "ultrafast" }),
+            u.durasi, undefined, ff.bin, (ch) => daftarkanProses(id, ch),
+            { ...opsiFfmpegAdegan, onDetik: undefined },
+          );
+          job.peringatan = [...(job.peringatan ?? []), `Adegan ${i + 1} dirender dgn mode cepat (percobaan pertama gagal: ${ePertama instanceof Error ? ePertama.message.slice(0, 120) : String(ePertama).slice(0, 120)})`];
+        } catch {
+          throw ePertama instanceof Error ? ePertama : new Error(String(ePertama));
+        }
+      }
       t0Musik += u.durasi;
       daftarTs.push(segAbs);
     }

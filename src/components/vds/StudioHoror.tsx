@@ -228,6 +228,22 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [jobId]);
 
+  // v0.32.0 — deteksi macet: pesan job tak berubah >120 dtk → tampil saran bantuan
+  const pesanRef = useRef<{ teks: string; sejak: number }>({ teks: "", sejak: 0 });
+  const [stagnan, setStagnan] = useState(false);
+  useEffect(() => {
+    if (!job || job.selesai) { setStagnan(false); return; }
+    if (job.pesan !== pesanRef.current.teks) {
+      pesanRef.current = { teks: job.pesan, sejak: Date.now() };
+      setStagnan(false);
+      return;
+    }
+    const t = setInterval(() => {
+      if (Date.now() - pesanRef.current.sejak > 120_000) setStagnan(true);
+    }, 5000);
+    return () => clearInterval(t);
+  }, [job?.pesan, job?.selesai]);
+
   const unggahMusikPilihan = async (f: File | undefined) => {
     if (!f) return;
     setUnggahMusik(true);
@@ -292,7 +308,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.31.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.32.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
             100% offline — alur penuh: AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → narasi disisipkan ke video komik, semuanya disinkronkan saat membuat video.
@@ -531,6 +547,11 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
                   <button type="button" disabled={batalDiminta} onClick={batalkan}
                     className="text-rose-300 hover:text-rose-200 disabled:opacity-40">{batalDiminta ? "Menghentikan…" : "Batalkan"}</button>
                 </p>
+                {stagnan && (
+                  <p className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-[11px] leading-snug text-amber-300">
+                    Proses tidak bergerak ±2 menit. v0.32.0 menghentikan otomatis proses beku — bila ini muncul terus, tekan Batalkan lalu ulangi "Buat Video AI".
+                  </p>
+                )}
               </div>
             )}
 

@@ -209,6 +209,13 @@ ok(argsSeg.join(" ").includes("pad=1080:1920"), "arg segmen: pad ke kanvas penuh
 ok(argsSeg.join(" ").includes("overlay=0:0"), "arg segmen: overlay kolom teks bawah");
 ok(argsSeg.join(" ").includes("adelay=150|150") && argsSeg.join(" ").includes("apad") && argsSeg.join(" ").includes("atrim=0:3.5"), "arg segmen: audio di-pad PERSIS sepanjang adegan");
 ok(argsSeg[argsSeg.indexOf("-frames:v") + 1] === "105", "arg segmen: 105 frame @ 3.5 dtk");
+// v0.32.0 — anti-hang 3 lapis: -t output, apad=whole_len, input panel terbatas -t
+ok(argsSeg[argsSeg.indexOf("-frames:v") + 2] === "-t" && argsSeg[argsSeg.indexOf("-frames:v") + 3] === "3.500", "arg segmen: -t 3.500 di output (rem ABSOLUT anti-hang)");
+ok(argsSeg.join(" ").includes("apad=whole_len=154350"), "arg segmen: apad=whole_len=154350 (padding audio BERBATAS 3.5×44100)");
+const iPanel = argsSeg.indexOf("/tmp/p.png");
+ok(iPanel > 4 && argsSeg[iPanel - 5] === "-loop" && argsSeg[iPanel - 4] === "1" && argsSeg[iPanel - 3] === "-t" && argsSeg[iPanel - 2] === "3.500" && argsSeg[iPanel - 1] === "-i", "arg segmen: input panel teks -loop 1 -t 3.500 (tak lagi tak berujung)");
+ok(argsSeg.join(" ").includes("-preset veryfast"), "arg segmen: preset bawaan veryfast");
+ok(buatArgumenSegmenKomik({ tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190, ilustrasiAbs: "/tmp/i.png", panelTeksAbs: "/tmp/p.png", kamera: "dalam", durasi: 3.5, wavAbs: null, volumeNarasi: 1, preset: "ultrafast", keluar: "/tmp/s.ts" }).join(" ").includes("-preset ultrafast"), "arg segmen: opsi preset ultrafast (percobaan ulang)");
 ok(!argsSeg.includes("anullsrc"), "arg segmen dgn wav: tanpa anullsrc");
 const argsHening = buatArgumenSegmenKomik({
   tema, lebar: 720, tinggi: 1280, panelTinggi: 794,

@@ -314,17 +314,26 @@ export interface OpsiSegmenKomik {
   volumeMusik?: number;
   /** true utk adegan terakhir: musik fade-out 1.2 dtk */
   fadeMusikKeluar?: boolean;
+  /** v0.32.0 — preset x264 utk percobaan ulang adegan bermasalah (bawaan veryfast) */
+  preset?: string;
 }
 
 /** Argumen ffmpeg SATU SEGMEN ADEGAN KOMIK (mp4, siap concat -c copy).
- *  Indeks input: 0 = ilustrasi (1 frame, di-zoompan), 1 = panel teks (loop),
- *  2 = narasi wav ATAU anullsrc, 3 = musik latar (v0.31.0, opsional).
+ *  Indeks input: 0 = ilustrasi (1 frame, di-zoompan), 1 = panel teks (loop
+ *  TERBATAS -t durasi — v0.32.0), 2 = narasi wav ATAU anullsrc, 3 = musik
+ *  latar (v0.31.0, opsional).
  *  Video D frame @30fps, audio di-pad persis sepanjang adegan → sinkron
  *  sempurna saat concat. Musik DISISIPKAN langsung di sini (amix dgn narasi)
  *  — pola per-chunk yang terbukti di Windows — bukan lewat pass akhir.
  *  v0.30.0: segmen MP4 (bukan mpegts) — stream-copy mp4 jalan di SEMUA build
  *  ffmpeg (static 7.0.x Windows/sistem baru); mpegts-copy bermasalah di sebagian
- *  build dan ber-offset PTS 1.4 dtk. */
+ *  build dan ber-offset PTS 1.4 dtk.
+ *  v0.32.0 ANTI-HANG 3 lapis (laporan user: adegan 2 beku selamanya di Windows):
+ *  (a) input panel teks diberi -t durasi — input loop tak lagi tak berujung;
+ *  (b) apad=whole_len=N — padding audio BERBATAS sampel, tak bergantung atrim;
+ *  (c) -t durasi di OUTPUT — muxer WAJIB berhenti di durasi adegan walau satu
+ *  cabang filter tak pernah EOF. Dgn 3 lapis ini segmen mustahil berjalan
+ *  lebih lama dr durasinya, apa pun build ffmpeg-nya. */
 export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const D = Math.max(1, Math.round(o.durasi * 30));
   const durasi = D / 30;
@@ -335,10 +344,10 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const masuk: string[] = [
     "-y",
     "-i", o.ilustrasiAbs, // input 0: satu frame → zoompan memperpanjang
-    "-loop", "1", "-i", o.panelTeksAbs, // input 1
+    "-loop", "1", "-t", durasi.toFixed(3), "-i", o.panelTeksAbs, // input 1 (terbatas)
   ];
   if (o.wavAbs) masuk.push("-i", o.wavAbs); // input 2
-  else masuk.push("-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo");
+  else masuk.push("-f", "lavfi", "-t", durasi.toFixed(3), "-i", "anullsrc=r=44100:cl=stereo");
   if (adaMusik) {
     // input 3: potongan musik mulai posisi adegan ini (-ss input-seek, instan utk WAV)
     masuk.push("-ss", Math.max(0, o.mulaiMusik ?? 0).toFixed(3), "-t", (durasi + 0.25).toFixed(3), "-i", o.musikAbs!);
@@ -354,9 +363,12 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const fadeOut = o.fadeKeluar ? `,fade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
   fc.push(`[vo]format=yuv420p${fadeOut}[vout]`);
   const aFade = o.fadeKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
-  // narasi (atau hening) di-pad PERSIS sepanjang adegan — input PERTAMA amix
+  // narasi (atau hening) di-pad PERSIS sepanjang adegan — input PERTAMA amix.
+  // v0.32.0: apad=whole_len — padding sampel BERBATAS (44100 × durasi), bukan
+  // apak tak berujung; atrim tetap ada sbg lapis kedua.
+  const sampelPad = Math.round(durasi * 44100);
   fc.push(
-    `[2:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad,atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[nar]`,
+    `[2:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad=whole_len=${sampelPad},atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[nar]`,
   );
   if (adaMusik) {
     const mFade = o.fadeMusikKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 1.2).toFixed(2)}:d=1.2` : "";
@@ -371,7 +383,8 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
     "-filter_complex", fc.join(";"),
     "-map", "[vout]", "-map", "[aout]",
     "-frames:v", String(D),
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+    "-t", durasi.toFixed(3), // v0.32.0: rem kemudi ABSOLUT di sisi output
+    "-c:v", "libx264", "-preset", o.preset ?? "veryfast", "-crf", "23",
     "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2",
     "-r", "30", "-pix_fmt", "yuv420p",
     "-f", "mp4", o.keluar,
