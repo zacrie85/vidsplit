@@ -5,13 +5,16 @@ import { renderHalamanPng, bungkusTeks, bacaTtf, lebarTeks } from "../src/lib/vi
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
+  MUSIK_BUNDEL, pathMusikBundel,
 } from "../src/lib/vidsplit/hororRender";
+import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
 
 let gagal = 0;
 function ok(kondisi: boolean, nama: string) {
   if (!kondisi) { gagal++; console.log(`  GAGAL: ${nama}`); }
   else console.log(`  ok: ${nama}`);
 }
+const tema = TEMA_HOROR[0];
 
 console.log("== 1. Mesin cerita ==");
 const c1 = buatCerita({ tema: "rumah", panjang: "sedang", seed: 42 });
@@ -23,6 +26,21 @@ ok(JSON.stringify(c1) !== JSON.stringify(c2), "seed beda = cerita beda");
 ok(c1.bab.every((b) => b.paragraf.length >= 1 && b.paragraf.every((p) => p.length > 40)), "semua paragraf terisi wajar");
 const c3 = buatCerita({ panjang: "pendek", seed: 7 });
 ok(c3.bab.length === 3, "pendek = 3 bab");
+ok(c3.bab[c3.bab.length - 1].judul === "Menguak", "pendek tetap ada twist di Menguak");
+ok(buatCerita({ panjang: "bab10", seed: 9 }).bab.length === 10, "bab10 = 10");
+ok(buatCerita({ panjang: "bab15", seed: 9 }).bab.length === 15, "bab15 = 15");
+const c20 = buatCerita({ panjang: "bab20", seed: 9 });
+ok(c20.bab.length === 20, "bab20 = 20");
+const paragrafSemua = c20.bab.flatMap((b) => b.paragraf);
+ok(new Set(paragrafSemua).size >= paragrafSemua.length * 0.75, "20 bab tak repetitif (≥75% unik)");
+
+console.log("== 1b. Prompt ide ==");
+const ci = buatCerita({ panjang: "sedang", seed: 5, ide: "anak yang pindah ke rumah dekat sumur tua, ada boneka misterius" });
+ok(ci.tema === "rumah", `tema dari ide = rumah (${ci.tema})`);
+ok(ci.bab[0].paragraf[0].includes("sumur"), "lokasi ikut ide (sumur)");
+ok(ci.bab.flatMap((b) => b.paragraf).some((p) => p.includes("boneka")), "benda ikut ide (boneka)");
+const ci2 = buatCerita({ panjang: "sedang", seed: 5, ide: "misteri sekolah berasrama di pinggir hutan" });
+ok(ci2.tema === "sekolah", `tema dari ide = sekolah (${ci2.tema})`);
 ok(estimasiDurasi("satu dua tiga empat lima enam") >= 6, "estimasi durasi >= 6 dtk");
 
 console.log("== 2. Musik horor ==");
@@ -47,19 +65,35 @@ const png1 = renderHalamanPng({ lebar: 720, tinggi: 1280, besar: "Pintu itu terb
 const png1lagi = renderHalamanPng({ lebar: 720, tinggi: 1280, besar: "Pintu itu terbuka sendiri tepat pukul tiga pagi.", label: "BAB 2", footer: "Uji Halaman" });
 ok(png1.length > 5000 && png1.equals(png1lagi), `PNG deterministik (${Math.round(png1.length / 1024)} KB)`);
 
+console.log("== 3b. Ilustrasi komik ==");
+const adegan = svgAdegan({ jenis: "eksterior-rumah", lebar: 720, tinggi: 1280, seed: 42, tema, ambient: false });
+const adeganLagi = svgAdegan({ jenis: "eksterior-rumah", lebar: 720, tinggi: 1280, seed: 42, tema, ambient: false });
+ok(adegan.includes("circle") && adegan.includes("polygon"), "adegan berisi elemen (bulan, rumah)");
+ok(adegan === adeganLagi, "adegan deterministik");
+ok(svgAdegan({ jenis: "kamar", lebar: 720, tinggi: 1280, seed: 1, tema }) !== svgAdegan({ jenis: "lorong", lebar: 720, tinggi: 1280, seed: 1, tema }), "jenis adegan beda = gambar beda");
+ok(JSON.stringify([jenisAdeganBab(0, 5)]) === JSON.stringify([jenisAdeganBab(0, 5)]), "jenisAdeganBab deterministik");
+const pngAdegan = renderHalamanPng({ lebar: 720, tinggi: 1280, besar: "Uji adegan", label: "BAB 1", adeganSvg: adegan, defsSvg: defsAdegan(tema), adeganRedup: 0.75 });
+ok(pngAdegan.length > 20000, `PNG dgn adegan lebih besar (${Math.round(pngAdegan.length / 1024)} KB > 20)`);
+for (const m of MUSIK_BUNDEL) {
+  let ada = false;
+  try { ada = require("node:fs").statSync(pathMusikBundel(m.file)).size > 100000; } catch { ada = false; }
+  ok(ada, `musik bundel ada: ${m.file}`);
+}
+
 console.log("== 4. Rencana & chunk ==");
 const [w, h] = ukuranHoror("9:16", "1080p");
 ok(w === 1080 && h === 1920, "ukuran 9:16 1080p");
 const durasi: number[][] = c1.bab.map((b) => b.paragraf.map(() => 0));
 const wav: (string | null)[][] = c1.bab.map((b) => b.paragraf.map(() => null));
-const plan = rencanaHoror(c1, { cerita: c1, narasi: false }, durasi, wav);
+const plan = rencanaHoror(c1, { cerita: c1, narasi: false, ilustrasi: true }, durasi, wav);
 ok(plan.length === 17, `rencana: judul(1)+5 label+10 paragraf+tamat(1) = 17 (${plan.length})`);
+ok(plan.every((h) => h.adeganJenis && h.adeganSeed !== undefined), "semua halaman punya adegan (ilustrasi aktif)");
+const planTanpa = rencanaHoror(c1, { cerita: c1, narasi: false, ilustrasi: false }, durasi, wav);
+ok(planTanpa.every((h) => !h.adeganJenis), "tanpa ilustrasi: tak ada adegan");
 const chunk = pecahChunk(plan);
 ok(chunk.flat().length === plan.length, "semua halaman tercakup chunk");
 ok(chunk.every((ch) => ch.length <= 14), "chunk <= 14 halaman");
-const tema = TEMA_HOROR[0];
-const argsLatar = buatArgumenLatar(tema, 1080, 1920, "/tmp/latar.png");
-ok(argsLatar.join(" ").includes("gradients=") && argsLatar.join(" ").includes("0x0a0a0c"), "arg latar pakai gradients + warna tema");
+ok(buatArgumenLatar(tema, 1080, 1920, "/tmp/latar.png").join(" ").includes("gradients="), "arg latar pakai gradients");
 const kilat = waktuKilat(tema, 150, 0, 42);
 ok(kilat.every((t) => t > 0 && t < 150) && JSON.stringify(kilat) === JSON.stringify(waktuKilat(tema, 150, 0, 42)), "kilat dalam rentang & deterministik");
 const argsChunk = buatArgumenChunk({

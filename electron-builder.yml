@@ -16,6 +16,9 @@ extraResources:
   # v0.20.0 — model pisah vokal AI (MDX-Net Kim Vocal 2, dibundel — 100% offline)
   - from: assets/vokal-ai
     to: vokal-ai
+  # v0.26.0 — musik horor CC-BY bundel (kredit wajib ikut)
+  - from: assets/musik-horor
+    to: musik-horor
 win:
   target:
     - nsis

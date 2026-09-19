@@ -9,6 +9,7 @@ export async function POST(req: NextRequest) {
     const b = (await req.json()) as OpsiHororMasuk;
     if (!b?.cerita?.bab?.length) throw new Error("Cerita kosong — buat cerita dulu");
     if (!b.cerita.bab.every((x) => Array.isArray(x.paragraf) && x.paragraf.length)) throw new Error("Ada bab tanpa paragraf");
+    if (b.sumberMusik === "impor" && !b.musikImporRel) throw new Error("Musik impor belum dipilih");
     const id = mulaiRenderHoror(b);
     return NextResponse.json({ ok: true, id });
   } catch (e) {

@@ -126,6 +126,12 @@ export interface OpsiHalaman {
   posisi?: "tengah" | "bawah";
   /** skala font 0.7..1.4 */
   skala?: number;
+  /** v0.26.0 — markup SVG adegan ilustrasi (tanpa wrapper <svg>) ditempel di belakang teks */
+  adeganSvg?: string;
+  /** v0.26.0 — defs global (gradient) milik adegan */
+  defsSvg?: string;
+  /** v0.26.0 — redupkan adegan agar teks tetap dominan */
+  adeganRedup?: number; // 0..1 opacity
 }
 
 const ESC: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" };
@@ -147,7 +153,16 @@ export function renderHalamanPng(o: OpsiHalaman): Buffer {
   const tinggiIsi = barisBesar.length * fsBesar * 1.5 + (o.label ? fsLabel * 2.4 : 0);
   const yLabel = o.posisi === "bawah" ? H - tinggiIsi - fsFooter * 2.6 : Math.max(fsBesar, (H - tinggiIsi) / 2);
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" fill="none"/>`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}">`;
+  if (o.defsSvg) svg += o.defsSvg;
+  svg += `<rect width="${W}" height="${H}" fill="none"/>`;
+  // v0.26.0 — adegan ilustrasi di belakang teks
+  if (o.adeganSvg) {
+    const op = Math.min(1, Math.max(0.15, o.adeganRedup ?? 1));
+    svg += `<g opacity="${op}">${o.adeganSvg}</g>`;
+    // lapisan gelap tengah agar teks terbaca
+    svg += `<rect width="${W}" height="${H}" fill="black" opacity="0.28"/>`;
+  }
   let y = yLabel;
   if (o.label) {
     svg += `<text x="${W / 2}" y="${y + fsLabel}" font-family="DejaVu" font-size="${fsLabel}" fill="${aksen}" text-anchor="middle" letter-spacing="${Math.round(fsLabel * 0.3)}">${esc(o.label.toUpperCase())}</text>`;

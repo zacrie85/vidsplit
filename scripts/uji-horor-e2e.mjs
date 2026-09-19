@@ -50,13 +50,15 @@ if (!serverUp) {
 }
 cek(serverUp, "server merespons");
 
-// ---- 1) buat cerita ----
+// ---- 1) buat cerita (v0.26.0: dgn PROMPT IDE) ----
 const rC = await fetch(`${BASE}/api/horor/cerita`, {
   method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ tema: "rumah", panjang: "pendek", seed: 2026 }),
+  body: JSON.stringify({ panjang: "pendek", seed: 2026, ide: "penjaga pemakaman yang mendengar tawa dari dekat makam tua" }),
 });
 const jC = await rC.json();
 cek(jC.ok && jC.cerita?.bab?.length === 3, `cerita dibuat (3 bab, judul: ${jC.cerita?.judul ?? "?"})`);
+cek(jC.cerita?.tema === "desa", `tema dari ide = desa (${jC.cerita?.tema})`);
+cek(JSON.stringify(jC.cerita).includes("makam") || JSON.stringify(jC.cerita).includes("pemakaman"), "kata kunci ide masuk ke cerita");
 
 // ---- 2) daftar suara (di sandbox: [] — fallback musik saja) ----
 const rS = await fetch(`${BASE}/api/horor/suara`);
@@ -70,6 +72,7 @@ const rR = await fetch(`${BASE}/api/horor/render`, {
     cerita: jC.cerita, judul: "Uji E2E Horor",
     narasi: false, intensitasMusik: "menegangkan", volumeMusik: 0.7,
     rasio: "9:16", resolusi: "720p", temaId: "kelam",
+    sumberMusik: "horor-ambient", ilustrasi: true,
   }),
 });
 const jR = await rR.json();

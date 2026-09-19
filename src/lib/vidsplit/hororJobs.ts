@@ -13,8 +13,10 @@ import { renderHalamanPng } from "./teksLayar";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
+  MUSIK_BUNDEL, pathMusikBundel,
   type OpsiRenderHoror,
 } from "./hororRender";
+import { svgAdegan, defsAdegan } from "./hororIlustrasi";
 import { slugify } from "./types";
 
 export interface InfoJobHoror {
@@ -123,14 +125,35 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     const pakaiNarasi = narasiJadi > 0;
     if (opsi.narasi && !pakaiNarasi) ktx.maju("narasi", 28, "Suara TTS tidak tersedia — lanjut dengan musik saja");
 
-    // ---- 2) MUSIK HOROR (28..34) ----
-    ktx.maju("musik", 29, "Menyintesis musik horor…");
+    // ---- 2) MUSIK HOROR (28..34) — sintesis / MP3 bundel CC-BY / impor sendiri ----
+    ktx.maju("musik", 29, "Menyiapkan musik horor…");
     const musikAbs = path.join(folderTmp, "musik.wav");
-    await writeFile(musikAbs, sintesisMusikHoror({
-      intensitas: opsi.intensitasMusik ?? "menegangkan",
-      polaDetik: 60,
-      seed: cerita.seed,
-    }));
+    const bundel = MUSIK_BUNDEL.find((m) => m.id === opsi.sumberMusik);
+    let musikSiap = false;
+    if (bundel) {
+      try {
+        const src = pathMusikBundel(bundel.file);
+        // cek berkas terbaca lalu konversi ke wav 44.1k stereo dgn volume awal netral (vol diterapkan saat mix)
+        await jalankanFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", musikAbs], 0, undefined, ff.bin);
+        musikSiap = true;
+        ktx.maju("musik", 33, `Musik: ${bundel.nama} (${bundel.kredit})`);
+      } catch { musikSiap = false; }
+    } else if (opsi.sumberMusik === "impor" && opsi.musikImporRel) {
+      try {
+        const pathAman = (await import("./ffmpeg")).pathAman;
+        const src = pathAman(opsi.musikImporRel);
+        await jalankanFfmpeg(["-y", "-i", src, "-ar", "44100", "-ac", "2", musikAbs], 0, undefined, ff.bin);
+        musikSiap = true;
+        ktx.maju("musik", 33, "Musik: impor sendiri");
+      } catch { musikSiap = false; }
+    }
+    if (!musikSiap) {
+      await writeFile(musikAbs, sintesisMusikHoror({
+        intensitas: opsi.intensitasMusik ?? "menegangkan",
+        polaDetik: 60,
+        seed: cerita.seed,
+      }));
+    }
 
     // ---- 3) HALAMAN + LATAR (34..46) ----
     ktx.maju("halaman", 35, "Menggambar halaman cerita…");
@@ -141,6 +164,9 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const h = rencana[i];
       const pngAbs = path.join(folderTmp, `halaman-${String(i).padStart(3, "0")}.png`);
+      const adeganMarkup = h.adeganJenis && h.adeganSeed !== undefined
+        ? svgAdegan({ jenis: h.adeganJenis, lebar, tinggi, seed: h.adeganSeed, tema, ambient: !h.adeganPenuh })
+        : undefined;
       await writeFile(pngAbs, renderHalamanPng({
         lebar, tinggi,
         besar: h.besar,
@@ -149,6 +175,9 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
         skala: h.skala,
         warnaTeks: tema.teks,
         warnaAksen: tema.aksen,
+        adeganSvg: adeganMarkup,
+        defsSvg: adeganMarkup ? defsAdegan(tema) : undefined,
+        adeganRedup: h.adeganPenuh ? 1 : 0.75,
       }));
       pngHalaman.push(pngAbs);
       ktx.maju("halaman", 35 + (11 * (i + 1)) / rencana.length, `Menggambar halaman ${i + 1}/${rencana.length}…`);

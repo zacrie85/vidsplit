@@ -13,10 +13,10 @@ import { Kartu } from "@/components/vds/bits";
 import type { Cerita } from "@/lib/vidsplit/hororCerita";
 import type { InfoJobHoror } from "@/lib/vidsplit/hororJobs";
 
-const KUNCI_ATUR = "vidsplit-horor-v1";
+const KUNCI_ATUR = "vidsplit-horor-v2";
 
 type TemaCerita = "acak" | "rumah" | "sekolah" | "kantor" | "desa";
-type PanjangCerita = "pendek" | "sedang" | "panjang";
+type PanjangCerita = "pendek" | "sedang" | "panjang" | "bab10" | "bab15" | "bab20";
 type Intensitas = "santai" | "menegangkan" | "menghantui";
 
 const TEMA_CERITA: { id: TemaCerita; nama: string }[] = [
@@ -26,6 +26,9 @@ const TEMA_CERITA: { id: TemaCerita; nama: string }[] = [
 const PANJANG: { id: PanjangCerita; nama: string; ket: string }[] = [
   { id: "pendek", nama: "Pendek", ket: "3 bab" }, { id: "sedang", nama: "Sedang", ket: "5 bab" },
   { id: "panjang", nama: "Panjang", ket: "5 bab + epilog" },
+  { id: "bab10", nama: "10 Bab", ket: "cerita panjang" },
+  { id: "bab15", nama: "15 Bab", ket: "saga" },
+  { id: "bab20", nama: "20 Bab", ket: "super panjang" },
 ];
 const INTENSITAS: { id: Intensitas; nama: string }[] = [
   { id: "santai", nama: "Santai" }, { id: "menegangkan", nama: "Menegangkan" }, { id: "menghantui", nama: "Menghantui" },
@@ -33,6 +36,12 @@ const INTENSITAS: { id: Intensitas; nama: string }[] = [
 const TEMA_VISUAL: { id: string; nama: string }[] = [
   { id: "kelam", nama: "Kelam Api" }, { id: "kabut", nama: "Kabut Sawah" },
   { id: "darah", nama: "Darah Lama" }, { id: "purnama", nama: "Purnama Biru" },
+];
+const MUSIK_SINTELIS = { id: "sintesis", nama: "Sintesis bawaan (tanpa atribusi)" };
+const MUSIK_BUNDEL_UI: { id: string; nama: string; kredit: string }[] = [
+  { id: "horor-ambient", nama: "Horor Ambient", kredit: "Vinrax — CC-BY 3.0" },
+  { id: "gedung", nama: "Gedung Terbengkalai", kredit: "tcarisland — CC-BY 3.0" },
+  { id: "kedalaman", nama: "Kedalaman Keputusasaan", kredit: "Tsorthan Grove — CC-BY 4.0" },
 ];
 
 interface SuaraTts { id: string; bahasa: string }
@@ -51,6 +60,7 @@ function Chip({ aktif, onClick, children }: { aktif: boolean; onClick: () => voi
 export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string, nama: string, ukuran: number) => void }) {
   const [temaCerita, setTemaCerita] = useState<TemaCerita>("acak");
   const [panjang, setPanjang] = useState<PanjangCerita>("sedang");
+  const [ide, setIde] = useState("");
   const [cerita, setCerita] = useState<Cerita | null>(null);
   const [membuatCerita, setMembuatCerita] = useState(false);
 
@@ -62,8 +72,12 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
   const [intensitas, setIntensitas] = useState<Intensitas>("menegangkan");
   const [volumeMusik, setVolumeMusik] = useState(80); // persen
+  const [sumberMusik, setSumberMusik] = useState("sintesis");
+  const [musikImporRel, setMusikImporRel] = useState<string | null>(null);
+  const [unggahMusik, setUnggahMusik] = useState(false);
 
   const [temaVisual, setTemaVisual] = useState("kelam");
+  const [ilustrasi, setIlustrasi] = useState(true);
   const [rasio, setRasio] = useState<"9:16" | "16:9">("9:16");
   const [resolusi, setResolusi] = useState<"720p" | "1080p">("1080p");
 
@@ -80,6 +94,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         const a = JSON.parse(m) as Partial<{
           narasi: boolean; kecepatan: number; volumeNarasi: number; intensitas: Intensitas;
           volumeMusik: number; temaVisual: string; rasio: string; resolusi: string;
+          sumberMusik: string; ilustrasi: boolean;
         }>;
         if (typeof a.narasi === "boolean") setNarasi(a.narasi);
         if (a.kecepatan) setKecepatan(Math.min(1.5, Math.max(0.6, a.kecepatan)));
@@ -87,6 +102,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         if (a.intensitas) setIntensitas(a.intensitas);
         if (typeof a.volumeMusik === "number") setVolumeMusik(a.volumeMusik);
         if (a.temaVisual) setTemaVisual(a.temaVisual);
+        if (a.sumberMusik) setSumberMusik(a.sumberMusik);
+        if (typeof a.ilustrasi === "boolean") setIlustrasi(a.ilustrasi);
         if (a.rasio === "16:9") setRasio("16:9");
         if (a.resolusi === "720p") setResolusi("720p");
       }
@@ -115,7 +132,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     try {
       const r = await fetch("/api/horor/cerita", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tema: temaCerita, panjang, seed: seedBaru }),
+        body: JSON.stringify({ tema: temaCerita, panjang, seed: seedBaru, ide: ide.trim() || undefined }),
       });
       const j = (await r.json()) as { ok: boolean; cerita?: Cerita; error?: string };
       if (j.ok && j.cerita) {
@@ -161,6 +178,23 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [jobId]);
 
+  const unggahMusikPilihan = async (f: File | undefined) => {
+    if (!f) return;
+    setUnggahMusik(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await fetch("/api/upload?kind=audio&nama=" + encodeURIComponent(f.name), { method: "POST", body: fd });
+      const j = (await r.json()) as { ok: boolean; file?: string; error?: string };
+      if (j.ok && j.file) {
+        setMusikImporRel(j.file);
+        setSumberMusik("impor");
+        toast.success("Musik impormu siap dipakai");
+      } else toast.error(j.error || "Gagal mengunggah musik");
+    } catch { toast.error("Gagal menghubungi server lokal"); }
+    finally { setUnggahMusik(false); }
+  };
+
   const buatVideo = async () => {
     if (!cerita || jobId && !job?.selesai) return;
     if (cerita.bab.some((b) => b.paragraf.every((p) => !p.trim()))) {
@@ -177,6 +211,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
           intensitasMusik: intensitas,
           volumeMusik: volumeMusik / 100,
           rasio, resolusi, temaId: temaVisual,
+          sumberMusik, musikImporRel: musikImporRel ?? undefined,
+          ilustrasi,
         }),
       });
       const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
@@ -214,10 +250,17 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div className="space-y-4">
           <Kartu
             judul="1. Buat Cerita (AI offline)"
-            deskripsi="Pilih rasa & panjang, lalu biarkan mesin cerita menulis. Tidak puas? Klik Cerita Lain."
+            deskripsi="Tulis ide ceritamu (opsional) — kata kuncinya diikuti AI: lokasi, benda, penampakan, tema. Lalu biarkan mesin cerita menulis."
             ikon={<Sparkles className="h-4 w-4" />}
           >
-            <div className="flex flex-wrap gap-2">
+            <textarea
+              value={ide}
+              rows={2}
+              onChange={(e) => setIde(e.target.value)}
+              placeholder="Contoh: anak yang pindah ke rumah dekat sumur tua, ada boneka misterius…"
+              className="w-full resize-y rounded-xl border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-200 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
               {TEMA_CERITA.map((t) => (
                 <Chip key={t.id} aktif={temaCerita === t.id} onClick={() => setTemaCerita(t.id)}>{t.nama}</Chip>
               ))}
@@ -306,28 +349,54 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
           <Kartu
             judul="4. Musik Horor (backsound)"
-            deskripsi="Disintesis langsung di aplikasi — drone, detak jantung, bisikan, stinger. 100% bebas hak cipta."
+            deskripsi="Sintesis bawaan dibuat sendiri (bebas total). Trek MP3 bebas-dipakai CC-BY (kredit tampil otomatis). Bisa juga impormu sendiri."
             ikon={<Music2 className="h-4 w-4" />}
           >
             <div className="flex flex-wrap gap-2">
-              {INTENSITAS.map((i) => (
-                <Chip key={i.id} aktif={intensitas === i.id} onClick={() => { setIntensitas(i.id); simpanAtur({ intensitas: i.id }); }}>{i.nama}</Chip>
+              <Chip aktif={sumberMusik === "sintesis"} onClick={() => { setSumberMusik("sintesis"); simpanAtur({ sumberMusik: "sintesis" }); }}>{MUSIK_SINTELIS.nama}</Chip>
+              {MUSIK_BUNDEL_UI.map((m) => (
+                <Chip key={m.id} aktif={sumberMusik === m.id} onClick={() => { setSumberMusik(m.id); simpanAtur({ sumberMusik: m.id }); }}>{m.nama}</Chip>
               ))}
+              <Chip aktif={sumberMusik === "impor"} onClick={() => { if (!musikImporRel) { document.getElementById("unggah-musik-horor")?.click(); return; } setSumberMusik("impor"); }}>Impor MP3 sendiri</Chip>
             </div>
+            <input id="unggah-musik-horor" type="file" accept="audio/*" className="hidden"
+              onChange={(e) => { void unggahMusikPilihan(e.target.files?.[0]); e.currentTarget.value = ""; }} />
+            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+              {sumberMusik === "sintesis" && "Musik disintesis langsung di aplikasi — drone, detak jantung, bisikan, stinger. 100% bebas hak cipta."}
+              {sumberMusik === "horor-ambient" && "Kredit: \u201CHorror Ambient\u201D oleh Vinrax — CC-BY 3.0 (opengameart.org)."}
+              {sumberMusik === "gedung" && "Kredit: \u201CAbandoned Building Ambience\u201D oleh tcarisland — CC-BY 3.0 (opengameart.org)."}
+              {sumberMusik === "kedalaman" && "Kredit: \u201CDepth of Despair\u201D oleh Tsorthan Grove — CC-BY 4.0 (opengameart.org)."}
+              {sumberMusik === "impor" && (musikImporRel ? "Memakai musik impormu sendiri." : "Pilih berkas MP3/WAV dari perangkatmu dulu.")}
+            </p>
             <label className="mt-3 block text-xs text-slate-400">
               Volume musik: <b className="text-slate-200">{volumeMusik}%</b>
               <input type="range" min={0} max={150} value={volumeMusik}
                 onChange={(e) => { const v = Number(e.target.value); setVolumeMusik(v); simpanAtur({ volumeMusik: v }); }}
                 className="mt-1 w-full accent-amber-400" />
             </label>
+            <label className="mt-2 block text-xs text-slate-400">
+              Intensitas musik sintesis:
+              <div className="mt-1 flex flex-wrap gap-2">
+                {INTENSITAS.map((i) => (
+                  <Chip key={i.id} aktif={intensitas === i.id} onClick={() => { setIntensitas(i.id); simpanAtur({ intensitas: i.id }); }}>{i.nama}</Chip>
+                ))}
+              </div>
+            </label>
           </Kartu>
 
           <Kartu
             judul="5. Video Ilustrasi"
-            deskripsi="Latar sinematik + kabut digital + kilat + teks narasi. Rasio & resolusi bebas."
+            deskripsi="Ilustrasi komik prosedural (rumah berhantu, pemakaman, hutan, sosok) + kabut digital + kilat + teks narasi."
             ikon={<Film className="h-4 w-4" />}
           >
-            <div className="flex flex-wrap gap-2">
+            <label className="flex items-center justify-between">
+              <span className="text-sm text-slate-300">Ilustrasi komik pada halaman</span>
+              <button type="button" onClick={() => { setIlustrasi(!ilustrasi); simpanAtur({ ilustrasi: !ilustrasi }); }}
+                className={`h-6 w-11 rounded-full transition ${ilustrasi ? "bg-amber-400" : "bg-slate-700"}`}>
+                <span className={`block h-4 w-4 translate-y-1 rounded-full bg-white transition ${ilustrasi ? "translate-x-6" : "translate-x-1"}`} />
+              </button>
+            </label>
+            <div className="mt-3 flex flex-wrap gap-2">
               {TEMA_VISUAL.map((t) => (
                 <Chip key={t.id} aktif={temaVisual === t.id} onClick={() => { setTemaVisual(t.id); simpanAtur({ temaVisual: t.id }); }}>{t.nama}</Chip>
               ))}

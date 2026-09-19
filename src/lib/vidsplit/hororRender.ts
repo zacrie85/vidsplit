@@ -2,9 +2,12 @@
 // latar procedural ffmpeg (gradient gelap + grain hidup + vignette + kilat) +
 // halaman teks narasi (resvg) overlay fade + audio (narasi TTS + musik horor
 // volume diatur) -> chunk .ts -> concat -c copy. Semua argumen murni & teruji unit.
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { Cerita } from "./hororCerita";
 import { estimasiDurasi } from "./hororCerita";
 import type { IntensitasHoror } from "./hororMusik";
+import { jenisAdeganBab, type JenisAdegan } from "./hororIlustrasi";
 
 export interface TemaHoror {
   id: string;
@@ -45,6 +48,12 @@ export interface OpsiRenderHoror {
   rasio?: RasioHoror;
   resolusi?: ResolusiHoror;
   temaId?: string;
+  /** v0.26.0 — "sintesis" (bawaan) | id MUSIK_BUNDEL | "impor" (pakai musikImporRel) */
+  sumberMusik?: string;
+  /** v0.26.0 — path relatif work/ utk musik impor (dipakai bila sumberMusik="impor") */
+  musikImporRel?: string;
+  /** v0.26.0 — ilustrasi komik prosedural pada halaman (bawaan: aktif) */
+  ilustrasi?: boolean;
 }
 
 export interface HalamanRencana {
@@ -55,15 +64,26 @@ export interface HalamanRencana {
   durasi: number;
   /** file wav narasi (path absolut) atau null */
   wav: string | null;
+  /** v0.26.0 — jenis adegan ilustrasi halaman ini (null = tanpa ilustrasi) */
+  adeganJenis?: JenisAdegan | null;
+  adeganSeed?: number;
+  /** bawaan halaman (judul/tamat) memakai adegan penuh; narasi ambient redup */
+  adeganPenuh?: boolean;
 }
 
-/** Susun rencana halaman: judul (7s) + [bab: label (3.5s) + paragraf] + tamat (6s) */
+/** Susun rencana halaman: judul (7s) + [bab: label (3.5s) + paragraf] + tamat (6s).
+ *  v0.26.0 — tiap bab dapat adegan ilustrasi berbeda (deterministik). */
 export function rencanaHoror(cerita: Cerita, opsi: OpsiRenderHoror, durasiParagraf: number[][], wavParagraf: (string | null)[][]): HalamanRencana[] {
   const halaman: HalamanRencana[] = [];
   const judul = (opsi.judul || cerita.judul).trim();
-  halaman.push({ besar: judul, label: "Sebuah Cerita Horor", skala: 1.25, durasi: 7, wav: null });
+  const pakaiIlustrasi = opsi.ilustrasi !== false;
+  const adegan = (i: number, penuh: boolean): { adeganJenis?: JenisAdegan | null; adeganSeed?: number; adeganPenuh?: boolean } =>
+    pakaiIlustrasi
+      ? { adeganJenis: jenisAdeganBab(i, cerita.seed), adeganSeed: (cerita.seed ^ (i * 2246822519)) >>> 0, adeganPenuh: penuh }
+      : {};
+  halaman.push({ besar: judul, label: "Sebuah Cerita Horor", skala: 1.25, durasi: 7, wav: null, ...adegan(0, true) });
   cerita.bab.forEach((bab, i) => {
-    halaman.push({ besar: bab.judul, label: `BAB ${i + 1}`, skala: 1.1, durasi: 3.5, wav: null });
+    halaman.push({ besar: bab.judul, label: `BAB ${i + 1}`, skala: 1.1, durasi: 3.5, wav: null, ...adegan(i + 1, true) });
     bab.paragraf.forEach((p, j) => {
       const dTerukur = durasiParagraf[i]?.[j];
       halaman.push({
@@ -71,10 +91,11 @@ export function rencanaHoror(cerita: Cerita, opsi: OpsiRenderHoror, durasiParagr
         skala: 0.95,
         durasi: dTerukur && dTerukur > 0 ? dTerukur : estimasiDurasi(p),
         wav: wavParagraf[i]?.[j] ?? null,
+        ...adegan(i + 1, false),
       });
     });
   });
-  halaman.push({ besar: "TAMAT", label: cerita.judul, skala: 1.3, durasi: 6, wav: null });
+  halaman.push({ besar: "TAMAT", label: cerita.judul, skala: 1.3, durasi: 6, wav: null, ...adegan(cerita.bab.length + 1, true) });
   return halaman;
 }
 
@@ -206,4 +227,26 @@ export function buatArgumenConcat(listAbs: string, keluar: string): string[] {
 /** isi file list concat (dipakai jobs) */
 export function isiListConcat(daftarTs: string[]): string {
   return daftarTs.map((f) => `file '${f.replace(/'/g, "'\\''")}'`).join("\n") + "\n";
+}
+
+// ---------- v0.26.0 — musik horor bundel (CC-BY, kredit wajib di assets/musik-horor/KREDIT.txt) ----------
+export const MUSIK_BUNDEL: { id: string; nama: string; file: string; kredit: string }[] = [
+  { id: "horor-ambient", nama: "Horor Ambient", file: "horor-ambient.mp3", kredit: "Vinrax — CC-BY 3.0" },
+  { id: "gedung", nama: "Gedung Terbengkalai", file: "gedung-terbengkalai.mp3", kredit: "tcarisland — CC-BY 3.0" },
+  { id: "kedalaman", nama: "Kedalaman Keputusasaan", file: "kedalaman-keputusasaan.mp3", kredit: "Tsorthan Grove — CC-BY 4.0" },
+];
+
+/** Cari berkas musik bundel di kandidat folder (env VIDSPLIT_MUSIK / cwd/assets) */
+export function pathMusikBundel(file: string): string {
+  const kandidat = [
+    process.env.VIDSPLIT_MUSIK,
+    path.join(process.cwd(), "assets", "musik-horor"),
+    path.join(process.cwd(), "..", "assets", "musik-horor"),
+    path.join(process.cwd(), "..", "..", "assets", "musik-horor"),
+  ].filter(Boolean) as string[];
+  for (const d of kandidat) {
+    const p = path.join(d, file);
+    try { if (readFileSync(p).length > 1000) return p; } catch { /* lanjut */ }
+  }
+  return path.join(process.cwd(), "assets", "musik-horor", file);
 }
