@@ -60,10 +60,23 @@ cek(jC.ok && jC.cerita?.bab?.length === 3, `cerita dibuat (3 bab, judul: ${jC.ce
 cek(jC.cerita?.tema === "desa", `tema dari ide = desa (${jC.cerita?.tema})`);
 cek(JSON.stringify(jC.cerita).includes("makam") || JSON.stringify(jC.cerita).includes("pemakaman"), "kata kunci ide masuk ke cerita");
 
-// ---- 2) daftar suara (di sandbox: [] — fallback musik saja) ----
+// ---- 2) daftar suara + UJI SUARA AI NEURAL (Piper, bila bundel ada di env) ----
 const rS = await fetch(`${BASE}/api/horor/suara`);
 const jS = await rS.json();
 cek(jS.ok && Array.isArray(jS.suara), `daftar suara ok (${jS.suara?.length ?? 0} suara)`);
+cek(typeof jS.adaAi === "boolean", `flag adaAi terkirim (${jS.adaAi})`);
+const rAi = await fetch(`${BASE}/api/horor/suara`, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ mesin: "ai" }),
+});
+const jAi = await rAi.json();
+cek(jAi.ok === true && typeof jAi.wav === "string" && jAi.wav.startsWith("data:audio/wav"), `UJI SUARA AI NEURAL lolos (${jAi.metode ?? jAi.galat ?? "-"})`);
+const rW = await fetch(`${BASE}/api/horor/suara`, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ mesin: "windows" }),
+});
+const jW = await rW.json();
+cek(jW.ok === (process.platform === "win32"), `uji suara Windows konsisten dgn platform (ok=${jW.ok})`);
 
 // ---- 3) mulai render (resolusi kecil agar cepat) ----
 const rR = await fetch(`${BASE}/api/horor/render`, {

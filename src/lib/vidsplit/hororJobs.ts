@@ -4,11 +4,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
-import { dirWork, jalankanFfmpeg, pilihFfmpeg, probe } from "./ffmpeg";
+import { dirWork, jalankanFfmpeg, pilihFfmpeg } from "./ffmpeg";
 import type { KeluaranJob } from "./jobs";
-import { buatCerita, type Cerita } from "./hororCerita";
+import { buatCerita, estimasiDurasi, type Cerita } from "./hororCerita";
 import { sintesisMusikHoror } from "./hororMusik";
-import { buatNarasiWav } from "./hororTts";
+import { buatNarasiWav, durasiWav } from "./hororTts";
 import { renderHalamanPng } from "./teksLayar";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
@@ -109,18 +109,27 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
         const wavAbs = path.join(folderTmp, `narasi-${i}-${j}.wav`);
         let ok = false;
         if (opsi.narasi) {
-          const hasil = await buatNarasiWav(teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs);
+          const hasil = await buatNarasiWav(teks, { kecepatan: opsi.kecepatanNarasi, volume: opsi.volumeNarasi, suara: opsi.suaraNarasi }, wavAbs, opsi.mesinNarasi ?? "ai");
           ok = hasil.ok;
           if (hasil.metode) metodeNarasi = hasil.metode;
           if (!ok && !galatNarasiPertama && hasil.galat) galatNarasiPertama = hasil.galat;
         }
         if (ok) {
-          try {
-            const info = await probe(wavAbs);
-            durasiParagraf[i][j] = Math.max(3, info.durasi + 0.6);
+          // v0.28.0 FIX: durasi dibaca dari header RIFF (durasiWav) — BUKAN probe(),
+          // yang menuntut stream video sehingga WAV narasi selalu "gagal dibaca"
+          // dan suara yang sudah jadi dibuang.
+          let durasi = 0;
+          let ukuranWav = 0;
+          try { durasi = await durasiWav(wavAbs); } catch { /* header aneh — pakai estimasi */ }
+          try { ukuranWav = (await import("node:fs")).statSync(wavAbs).size; } catch { /* tak ada berkas */ }
+          if (ukuranWav > 1000) {
+            durasiParagraf[i][j] = Math.max(3, durasi > 0.3 ? durasi + 0.6 : estimasiDurasi(teks) + 1.5);
             wavParagraf[i][j] = wavAbs;
             narasiJadi++;
-          } catch { ok = false; }
+          } else {
+            ok = false;
+            if (!galatNarasiPertama) galatNarasiPertama = "berkas narasi kosong/tak lengkap";
+          }
         }
         if (!ok) {
           durasiParagraf[i][j] = 0; // dihitung ulang oleh rencanaHoror (estimasi)

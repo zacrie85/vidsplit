@@ -54,6 +54,8 @@ export interface OpsiRenderHoror {
   musikImporRel?: string;
   /** v0.26.0 — ilustrasi komik prosedural pada halaman (bawaan: aktif) */
   ilustrasi?: boolean;
+  /** v0.28.0 — mesin suara pembaca: "ai" (Piper neural, disarankan) | "windows" (SAPI) */
+  mesinNarasi?: "ai" | "windows";
 }
 
 export interface HalamanRencana {

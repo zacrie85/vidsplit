@@ -18,6 +18,12 @@ const KUNCI_ATUR = "vidsplit-horor-v2";
 type TemaCerita = "acak" | "rumah" | "sekolah" | "kantor" | "desa";
 type PanjangCerita = "pendek" | "sedang" | "panjang" | "bab10" | "bab15" | "bab20";
 type Intensitas = "santai" | "menegangkan" | "menghantui";
+type MesinNarasi = "ai" | "windows";
+
+const MESIN_NARASI: { id: MesinNarasi; nama: string; ket: string }[] = [
+  { id: "ai", nama: "AI Neural (disarankan)", ket: "suara Indonesia jelas & alami" },
+  { id: "windows", nama: "Suara Bawaan Windows", ket: "SAPI perangkatmu" },
+];
 
 const TEMA_CERITA: { id: TemaCerita; nama: string }[] = [
   { id: "acak", nama: "Acak" }, { id: "rumah", nama: "Rumah" },
@@ -65,6 +71,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
   const [membuatCerita, setMembuatCerita] = useState(false);
 
   const [narasi, setNarasi] = useState(true);
+  const [mesin, setMesin] = useState<MesinNarasi>("ai");
+  const [adaAi, setAdaAi] = useState(false);
   const [suara, setSuara] = useState("");
   const [daftarSuara, setDaftarSuara] = useState<SuaraTts[]>([]);
   const [cekSuaraSedang, setCekSuaraSedang] = useState(false);
@@ -98,9 +106,10 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         const a = JSON.parse(m) as Partial<{
           narasi: boolean; kecepatan: number; volumeNarasi: number; intensitas: Intensitas;
           volumeMusik: number; temaVisual: string; rasio: string; resolusi: string;
-          sumberMusik: string; ilustrasi: boolean;
+          sumberMusik: string; ilustrasi: boolean; mesinNarasi: string;
         }>;
         if (typeof a.narasi === "boolean") setNarasi(a.narasi);
+        if (a.mesinNarasi === "ai" || a.mesinNarasi === "windows") setMesin(a.mesinNarasi);
         if (a.kecepatan) setKecepatan(Math.min(1.5, Math.max(0.6, a.kecepatan)));
         if (typeof a.volumeNarasi === "number") setVolumeNarasi(a.volumeNarasi);
         if (a.intensitas) setIntensitas(a.intensitas);
@@ -127,8 +136,9 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     setCekSuaraSedang(true);
     try {
       const r = await fetch("/api/horor/suara", { signal: AbortSignal.timeout(40_000) });
-      const j = (await r.json()) as { ok: boolean; suara?: SuaraTts[] };
+      const j = (await r.json()) as { ok: boolean; suara?: SuaraTts[]; adaAi?: boolean };
       if (j.ok && Array.isArray(j.suara)) setDaftarSuara(j.suara);
+      if (typeof j.adaAi === "boolean") setAdaAi(j.adaAi);
     } catch { setDaftarSuara([]); }
     finally { setCekSuaraSedang(false); }
   }, []);
@@ -138,7 +148,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
   const ujiSuara = async () => {
     setUji({ sedang: true, ok: null, hasil: null });
     try {
-      const r = await fetch("/api/horor/suara", { method: "POST", signal: AbortSignal.timeout(180_000) });
+      const r = await fetch("/api/horor/suara", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mesin }), signal: AbortSignal.timeout(180_000) });
       const j = (await r.json()) as { ok: boolean; metode?: string | null; galat?: string; wav?: string };
       if (j.ok && j.wav) {
         try { void new Audio(j.wav).play(); } catch { /* autoplay diblokir browser */ }
@@ -234,6 +244,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           cerita, judul: cerita.judul, narasi,
+          mesinNarasi: mesin,
           kecepatanNarasi: kecepatan, volumeNarasi,
           suaraNarasi: suara || undefined,
           intensitasMusik: intensitas,
@@ -265,10 +276,10 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Ghost className="h-5 w-5 text-rose-400" /> Studio Cerita Horor
-            <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300">AI v0.27.0</span>
+            <span className="rounded-full border border-rose-400/40 bg-rose-400/10 px-2 py-0.5 text-[10px] font-semibold text-rose-300">AI v0.28.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
-            100% offline: cerita dibuat mesin AI lokal, dibacakan suara bawaan perangkat (3 jalur anti-gagal + tombol Uji Suara), musik horor bebas hak cipta.
+            100% offline: cerita dibuat mesin AI lokal, dibacakan suara bawaan perangkat AI Voice Generator neural + 3 jalur cadangan + tombol Uji Suara, musik horor bebas hak cipta.
           </p>
         </div>
       </div>
@@ -340,11 +351,25 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div className="space-y-4">
           <Kartu
             judul="3. Pembaca Skrip"
-            deskripsi={daftarSuara.length
-              ? `${daftarSuara.length} suara bawaan perangkat ditemukan`
-              : "Mendeteksi suara bawaan perangkat… (jika tak terdeteksi, narasi tetap dicoba saat render lewat 3 jalur berbeda)"}
+            deskripsi={mesin === "ai" && adaAi
+              ? "AI Voice Generator aktif — suara neural Bahasa Indonesia, 100% offline"
+              : daftarSuara.length
+                ? `${daftarSuara.length} suara bawaan perangkat ditemukan`
+                : "Pilih mesin suara, lalu klik Uji Suara untuk memastikan narasi terdengar"}
             ikon={<Mic className="h-4 w-4" />}
           >
+            <div className="flex flex-wrap gap-2">
+              {MESIN_NARASI.map((m) => (
+                <Chip key={m.id} aktif={mesin === m.id} onClick={() => { setMesin(m.id); simpanAtur({ mesinNarasi: m.id }); }}>
+                  {m.nama} <span className="text-xs opacity-70">({m.ket})</span>
+                </Chip>
+              ))}
+            </div>
+            {mesin === "ai" && !adaAi && (
+              <p className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2 text-xs text-amber-200">
+                Mesin AI Neural tidak terdeteksi — narasi otomatis memakai suara bawaan Windows.
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" disabled={uji.sedang} onClick={() => void ujiSuara()}
                 className="flex items-center gap-2 rounded-lg border border-amber-400/50 bg-amber-400/10 px-3 py-1.5 text-sm font-medium text-amber-200 transition hover:border-amber-400 disabled:opacity-50">
@@ -369,7 +394,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             </label>
             {narasi && (
               <div className="mt-3 space-y-3">
-                {daftarSuara.length > 0 && (
+                {mesin === "windows" && daftarSuara.length > 0 && (
                   <select value={suara} onChange={(e) => setSuara(e.target.value)}
                     className="w-full rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-200">
                     <option value="">Suara terbaik otomatis (Indonesia bila ada)</option>

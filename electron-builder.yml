@@ -19,6 +19,9 @@ extraResources:
   # v0.26.0 — musik horor CC-BY bundel (kredit wajib ikut)
   - from: assets/musik-horor
     to: musik-horor
+  # v0.28.0 — AI Voice Generator (Piper TTS neural, 100% offline, suara Indonesia)
+  - from: assets/tts-piper
+    to: tts-piper
 win:
   target:
     - nsis

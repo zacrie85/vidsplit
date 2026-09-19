@@ -1,0 +1,28 @@
+AI VOICE GENERATOR VidSplit — Piper TTS (v0.28.0)
+=================================================
+
+Mesin suara neural 100% OFFLINE yang dibundel di aplikasi VidSplit.
+
+1) PIPER (binary + pustaka)
+   - Sumber: https://github.com/rhasspy/piper (rilis 2023.11.14-2, Windows x64)
+   - Lisensi: MIT License — Copyright (c) 2023 rhasspy / Michael Hansen
+   - Komponen: piper.exe, espeak-ng.dll (LGPL-2.1, dari espeak-ng project),
+     piper_phonemize.dll (MIT? -> sumber di repo piper_phonemize, GPL-3.0+),
+     onnxruntime.dll (MIT, Microsoft), libtashkeel_model.ort (MIT),
+     espeak-ng-data/ (data fonem, GPL-3.0 espeak-ng).
+   - Catatan lisensi: komponen dipakai sebagai SEPARATE EXECUTABLE yang
+     dipanggil proses terpisah oleh VidSplit (bukan ditautkan statis), dan
+     sumber aslinya tersedia publik pada tautan di atas.
+
+2) MODEL SUARA BAHASA INDONESIA
+   - Berkas: id_ID-news_tts-medium.onnx (+ .onnx.json)
+   - Sumber: https://huggingface.co/rhasspy/piper-voices (id/id_ID/news_tts/medium)
+   - Kualitas: medium, 1 speaker, samplerate 22.050 Hz
+   - Dataset latih: https://www.kaggle.com/code/mpwolke/indic-tts-malayalam-speech-corpus
+     (MODEL_CARD resmi menyebut "See URL"; model disebar publik oleh proyek Piper)
+   - Difinetune dari suara U.S. English "lessac" (medium).
+
+3) CARA KERJA DI VIDPLIT
+   - Menu Studio Cerita Horor -> panel "3. Pembaca Skrip" -> chip "AI Neural".
+   - piper.exe dipanggil sebagai proses terpisah per paragraf, keluaran WAV
+     22.05k ditempel ke video bersama musik — tanpa internet sama sekali.

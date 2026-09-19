@@ -2,7 +2,8 @@
 import { buatCerita, estimasiDurasi } from "../src/lib/vidsplit/hororCerita";
 import { sintesisMusikHoror } from "../src/lib/vidsplit/hororMusik";
 import { renderHalamanPng, bungkusTeks, bacaTtf, lebarTeks } from "../src/lib/vidsplit/teksLayar";
-import { buatNarasiWav, ujiTts, ekspresiVbs } from "../src/lib/vidsplit/hororTts";
+import { buatNarasiWav, ujiTts, ekspresiVbs, durasiWav, piperSiap } from "../src/lib/vidsplit/hororTts";
+import { statSync, writeFileSync } from "node:fs";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
@@ -115,17 +116,50 @@ const argCon = buatArgumenConcat("/tmp/list.txt", "/tmp/out.mp4");
 ok(argCon.includes("concat") && argCon.includes("-movflags"), "arg concat benar");
 ok(isiListConcat(["/a.ts", "/b'c.ts"]).includes("file '/a.ts'") && isiListConcat(["/a.ts", "/b'c.ts"]).includes("b'\\''c"), "list concat escape aman");
 
-console.log("== 5. Pembaca skrip (TTS multi-strategi) ==");
-const hTts = await buatNarasiWav("Uji suara.", {}, "/tmp/vidsplit-uji-tts.wav");
-ok(!hTts.ok, "di luar Windows: TTS tak mengaku berhasil");
-ok(!!hTts.galat && hTts.galat.includes("Windows"), `galat jelas & tidak senyap (${hTts.galat?.slice(0, 60)}…)`);
+console.log("== 5. Pembaca skrip (TTS multi-mesin) ==");
+// --- durasiWav: pembaca RIFF murni JS (fix "WAV gagal dibaca" oleh probe) ---
+function buatWavSintetis(p: string, detik: number, sr: number, kanal: number, bit: number) {
+  const nData = Math.round(detik * sr * kanal * (bit / 8));
+  const buf = Buffer.alloc(44 + nData);
+  buf.write("RIFF", 0, "ascii"); buf.writeUInt32LE(36 + nData, 4); buf.write("WAVE", 8, "ascii");
+  buf.write("fmt ", 12, "ascii"); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(kanal, 22); buf.writeUInt32LE(sr, 24); buf.writeUInt32LE(sr * kanal * (bit / 8), 28);
+  buf.writeUInt16LE((kanal * bit) / 8, 32); buf.writeUInt16LE(bit, 34);
+  buf.write("data", 36, "ascii"); buf.writeUInt32LE(nData, 40);
+  writeFileSync(p, buf);
+}
+buatWavSintetis("/tmp/vidsplit-uji-riff.wav", 2.0, 22050, 1, 16);
+const dRiff = await durasiWav("/tmp/vidsplit-uji-riff.wav");
+ok(Math.abs(dRiff - 2.0) < 0.05, `durasiWav membaca RIFF benar (${dRiff.toFixed(2)} dtk)`);
+buatWavSintetis("/tmp/vidsplit-uji-riff2.wav", 0.5, 44100, 2, 16);
+ok(Math.abs((await durasiWav("/tmp/vidsplit-uji-riff2.wav")) - 0.5) < 0.05, "durasiWav stereo 44.1k benar");
+writeFileSync("/tmp/vidsplit-bukan-wav.bin", Buffer.from("BUKAN BERKAS WAV"));
+let tolak = false;
+try { await durasiWav("/tmp/vidsplit-bukan-wav.bin"); } catch { tolak = true; }
+ok(tolak, "durasiWav menolak berkas bukan-WAV");
+// --- mesin Windows di luar Windows: galat jelas, tidak senyap ---
+const hWin = await buatNarasiWav("Uji suara.", {}, "/tmp/vidsplit-uji-tts.wav", "windows");
+ok(!hWin.ok && !!hWin.galat, "mesin Windows di luar Windows -> galat jelas");
 ok(ekspresiVbs('dia bilang "jangan"') === '"dia bilang ""jangan"""', "vbs: kutip ganda diekapsulasi aman");
 ok(ekspresiVbs("cahaya…").includes("ChrW(8230)"), "vbs: non-ASCII lewat ChrW");
 ok(!ekspresiVbs("abc").includes("ChrW"), "vbs: ASCII murni tanpa ChrW");
 ok(ekspresiVbs("") === '""', "vbs: teks kosong aman");
 ok(ekspresiVbs("baris\nbaru").includes("ChrW(10)"), "vbs: baris-baru lewat ChrW");
-const hUji = await ujiTts();
-ok(!hUji.ok && !!hUji.galat, "ujiTts di luar Windows -> galat jelas");
+// --- mesin AI Neural (Piper): uji nyata bila bundel tersedia ---
+const ai = piperSiap();
+if (ai) {
+  const hAi = await buatNarasiWav("Raka mendengar suara aneh dari balik pintu gudang.", { kecepatan: 1 }, "/tmp/vidsplit-uji-ai.wav", "ai");
+  ok(hAi.ok && !!hAi.metode, `mesin AI Neural menghasilkan suara (${hAi.metode ?? "-"})`);
+  const dAi = await durasiWav("/tmp/vidsplit-uji-ai.wav");
+  ok(dAi > 1, `durasi WAV AI wajar (${dAi.toFixed(1)} dtk)`);
+  ok(statSync("/tmp/vidsplit-uji-ai.wav").size > 50_000, "WAV AI berukuran wajar");
+  const ujiAi = await ujiTts("ai");
+  ok(ujiAi.ok && (ujiAi.durasi ?? 0) > 1, `ujiTts("ai") lolos + durasi terbaca (${ujiAi.durasi?.toFixed(1)} dtk)`);
+} else {
+  ok(true, "piper bundel tidak ada di lingkungan ini — uji AI dilewati");
+}
+const ujiWin = await ujiTts("windows");
+ok(!ujiWin.ok === (process.platform !== "win32"), "ujiTts windows konsisten dgn platform");
 
 console.log(gagal === 0 ? "\nSEMUA SMOKE LOLOS" : `\n${gagal} GAGAL`);
 process.exit(gagal === 0 ? 0 : 1);

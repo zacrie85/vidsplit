@@ -90,6 +90,8 @@ function nyalakanServer() {
     // v0.20.0 — mesin pisah vokal AI: folder model MDX-Net + lokasi modul onnxruntime
     // v0.26.0 — musik horor bundel (CC-BY, kredit di assets/musik-horor/KREDIT.txt)
     VIDSPLIT_MUSIK: path.join(res, "musik-horor"),
+    // v0.28.0 — AI Voice Generator (Piper TTS neural) bundel
+    VIDSPLIT_PIPER: path.join(res, "tts-piper"),
     VIDSPLIT_VOKAL_AI: path.join(res, "vokal-ai"),
     VIDSPLIT_ORT: path.join(res, "server"),
     VIDSPLIT_ELECTRON: "1",
