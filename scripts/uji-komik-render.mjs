@@ -152,9 +152,9 @@ const jR2 = await rR2.json();
 cek(jR2.ok && typeof jR2.id === "string", `render dongeng dimulai (id=${jR2.id ?? "-"})`);
 const job2 = await tungguJob(jR2.id);
 cek(job2?.selesai === true && !job2.error, `job dongeng selesai tanpa error (${job2?.error ?? "bersih"})`);
-cek(!(job2?.peringatan ?? []).some((p) => p.includes("Pustaka 60 gambar")),
+cek(!(job2?.peringatan ?? []).some((p) => p.includes("Pustaka")),
   `pustaka 60 gambar TERPAKAI utk genre dongeng (peringatan: ${job2?.peringatan?.join(" | ") ?? "kosong"})`);
-const mIkhtisar = /\((\d+) ilustrasi pustaka berbeda/.exec(job2?.pesan ?? "");
+const mIkhtisar = /\((\d+) ilustrasi pustaka (komik|realistis|realistis\+komik) berbeda/.exec(job2?.pesan ?? "");
 cek(!!mIkhtisar && Number(mIkhtisar[1]) >= 10,
   `ikhtisar menyebut jumlah ilustrasi berbeda (${job2?.pesan ?? "-"})`);
 const mp42 = job2?.outputs?.[0];
@@ -167,6 +167,41 @@ if (mp42) {
     const f = path.join(WORK, `frame-dongeng-t${t}.jpg`);
     try { execFileSync3(`node_modules/ffmpeg-static/ffmpeg`, ["-y", "-ss", String(t), "-i", abs2, "-frames:v", "1", f]); } catch {}
     cek(existsSync(f), `frame dongeng t=${t} terekstrak (bukti visual gambar berganti)`);
+  }
+}
+
+// ================= v0.37.0 — SKENARIO 3: GAYA REALISTIS (agen pendamping) =================
+// Kartu 6: pustaka hantu-real (41 ilustrasi still film horor fotorealistis)
+// menggantikan pustaka komik; cerita & mesin persis menu 5.
+console.log("\n-- Skenario 3: gaya REALISTIS (kartu 6 — agen pendamping menu 5) --");
+const rR3 = await fetch(`${BASE}/api/horor/render`, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    cerita: ceritaSatuAlur, judul: "Uji Komik Realistis", genreId: "horor",
+    narasi: true, mesinNarasi: "ai", kecepatanNarasi: 1, volumeNarasi: 1,
+    intensitasMusik: "menegangkan", volumeMusik: 0.7, rasio: "9:16", resolusi: "720p",
+    temaId: "kelam", sumberMusik: "sintesis", ilustrasi: true,
+    gayaIlustrasi: "realistis",
+  }),
+});
+const jR3 = await rR3.json();
+cek(jR3.ok && typeof jR3.id === "string", `render realistis dimulai (id=${jR3.id ?? "-"})`);
+const job3 = await tungguJob(jR3.id);
+cek(job3?.selesai === true && !job3.error, `job realistis selesai tanpa error (${job3?.error ?? "bersih"})`);
+cek(!(job3?.peringatan ?? []).some((p) => p.includes("Pustaka")),
+  `pustaka realistis TERPAKAI (peringatan: ${job3?.peringatan?.join(" | ") ?? "kosong"})`);
+cek(/video realistis \d+ adegan/.test(job3?.pesan ?? ""), `ikhtisar menyebut video realistis (${job3?.pesan ?? "-"})`);
+const mReal = /\((\d+) ilustrasi pustaka realistis berbeda/.exec(job3?.pesan ?? "");
+cek(!!mReal && Number(mReal[1]) >= 8,
+  `ikhtisar: ilustrasi pustaka REALISTIS berbeda (${mReal?.[1] ?? "-"})`);
+const mp43 = job3?.outputs?.[0];
+if (mp43) {
+  const abs3 = path.join(WORK, "output", jR3.id, mp43.file);
+  cek(existsSync(abs3) && statSync(abs3).size > 200_000, `MP4 realistis ada (${Math.round(statSync(abs3).size / 1024)} KB)`);
+  for (const t of [8, 30]) {
+    const f = path.join(WORK, `frame-realistis-t${t}.jpg`);
+    try { execFileSync3(`node_modules/ffmpeg-static/ffmpeg`, ["-y", "-ss", String(t), "-i", abs3, "-frames:v", "1", f]); } catch {}
+    cek(existsSync(f), `frame realistis t=${t} terekstrak (bukti visual)`);
   }
 }
 

@@ -1,0 +1,22 @@
+PUSTAKA GAMBAR HANTU REALISTIS — VidSplit v0.37.0
+====================================================
+
+41 ilustrasi AI (1024x1024, disimpan .jpg kualitas tinggi) bergaya
+"still film horor" FOTOREALISTIS: 27 hantu + 14 latar.
+
+- Dibangkitkan secara PROSEDURAL saat pembangunan aplikasi memakai model
+  gambar AI (z-ai-web-dev-sdk), lalu DIBUNDEL ke dalam aplikasi.
+- 100% OFFLINE saat dipakai: semua berkas ikut terpasang di folder
+  resources/hantu-real — aplikasi TIDAK memanggil internet sama sekali.
+- Dibuat KHUSUS untuk VidSplit; bebas dipakai & dibagikan bersama aplikasi.
+- Nama berkas mengikuti id pustaka komik (pocong-1.jpg, latar-hutan.jpg,
+  dst.) — id identik antar pustaka agar deteksi hantu/latar dari cerita
+  dan perencana potongan 2 detik dipakai bersama.
+
+Isi:
+- Hantu (27): pocong x3, kuntilanak x3 + sundel bolong, genderuwo x2,
+  tuyul, wewe gombel, leak, suster ngesot, banaspati, siluman ular,
+  arwah x2, sosok bayangan x4, hantu pohon, penunggu kuburan,
+  wajah tembok, hantu bawah ranjang, tangan kubur, hantu belakang.
+- Latar (14): kuburan, makam, beringin, rumah tua, hutan, lorong, kamar,
+  sekolah, rumah sakit, sawah, jalan kampung, gua, jembatan, setapak.

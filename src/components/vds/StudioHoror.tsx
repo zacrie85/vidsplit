@@ -17,6 +17,9 @@ import type { InfoJobHoror } from "@/lib/vidsplit/hororJobs";
 import { GENRE, type GenreId } from "@/lib/vidsplit/videoAi";
 
 const KUNCI_ATUR = "vidsplit-horor-v2";
+// v0.37.0 — chip hantu kartu 6 (versi REALISTIS): hantu Nusantara yang punya
+// gambar realistis di pustaka hantu-real (27 hantu + 14 latar, 100% offline)
+const REALISTIS_HANTU = ["Pocong", "Kuntilanak", "Sundel Bolong", "Genderuwo", "Tuyul", "Wewe Gombel", "Leak", "Suster Ngesot", "Banaspati", "Siluman Ular", "Arwah", "Hantu Pohon", "Penunggu Kubur", "Hantu Belakang"];
 
 type TemaCerita = "acak" | "rumah" | "sekolah" | "kantor" | "desa";
 type PanjangCerita = "pendek" | "sedang" | "panjang" | "bab10" | "bab15" | "bab20";
@@ -105,6 +108,9 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
   const [temaVisual, setTemaVisual] = useState("kelam");
   const [ilustrasi, setIlustrasi] = useState(true);
+  // v0.37.0 — gaya gambar AI Text-to-Video Generator: "komik" (bawaan) |
+  // "realistis" (pustaka hantu-real — agen pendamping menu 5, kartu 6)
+  const [gayaIlus, setGayaIlus] = useState<"komik" | "realistis">("komik");
   const [rasio, setRasio] = useState<"9:16" | "16:9">("9:16");
   const [resolusi, setResolusi] = useState<"720p" | "1080p">("1080p");
 
@@ -122,7 +128,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
           narasi: boolean; kecepatan: number; volumeNarasi: number; intensitas: Intensitas;
           volumeMusik: number; temaVisual: string; rasio: string; resolusi: string;
           sumberMusik: string; ilustrasi: boolean; mesinNarasi: string; genre: string;
-          jenisSuara: string;
+          jenisSuara: string; gayaIlustrasi: string;
         }>;
         if (a.genre && GENRE.some((g) => g.id === a.genre)) setGenre(a.genre as GenreId);
         if (typeof a.narasi === "boolean") setNarasi(a.narasi);
@@ -135,6 +141,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         if (a.temaVisual) setTemaVisual(a.temaVisual);
         if (a.sumberMusik) setSumberMusik(a.sumberMusik);
         if (typeof a.ilustrasi === "boolean") setIlustrasi(a.ilustrasi);
+        if (a.gayaIlustrasi === "realistis" || a.gayaIlustrasi === "komik") setGayaIlus(a.gayaIlustrasi);
         if (a.rasio === "16:9") setRasio("16:9");
         if (a.resolusi === "720p") setResolusi("720p");
       }
@@ -266,7 +273,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
     finally { setUnggahMusik(false); }
   };
 
-  const buatVideo = async () => {
+  const buatVideo = async (gaya?: "komik" | "realistis") => {
     if (!cerita || jobId && !job?.selesai) return;
     // v0.30.0 — cerita dikirim sbg SATU alur paragraf (tanpa judul bab);
     // mesin komik memecahnya jadi adegan ±3 dtk & menyinkronkan narasi.
@@ -276,6 +283,8 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
       return;
     }
     const ceritaKirim: Cerita = { ...cerita, bab: [{ judul: "", paragraf: paragrafBaru }] };
+    // v0.37.0 — gaya bisa dipaksa dr kartu 6 ("Buat Video Realistis")
+    const gayaPakai = gaya ?? gayaIlus;
     try {
       const r = await fetch("/api/horor/render", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -290,6 +299,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
           rasio, resolusi, temaId: temaVisual,
           sumberMusik, musikImporRel: musikImporRel ?? undefined,
           ilustrasi,
+          gayaIlustrasi: gayaPakai,
         }),
       });
       const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
@@ -314,7 +324,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.36.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.37.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
             100% offline — AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → video komik berisi gambar hantu sesuai cerita (pocong, kuntilanak, genderuwo, dst. — berganti tiap 2 detik), narasi tersinkron.
@@ -556,10 +566,11 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
               <Chip aktif={resolusi === "1080p"} onClick={() => { setResolusi("1080p"); simpanAtur({ resolusi: "1080p" }); }}>1080p</Chip>
             </div>
 
-            <button type="button" disabled={!cerita || (!!jobId && !job?.selesai)} onClick={buatVideo}
+            <button type="button" disabled={!cerita || (!!jobId && !job?.selesai)} onClick={() => buatVideo()}
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:opacity-50">
-              <Wand2 className="h-4 w-4" /> {jobId && !job?.selesai ? "Sedang merender…" : "Buat Video AI"}
+              <Wand2 className="h-4 w-4" /> {jobId && !job?.selesai ? "Sedang merender…" : gayaIlus === "realistis" ? "Buat Video AI (gaya realistis — kartu 6)" : "Buat Video AI"}
             </button>
+            <p className="mt-1.5 text-[11px] text-slate-500">Gaya gambar dipilih di kartu 6: Komik (bawaan) atau Realistis (agen pendamping baru).</p>
 
             {job && !job.selesai && (
               <div className="mt-3">
@@ -603,6 +614,37 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
             {job?.peringatan?.map((p, i) => (
               <p key={i} className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 p-2 text-xs leading-relaxed text-amber-200">{p}</p>
             ))}
+          </Kartu>
+
+          {/* ============ v0.37.0 — KARTU 6: GENERATOR VERSI REALISTIS ============
+            Agen pendamping menu 5: gambar hantu Indonesia bergaya still film
+            horor FOTOREALISTIS (bukan komik), dipandu cerita dari menu 1,
+            berganti tiap 2 detik dgn perencana & variasi yang sama. */}
+          <Kartu
+            judul="6. AI Text-to-Video Generator (versi REALISTIS)"
+            deskripsi="Agen pendamping menu 5: gambar hantu Indonesia (pocong, kuntilanak, genderuwo, tuyul, wewe gombel, leak, suster ngesot, banaspati, siluman ular, dll.) bergaya REALISTIS sinematik — seperti still film horor sungguhan, bukan komik. Cerita diambil dari kolom cerita (hasil menu 1. Buat Video dari Ide), hantu yang disebut cerita muncul sebagai gambarnya, berganti tiap 2 detik, narasi TTS tersinkron."
+            ikon={<Ghost className="h-4 w-4" />}
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              {REALISTIS_HANTU.map((h) => (
+                <span key={h} className="inline-flex items-center gap-1 rounded-lg bg-rose-400/10 px-2 py-0.5 text-[11px] font-medium text-rose-200"><Ghost className="h-3 w-3" /> {h}</span>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => { setGayaIlus("komik"); simpanAtur({ gayaIlustrasi: "komik" }); }}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${gayaIlus === "komik" ? "border-amber-400 bg-amber-400/15 text-amber-200" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+                Gaya Komik (menu 5)
+              </button>
+              <button type="button" onClick={() => { setGayaIlus("realistis"); simpanAtur({ gayaIlustrasi: "realistis" }); }}
+                className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${gayaIlus === "realistis" ? "border-rose-400 bg-rose-400/15 text-rose-200" : "border-slate-700 text-slate-300 hover:border-slate-500"}`}>
+                Gaya REALISTIS (baru — kartu ini)
+              </button>
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500">Pustaka realistis 41 gambar AI terpasang di aplikasi (100% offline): 27 hantu + 14 latar bergaya still film horor fotorealistis. Setelah gaya dipilih, tekan tombol buat video di bawah — video tetap dibuat dgn mesin menu 5 (potongan 2 detik unik, tak ada gambar sama dalam jendela 24 detik).</p>
+            <button type="button" disabled={!cerita || (!!jobId && !job?.selesai)} onClick={() => { setGayaIlus("realistis"); simpanAtur({ gayaIlustrasi: "realistis" }); buatVideo("realistis"); }}
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-rose-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-400 disabled:opacity-50">
+              <Ghost className="h-4 w-4" /> {jobId && !job?.selesai ? "Sedang merender…" : "Buat Video Realistis dari Cerita"}
+            </button>
           </Kartu>
         </div>
       </div>

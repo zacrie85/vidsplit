@@ -183,7 +183,12 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
 
     // ---- 1) PROMPT VIDEO AI (0..3) — cerita -> adegan komik ----
     ktx.maju("narasi", 1, "Membangun prompt video AI…");
-    const prompt: PromptVideoKomik = bangunPromptVideo(cerita, genre.id);
+    // v0.37.0 — gayaIlustrasi "realistis" = AGEN PENDAMPING menu 5: pustaka
+    // gambar hantu-real (41 ilustrasi still film horor) menggantikan pustaka
+    // komik; kalau folder realistis tak ada di instalasi → jatuh ke komik
+    // (dgn peringatan), lalu SVG bila keduanya kosong.
+    const gayaIlus: "komik" | "realistis" = opsi.gayaIlustrasi === "realistis" ? "realistis" : "komik";
+    const prompt: PromptVideoKomik = bangunPromptVideo(cerita, genre.id, gayaIlus);
     const tata = tataLetakKomik(lebar, tinggi);
     const unit: UnitKomik[] = [];
     // kartu judul (bukan bab — hanya judul cerita + label genre)
@@ -201,7 +206,7 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       seedAdegan: (cerita.seed ^ 0xabcdef) >>> 0, kartu: true, skala: 1.1,
     });
     const nAdegan = prompt.adegan.length;
-    ktx.maju("narasi", 3, `Prompt video AI: ${nAdegan} adegan komik — gambar berganti ±${prompt.lajuAdeganDetik} dtk`);
+    ktx.maju("narasi", 3, `Prompt video AI: ${nAdegan} adegan ${gayaIlus === "realistis" ? "realistis" : "komik"} — gambar berganti ±${prompt.lajuAdeganDetik} dtk`);
 
     // ---- 2) NARASI TTS PER ADEGAN (3..30) — audio mengunci durasi adegan ----
     let narasiJadi = 0;
@@ -326,6 +331,7 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
           adegan: unit.map((u) => ({ teks: u.teks, durasi: u.durasi, seedAdegan: u.seedAdegan })),
           seed: (cerita.seed ^ 0x1a2b3c4d) >>> 0,
           cerah: genre.cerah,
+          pustaka: gayaIlus,
         })
       : [];
     const ilus: string[] = [];
@@ -338,24 +344,37 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     // pustaka hilang tidak lagi gagal senyap ke SVG lama).
     let potonganGaleri = 0;
     const gambarBeda = new Set<string>();
+    // v0.37.0 — hitung potongan yg benar-benar memakai berkas REALISTIS
+    let potonganReal = 0;
+    // v0.37.0 — urutan pustaka dicoba per potongan (realistis → jatuh ke komik)
+    const urutanPustaka: readonly ("komik" | "realistis")[] = gayaIlus === "realistis" ? ["realistis", "komik"] : ["komik"];
     for (let i = 0; i < unit.length; i++) {
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
       const ilusAbs = path.join(folderTmp, `ilus-${String(i).padStart(3, "0")}.png`);
       const panelAbs = path.join(folderTmp, `panel-${String(i).padStart(3, "0")}.png`);
-      // --- v0.35.0: gambar + variasi per potongan 2 dtk dari rencana se-video ---
+      // --- v0.35.0/v0.37.0: gambar + variasi per potongan 2 dtk dari rencana
+      // se-video; gaya realistis mencoba pustaka hantu-real dulu, per id jatuh
+      // ke pustaka komik bila berkasnya tak ada (instalasi lama) ---
       let daftarGambar: string[] = [];
       let daftarVariasi: VariasiPotongan[] = [];
       if (pakaiGaleri) {
         const pasangan = (rencana[i] ?? [])
-          .map((p) => ({ file: ambilGaleri(p.id)?.file, variasi: p.variasi }))
-          .filter((x): x is { file: string; variasi: VariasiPotongan } => !!x.file)
-          .map((x) => ({ abs: pathGambarGaleri(x.file), variasi: x.variasi }))
-          .filter((x) => { try { return statSync(x.abs).size > 20000; } catch { return false; } });
+          .map((p) => {
+            for (const pk of urutanPustaka) {
+              const g = ambilGaleri(p.id, pk);
+              if (!g) continue;
+              const abs = pathGambarGaleri(g.file, pk);
+              try { if (statSync(abs).size > 20000) return { abs, variasi: p.variasi, pk }; } catch { /* lanjut */ }
+            }
+            return null;
+          })
+          .filter((x): x is { abs: string; variasi: VariasiPotongan; pk: "komik" | "realistis" } => !!x);
         daftarGambar = pasangan.map((x) => x.abs);
         daftarVariasi = pasangan.map((x) => x.variasi);
         if (pasangan.length) {
           potonganGaleri += pasangan.length;
+          potonganReal += pasangan.filter((x) => x.pk === "realistis").length;
           for (const x of pasangan) gambarBeda.add(path.basename(x.abs));
         }
       }
@@ -385,9 +404,13 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       variasiPerUnit.push(daftarVariasi);
       ktx.maju("halaman", 37 + 15 * ((i + 1) / unit.length), `Menggambar panel adegan ${i + 1}/${unit.length}…`);
     }
-    // v0.36.0 — pustaka hilang TIDAK lagi senyap: peringatan tegas di UI + saran
+    // v0.36.0/v0.37.0 — pustaka hilang TIDAK lagi senyap: peringatan tegas di UI
     if (pakaiGaleri && potonganGaleri === 0) {
-      const p = "Pustaka 60 gambar AI tidak ditemukan di instalasi ini — video memakai ilustrasi animasi bawaan. Instal ulang aplikasi versi terbaru agar pustaka ikut terpasang.";
+      const p = "Pustaka gambar tidak ditemukan di instalasi ini — video memakai ilustrasi animasi bawaan. Instal ulang aplikasi versi terbaru agar pustaka ikut terpasang.";
+      job.peringatan = [...(job.peringatan ?? []), p];
+      ktx.maju("halaman", 52, p);
+    } else if (pakaiGaleri && gayaIlus === "realistis" && potonganReal === 0) {
+      const p = "Pustaka realistis tidak ditemukan di instalasi ini — video memakai pustaka komik. Instal ulang aplikasi versi terbaru agar pustaka realistis ikut terpasang.";
       job.peringatan = [...(job.peringatan ?? []), p];
       ktx.maju("halaman", 52, p);
     }
@@ -462,14 +485,18 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     // galeri tak pernah terpakai (akar bug "gambar galeri keluar SVG lama").
     job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
     const suaraMusik = musikPanjangAbs ? " + musik" : " (tanpa musik)";
-    // v0.36.0 — ikhtisar menyebut JUMLAH GAMBAR BERBEDA yang benar-benar tampil:
-    // bukti terukur bagi user bahwa "gambar sama terus berulang" sudah hilang.
+    // v0.36.0/v0.37.0 — ikhtisar menyebut JUMLAH GAMBAR BERBEDA yang tampil +
+    // pustaka yang benar-benar terpakai (komik/realistis): bukti terukur bagi
+    // user bahwa "gambar sama terus berulang" sudah hilang.
+    const namaPustaka = gayaIlus === "realistis"
+      ? (potonganGaleri === 0 ? "komik" : potonganReal === potonganGaleri ? "realistis" : potonganReal > 0 ? "realistis+komik" : "komik")
+      : "komik";
     const sumberGambar = potonganGaleri > 0
-      ? `${gambarBeda.size} ilustrasi pustaka berbeda`
+      ? `${gambarBeda.size} ilustrasi pustaka ${namaPustaka} berbeda`
       : "ilustrasi animasi";
     const ikhtisar = pakaiNarasi
-      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap (${sumberGambar}, berganti tiap 2 dtk)`
-      : `Selesai — video komik ${unit.length} adegan${suaraMusik} siap (${sumberGambar}, berganti tiap 2 dtk)`;
+      ? `Selesai — video ${gayaIlus === "realistis" ? "realistis" : "komik"} ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap (${sumberGambar}, berganti tiap 2 dtk)`
+      : `Selesai — video ${gayaIlus === "realistis" ? "realistis" : "komik"} ${unit.length} adegan${suaraMusik} siap (${sumberGambar}, berganti tiap 2 dtk)`;
     ktx.maju("selesai", 100, ikhtisar);
     job.selesai = true;
     bersihkanBatal(id);

@@ -13,7 +13,7 @@ import {
 import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 import { bangunPromptVideo, pecahKalimat, type Cerita } from "../src/lib/vidsplit/videoPrompt";
-import { GALERI, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, rencanaGambarCerita, ambilGaleri, GRADE_CERAH } from "../src/lib/vidsplit/hororGaleri";
+import { GALERI, GALERI_REAL, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, rencanaGambarCerita, ambilGaleri, idTersedia, GRADE_CERAH } from "../src/lib/vidsplit/hororGaleri";
 
 let gagal = 0;
 function ok(kondisi: boolean, nama: string) {
@@ -397,6 +397,51 @@ const rcH = rencanaGambarCerita({
 ok(rcH[0].some((p) => p.id.startsWith("pocong")), "rencana cerah: cerita SEBUT pocong → gambar pocong tetap tampil");
 ok(JSON.stringify(rencanaGambarCerita({ adegan: adeganCerah, seed: 55, cerah: true })) === JSON.stringify(rc),
   "rencana cerah juga deterministik");
+
+// ==== v0.37.0 — PUSTAKA REALISTIS (agen pendamping menu 5, kartu 6) ====
+ok(GALERI_REAL.length >= 40, `pustaka realistis >= 40 entri (${GALERI_REAL.length})`);
+ok(GALERI_REAL.every((g) => GALERI.some((k) => k.id === g.id)),
+  "id pustaka realistis = subset id pustaka komik (deteksi & varian dipakai bersama)");
+ok(GALERI_REAL.every((g) => g.file.endsWith(".jpg")), "berkas realistis berformat .jpg");
+ok(new Set(GALERI_REAL.map((g) => g.id)).size === GALERI_REAL.length, "id pustaka realistis unik");
+// SEMUA 17 hantu dasar punya >=1 varian realistis
+const dasarReal = Object.keys(VARIAN_HANTU).filter((h) => (VARIAN_HANTU[h] ?? []).some((v) => idTersedia(v, "realistis")));
+ok(dasarReal.length === Object.keys(VARIAN_HANTU).length,
+  `semua ${Object.keys(VARIAN_HANTU).length} hantu dasar punya gambar realistis (${dasarReal.length})`);
+let realAda = 0;
+for (const g of GALERI_REAL) {
+  try { if (statSync(pathGambarGaleri(g.file, "realistis")).size > 20000) realAda++; } catch { /* hilang */ }
+}
+ok(realAda === GALERI_REAL.length, `semua berkas realistis nyata >20KB (${realAda}/${GALERI_REAL.length})`);
+ok(pathGambarGaleri("pocong-1.jpg", "realistis").includes("hantu-real"),
+  "pathGambarGaleri realistis menunjuk folder hantu-real");
+ok(pathGambarGaleri("pocong-1.png").includes("hantu") && !pathGambarGaleri("pocong-1.png").includes("hantu-real"),
+  "pathGambarGaleri komik (bawaan) tak berubah");
+ok(ambilGaleri("pocong", "realistis")?.file === "pocong-1.jpg" && ambilGaleri("pocong", "komik")?.file === "pocong-1.png",
+  "ambilGaleri membedakan pustaka komik vs realistis");
+const rr37 = rencanaGambarCerita({ adegan: adegan180, seed: 88, pustaka: "realistis" });
+const datarR37 = rr37.flat();
+const setReal37 = new Set(GALERI_REAL.map((g) => g.id));
+ok(datarR37.length === 180, `rencana realistis: video 6 mnt = 180 potongan (${datarR37.length})`);
+ok(datarR37.every((p) => setReal37.has(p.id)), "rencana realistis: semua id tersedia di pustaka realistis");
+let ulangR37 = false;
+for (let i = 0; i < datarR37.length; i++) {
+  for (let j = i + 1; j < Math.min(datarR37.length, i + 12); j++) {
+    if (datarR37[i].id === datarR37[j].id) ulangR37 = true;
+  }
+}
+ok(!ulangR37, "rencana realistis: jendela 12 potongan TANPA gambar sama");
+ok(rr37[0][0].id.startsWith("pocong"), "rencana realistis: adegan pocong → gambar pocong realistis");
+ok(new Set(datarR37.map((d) => d.id)).size >= 20,
+  `rencana realistis memutar >=20 gambar berbeda (${new Set(datarR37.map((d) => d.id)).size})`);
+const rcR37 = rencanaGambarCerita({ adegan: adeganCerah, seed: 55, cerah: true, pustaka: "realistis" });
+ok(rcR37.flat().every((p) => setReal37.has(p.id)), "rencana cerah + realistis juga terkunci pustaka realistis");
+ok(JSON.stringify(rencanaGambarCerita({ adegan: adegan180, seed: 88, pustaka: "realistis" })) === JSON.stringify(rr37),
+  "rencana realistis deterministik");
+const prReal = bangunPromptVideo(c1, "horor", "realistis");
+ok(prReal.gaya === "realistis-sinematik" && prReal.adegan.some((a) => a.catatan.includes("realistis sinematik")),
+  "prompt versi realistis: gaya + catatan menyebut realistis sinematik");
+ok(bangunPromptVideo(c1, "horor").gaya === "komik-sinematik", "prompt bawaan tetap komik-sinematik");
 const argsVar = buatArgumenSegmenKomik({
   tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
   ilustrasiAbs: "/tmp/i.png", ilustrasiAbsList: ["/tmp/a.png", "/tmp/b.png"],

@@ -25,6 +25,9 @@ extraResources:
   # v0.34.0 — pustaka gambar hantu Nusantara utk AI Text-to-Video Generator (offline)
   - from: assets/hantu
     to: hantu
+  # v0.37.0 — pustaka gambar hantu REALISTIS (versi realistis, 100% offline)
+  - from: assets/hantu-real
+    to: hantu-real
 win:
   target:
     - nsis

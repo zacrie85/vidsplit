@@ -71,6 +71,10 @@ export interface OpsiRenderHoror {
   /** v0.30.0 — gaya video: "komik" (bawaan: gambar atas + kolom cerita bawah,
    *  adegan berganti ±3 dtk, tanpa tulisan bab) | "halaman" (gaya lama v0.25-0.29) */
   gaya?: "komik" | "halaman";
+  /** v0.37.0 — pustaka gambar: "komik" (60 ilustrasi gaya komik, bawaan) |
+   *  "realistis" (41 ilustrasi gaya still film horor fotorealistis — agen
+   *  pendamping menu 5). Hanya berlaku utk gaya video "komik". */
+  gayaIlustrasi?: "komik" | "realistis";
 }
 
 export interface HalamanRencana {
@@ -490,19 +494,23 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
 }
 
 /** v0.34.0 — cari berkas gambar galeri hantu (env VIDSPLIT_HANTU / cwd/assets)
- *  — pola sama dgn pathMusikBundel: mencari kandidat folder sampai berkas ada. */
-export function pathGambarGaleri(file: string): string {
+ *  — pola sama dgn pathMusikBundel: mencari kandidat folder sampai berkas ada.
+ *  v0.37.0 — pustaka "realistis" mencari di env VIDSPLIT_HANTU_REAL /
+ *  assets/hantu-real. */
+export function pathGambarGaleri(file: string, pustaka: "komik" | "realistis" = "komik"): string {
+  const folder = pustaka === "realistis" ? "hantu-real" : "hantu";
+  const env = pustaka === "realistis" ? process.env.VIDSPLIT_HANTU_REAL : process.env.VIDSPLIT_HANTU;
   const kandidat = [
-    process.env.VIDSPLIT_HANTU,
-    path.join(process.cwd(), "assets", "hantu"),
-    path.join(process.cwd(), "..", "assets", "hantu"),
-    path.join(process.cwd(), "..", "..", "assets", "hantu"),
+    env,
+    path.join(process.cwd(), "assets", folder),
+    path.join(process.cwd(), "..", "assets", folder),
+    path.join(process.cwd(), "..", "..", "assets", folder),
   ].filter(Boolean) as string[];
   for (const d of kandidat) {
     const p = path.join(d, file);
     try { if (readFileSync(p).length > 1000) return p; } catch { /* lanjut */ }
   }
-  return path.join(process.cwd(), "assets", "hantu", file);
+  return path.join(process.cwd(), "assets", folder, file);
 }
 
 /** v0.33.0 — Argumen MENYIAPKAN musik sepanjang video (musik-panjang.wav).

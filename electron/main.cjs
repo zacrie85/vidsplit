@@ -94,6 +94,8 @@ function nyalakanServer() {
     VIDSPLIT_PIPER: path.join(res, "tts-piper"),
     // v0.34.0 — pustaka gambar hantu Nusantara utk AI Text-to-Video Generator
     VIDSPLIT_HANTU: path.join(res, "hantu"),
+    // v0.37.0 — pustaka gambar hantu REALISTIS (agen pendamping menu 5)
+    VIDSPLIT_HANTU_REAL: path.join(res, "hantu-real"),
     VIDSPLIT_VOKAL_AI: path.join(res, "vokal-ai"),
     VIDSPLIT_ORT: path.join(res, "server"),
     VIDSPLIT_ELECTRON: "1",
