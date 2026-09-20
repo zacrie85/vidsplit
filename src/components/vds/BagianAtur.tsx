@@ -698,14 +698,25 @@ export function PanelRingkasan({
         Audio asli dipertahankan; intro diisi hening agar tetap sinkron.
       </p>
       {totalVideo > 1 && (
-        <button
-          type="button"
-          onClick={onTerapkanKeSemua}
-          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-400/50 bg-sky-400/10 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-400/20"
-        >
-          <Copy className="h-3.5 w-3.5" />
-          Terapkan pengaturan video #{nomorVideo} ke SEMUA video ({totalVideo})
-        </button>
+        <>
+          <button
+            type="button"
+            onClick={onTerapkanKeSemua}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-400/50 bg-sky-400/10 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-400/20"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Terapkan pengaturan video #{nomorVideo} ke SEMUA video ({totalVideo})
+          </button>
+          {/* v0.38.0 — jelaskan BATASAN terapkan: judul & background tidak ikut */}
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Yang ikut: <b className="text-slate-400">1. Cara ubah ke vertikal</b> ·{" "}
+            <b className="text-slate-400">3. Tulisan Part otomatis</b> ·{" "}
+            <b className="text-slate-400">5. Watermark/logo</b> — logo cukup diunggah{" "}
+            <b className="text-slate-400">sekali</b>, langsung terpasang di semua video.{" "}
+            <b className="text-amber-300/80">Tulisan judul</b> tiap video &{" "}
+            <b className="text-amber-300/80">background intro</b> tidak diubah.
+          </p>
+        </>
       )}
     </Kartu>
   );

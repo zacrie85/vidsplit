@@ -14,3 +14,7 @@ assets/tts-piper/piper
 assets/tts-piper/lib*.so*
 assets/tts-piper/espeak-ng
 assets/tts-piper/piper_phonemize
+
+# berkas uji lokal & lockfile (CI pakai npm install)
+package-lock.json
+scripts/uji-mini.mp4

@@ -157,6 +157,41 @@ export function rentangPart(
   return [mulai, durasi];
 }
 
+/** v0.38.0 — salinan SELEKTIF utk tombol "Terapkan pengaturan video #N ke SEMUA video".
+ *  Yang mengikuti video sumber HANYA 3 kartu ini:
+ *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, resolusi,
+ *     codec, rentang diproses)
+ *   • kartu 3 — Tulisan Part otomatis (kata part, durasi, gaya huruf, posisi teks)
+ *   • kartu 5 — Watermark / logo (logoId, posisi & ukuran)
+ *  Yang TIDAK disentuh (tetap milik masing-masing video):
+ *   • kartu 2 — Tulisan judul (judul + gayaJudul) — tiap video punya judulnya sendiri
+ *   • kartu 4 — Background intro (bgId + durasiIntro)
+ *   • setelan performa ekspor (prosesParalel, pakaiGpu) */
+export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengaturan {
+  return {
+    ...target,
+    // kartu 1 — Cara ubah ke vertikal
+    mode: sumber.mode,
+    warnaLatar: sumber.warnaLatar,
+    posisiPotong: sumber.posisiPotong,
+    resolusi: sumber.resolusi,
+    codec: sumber.codec,
+    mulaiDetik: sumber.mulaiDetik,
+    akhirDetik: sumber.akhirDetik,
+    // kartu 3 — Tulisan Part otomatis
+    kataPart: sumber.kataPart,
+    durasiPart: sumber.durasiPart,
+    gayaPart: { ...sumber.gayaPart },
+    posisiTeks: sumber.posisiTeks,
+    // kartu 5 — Watermark / logo
+    logoId: sumber.logoId,
+    posisiLogo: sumber.posisiLogo,
+    logoX: sumber.logoX,
+    logoY: sumber.logoY,
+    ukuranLogo: sumber.ukuranLogo,
+  };
+}
+
 /** Label ramah utk posisi logo */
 export function labelPosisiLogo(p: PosisiLogo): string {
   const map: Record<PosisiLogo, string> = {

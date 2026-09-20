@@ -35,6 +35,7 @@ import {
   formatDurasi,
   judulDariNama,
   pengaturanDefault,
+  terapkanSebagian,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
 
@@ -377,10 +378,28 @@ export default function Halaman() {
     }
   };
 
+  // v0.38.0 — TERAPKAN SELEKTIF: yang mengikuti video sumber hanya kartu 1 (Cara
+  // ubah ke vertikal), kartu 3 (Tulisan Part otomatis) & kartu 5 (Watermark/logo).
+  // Tulisan judul (kartu 2) & background intro (kartu 4) TETAP milik tiap video.
+  // Metadata logo (logoInfo) ikut disalin agar kartu watermark tiap video langsung
+  // menampilkan logo yang sama — cukup unggah SEKALI, tidak perlu ulang per video
+  // (semua video berbagi berkas logo yang sama lewat logoId yang identik).
   const terapkanKeSemua = () => {
     if (!videoAktif) return;
-    setDaftar((d) => d.map((v) => ({ ...v, pengaturan: { ...videoAktif.pengaturan } })));
-    toast.success("Pengaturan video ini diterapkan ke SEMUA video di antrean");
+    const s = videoAktif.pengaturan;
+    const infoLogo = s.logoId ? videoAktif.logoInfo : null;
+    setDaftar((d) =>
+      d.map((v) => ({
+        ...v,
+        pengaturan: terapkanSebagian(s, v.pengaturan),
+        logoInfo: infoLogo,
+      })),
+    );
+    toast.success(
+      s.logoId
+        ? "Vertikal + Part otomatis + watermark diterapkan ke SEMUA video — judul tiap video tetap"
+        : "Vertikal + Part otomatis diterapkan ke SEMUA video — judul tiap video tetap",
+    );
   };
 
   const totalDurasi = daftar.reduce((a, v) => a + v.info.durasi, 0);
@@ -409,7 +428,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.24.0
+            v0.38.0
           </span>
           <TombolGantiPassword />
         </div>
