@@ -2,8 +2,9 @@
 
 // VidSplit v0.25.0 — STUDIO: mode ketiga. v0.30.0 — ALUR LENGKAP AI VIDEO GENERATOR:
 // AI Story Generator -> teks dikirim ke Text-to-Speech (TTS) & AI Text-to-Video
-// Generator -> audio TTS disisipkan ke video komik (gambar atas berganti ±3 dtk,
-// kolom cerita di bawah, tanpa tulisan bab) — semuanya disinkronkan otomatis.
+// Generator -> audio TTS disisipkan ke video komik. v0.34.0 — gambar HANTU NUSANTARA
+// (pocong, kuntilanak, genderuwo, dll.) sesuai cerita, berganti tiap 2 detik,
+// kolom cerita di bawah, tanpa tulisan bab — semuanya disinkronkan otomatis.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -313,10 +314,10 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.33.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.34.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
-            100% offline — alur penuh: AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → narasi disisipkan ke video komik, semuanya disinkronkan saat membuat video.
+            100% offline — AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → video komik berisi gambar hantu sesuai cerita (pocong, kuntilanak, genderuwo, dst. — berganti tiap 2 detik), narasi tersinkron.
           </p>
         </div>
       </div>
@@ -398,7 +399,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
                 className="mt-3 max-h-[620px] w-full resize-y rounded-xl border border-slate-700 bg-slate-800/60 px-4 py-3 text-sm leading-relaxed text-slate-200 outline-none focus:border-amber-400/60"
                 placeholder="Cerita utuh dari awal sampai akhir…" />
               <p className="mt-1 text-[11px] text-slate-500">
-                {teks.split(/\n{2,}/).filter((s) => s.trim()).length} paragraf — mesin video memecahnya jadi adegan komik berganti tiap ±3 detik.
+                {teks.split(/\n{2,}/).filter((s) => s.trim()).length} paragraf — mesin video memecahnya jadi adegan dgn gambar berganti tiap 2 detik (hantu sesuai isi cerita).
               </p>
             </Kartu>
           )}
@@ -525,10 +526,16 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
           <Kartu
             judul="5. AI Text-to-Video Generator (versi komik)"
-            deskripsi="Gambar komik di ATAS berganti tiap ±3 detik mengikuti alur cerita (gerak kamera AI), kolom cerita di BAWAH, tanpa tulisan bab — narasi TTS disisipkan tersinkron."
+            deskripsi="Gambar komik HOROR di ATAS berganti tiap 2 DETIK mengikuti alur cerita — hantu yang disebut dalam cerita muncul sebagai gambar (pocong, kuntilanak, genderuwo, tuyul, wewe gombel, leak, arwah) — kolom cerita di BAWAH, tanpa tulisan bab, narasi TTS tersinkron."
             ikon={<Film className="h-4 w-4" />}
           >
-            <label className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {["Pocong", "Kuntilanak", "Genderuwo", "Tuyul", "Wewe Gombel", "Leak", "Arwah"].map((h) => (
+                <span key={h} className="inline-flex items-center gap-1 rounded-lg bg-rose-400/10 px-2 py-0.5 text-[11px] font-medium text-rose-200"><Ghost className="h-3 w-3" /> {h}</span>
+              ))}
+            </div>
+            <p className="mt-1.5 text-[11px] text-slate-500">Pustaka 21 gambar terpasang di aplikasi (100% offline). Genre cerah (Dongeng/Motivasi/Fakta) tetap memakai ilustrasi animasi.</p>
+            <label className="mt-3 flex items-center justify-between">
               <span className="text-sm text-slate-300">Ilustrasi komik pada adegan</span>
               <button type="button" onClick={() => { setIlustrasi(!ilustrasi); simpanAtur({ ilustrasi: !ilustrasi }); }}
                 className={`h-6 w-11 rounded-full transition ${ilustrasi ? "bg-amber-400" : "bg-slate-700"}`}>

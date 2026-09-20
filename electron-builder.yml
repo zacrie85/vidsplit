@@ -22,6 +22,9 @@ extraResources:
   # v0.28.0 — AI Voice Generator (Piper TTS neural, 100% offline, suara Indonesia)
   - from: assets/tts-piper
     to: tts-piper
+  # v0.34.0 — pustaka gambar hantu Nusantara utk AI Text-to-Video Generator (offline)
+  - from: assets/hantu
+    to: hantu
 win:
   target:
     - nsis

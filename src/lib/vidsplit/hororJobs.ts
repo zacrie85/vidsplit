@@ -1,6 +1,9 @@
 // VidSplit v0.25.0 — JOB RENDER CERITA HOROR: narasi TTS -> musik -> halaman PNG ->
 // chunk video (x264+mpegts) -> concat copy. Progres dipolling API, batal aman.
+// v0.34.0 — ilustrasi komik kini memakai PUSTAKA GAMBAR HANTU NUSANTARA (assets/hantu,
+// 21 gambar AI offline): gambar hantu/latar dipilih SESUAI cerita tiap potongan 2 dtk.
 import { mkdir, writeFile } from "node:fs/promises";
+import { statSync } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
@@ -13,12 +16,13 @@ import { renderHalamanPng, renderIlustrasiPng, renderTeksPanelPng } from "./teks
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
-  MUSIK_BUNDEL, pathMusikBundel,
+  MUSIK_BUNDEL, pathMusikBundel, pathGambarGaleri,
   tataLetakKomik, durasiAdeganKomik, buatArgumenSegmenKomik,
   buatArgumenMusikPanjang,
   type OpsiRenderHoror,
 } from "./hororRender";
 import { svgAdegan, defsAdegan, type JenisAdegan } from "./hororIlustrasi";
+import { pilihGambarPotongan, potonganAdegan, hantuDominan, ambilGaleri } from "./hororGaleri";
 import { ambilGenre } from "./videoAi";
 import { bangunPromptVideo, type PromptVideoKomik } from "./videoPrompt";
 import { slugify } from "./types";
@@ -303,34 +307,64 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     }
 
     // ---- 4) PANEL KOMIK (36..52): ilustrasi atas + kolom teks bawah ----
+    // v0.34.0 — genre GELAP memakai PUSTAKA GAMBAR HANTU: tiap adegan dipecah
+    // jadi potongan 2 dtk, tiap potongan dapat gambar sesuai isi kalimatnya
+    // (hantu disebut → gambar hantu itu; polos → latar suasana; klimaks → hantu
+    // dominan cerita). Genre cerah tetap ilustrasi SVG prosedural v0.29.
     ktx.maju("halaman", 37, "Menggambar panel komik…");
-    const skalaIlus = 1.35; // ruang zoom kamera
+    const skalaIlus = 1.35; // ruang zoom kamera (jalur SVG)
     const wIlus = Math.round(lebar * skalaIlus);
     const hIlus = Math.round(tata.panelTinggi * skalaIlus);
+    const pakaiGaleri = !genre.cerah && opsi.ilustrasi !== false;
+    const dominan = pakaiGaleri ? hantuDominan(unit.map((u) => u.teks)) : null;
     const ilus: string[] = [];
     const panel: string[] = [];
+    const gambarPerUnit: string[][] = [];
     for (let i = 0; i < unit.length; i++) {
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
       const ilusAbs = path.join(folderTmp, `ilus-${String(i).padStart(3, "0")}.png`);
       const panelAbs = path.join(folderTmp, `panel-${String(i).padStart(3, "0")}.png`);
-      const markup = opsi.ilustrasi === false ? undefined : svgAdegan({
-        jenis: u.jenis, lebar: wIlus, tinggi: hIlus, seed: u.seedAdegan,
-        tema, ambient: false, cerah: genre.cerah,
-      });
-      await writeFile(ilusAbs, renderIlustrasiPng({
-        lebar: wIlus, tinggi: hIlus, adeganSvg: markup,
-        defsSvg: markup ? defsAdegan(tema) : undefined,
-        warnaDasar: tema.grad[1],
-      }));
+      // --- v0.34.0: pilih gambar galeri per potongan 2 dtk (bila tersedia) ---
+      let daftarGambar: string[] = [];
+      if (pakaiGaleri) {
+        const pot = potonganAdegan(u.durasi, 2);
+        const ids = pilihGambarPotongan({
+          teks: u.teks,
+          indeks: i,
+          posisi: unit.length > 1 ? i / (unit.length - 1) : 0,
+          seed: (cerita.seed ^ (u.seedAdegan || 0)) >>> 0,
+          jumlahPotongan: pot.length,
+          hantuDominan: dominan,
+        });
+        daftarGambar = ids
+          .map((nid) => ambilGaleri(nid)?.file)
+          .filter((f): f is string => !!f)
+          .map((f) => pathGambarGaleri(f))
+          .filter((p) => { try { return statSync(p).size > 20000; } catch { return false; } });
+      }
+      if (!daftarGambar.length) {
+        // jalur lama: ilustrasi SVG prosedural (genre cerah / galeri tak tersedia)
+        const markup = opsi.ilustrasi === false ? undefined : svgAdegan({
+          jenis: u.jenis, lebar: wIlus, tinggi: hIlus, seed: u.seedAdegan,
+          tema, ambient: false, cerah: genre.cerah,
+        });
+        await writeFile(ilusAbs, renderIlustrasiPng({
+          lebar: wIlus, tinggi: hIlus, adeganSvg: markup,
+          defsSvg: markup ? defsAdegan(tema) : undefined,
+          warnaDasar: tema.grad[1],
+        }));
+        daftarGambar = [ilusAbs];
+      }
       await writeFile(panelAbs, renderTeksPanelPng({
         lebar, tinggi, areaY: tata.panelTinggi,
         teks: u.teks, label: u.label,
         warnaTeks: tema.teks, warnaAksen: tema.aksen,
         skala: u.skala ?? 1,
       }));
-      ilus.push(ilusAbs);
+      ilus.push(daftarGambar[0]);
       panel.push(panelAbs);
+      gambarPerUnit.push(daftarGambar);
       ktx.maju("halaman", 37 + 15 * ((i + 1) / unit.length), `Menggambar panel adegan ${i + 1}/${unit.length}…`);
     }
 
@@ -349,7 +383,8 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       ktx.maju("video", 52 + 38 * (i / unit.length), `Merender adegan ${i + 1}/${unit.length}…`);
       const dasar = {
         tema, lebar, tinggi, panelTinggi: tata.panelTinggi,
-        ilustrasiAbs: ilus[i], panelTeksAbs: panel[i],
+        ilustrasiAbs: ilus[i], ilustrasiAbsList: gambarPerUnit[i],
+        panelTeksAbs: panel[i],
         kamera: u.kamera, durasi: u.durasi, wavAbs: u.wav,
         volumeNarasi: Math.min(1.5, Math.max(0, opsi.volumeNarasi ?? 1)),
         musikAbs: musikPanjangAbs ?? musikAbs,
@@ -396,12 +431,15 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     const namaMp4 = `${slugify(`video-ai-${judul}`)}.mp4`;
     const mp4Abs = path.join(folderOut, namaMp4);
     await jalankanFfmpeg(buatArgumenConcat(listAbs, mp4Abs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
-    const { statSync } = await import("node:fs");
+    // v0.34.0: statSync kini dari import modul (atas) — deklarasi lokal `const { statSync }`
+    // di blok try ini meng-shadow import & menimbulkan TDZ: pemakaian statSync di
+    // bagian 4 (filter galeri hantu) melempar ReferenceError yang tertelan catch →
+    // galeri tak pernah terpakai (akar bug "gambar galeri keluar SVG lama").
     job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
     const suaraMusik = musikPanjangAbs ? " + musik" : " (tanpa musik)";
     const ikhtisar = pakaiNarasi
-      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap`
-      : `Selesai — video komik ${unit.length} adegan${suaraMusik} siap`;
+      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap (gambar hantu berganti tiap 2 dtk)`
+      : `Selesai — video komik ${unit.length} adegan${suaraMusik} siap (gambar hantu berganti tiap 2 dtk)`;
     ktx.maju("selesai", 100, ikhtisar);
     job.selesai = true;
     bersihkanBatal(id);
@@ -571,8 +609,7 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     const namaMp4 = `${slugify(`video-ai-${judul}`)}.mp4`;
     const mp4Abs = path.join(folderOut, namaMp4);
     await jalankanFfmpeg(buatArgumenConcat(listAbs, mp4Abs), daftarTs.length, undefined, ff.bin, (ch) => daftarkanProses(id, ch));
-    const { statSync } = await import("node:fs");
-    job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
+    job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }]; // import modul (v0.34.0)
     const ikhtisar = pakaiNarasi
       ? `Selesai — video + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""} + musik siap`
       : "Selesai — video + musik siap";

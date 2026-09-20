@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { bangunFilterAudio, bangunFilterAudioAi, bangunFilterAudioAiGen, bangunFilterAudioGantiAi, bangunRantaiVisual, grafPisahVokalMusik, rantaiGenderMusik, rantaiGenderVokal, VISUAL_MUSIK, opsiVisualDefault } from "../src/lib/vidsplit/musik";
-import { buatArgumenLatar, buatArgumenChunk, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenConcat, buatArgumenMusikPanjang, isiListConcat, TEMA_HOROR } from "../src/lib/vidsplit/hororRender";
+import { buatArgumenLatar, buatArgumenChunk, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenConcat, buatArgumenMusikPanjang, isiListConcat, TEMA_HOROR, pathGambarGaleri } from "../src/lib/vidsplit/hororRender";
 import { argumenSuaraPria } from "../src/lib/vidsplit/hororTts";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 
@@ -242,6 +242,36 @@ function uji(bin: string, label: string) {
     const okSegL = rSegL.status === 0 && existsSync(segLoop) && statSync(segLoop).size > 5000;
     if (okSegL) { lulus++; console.log("  LULUS  komik segmen cadangan musik (stream_loop + atrim)"); }
     else { gagal++; daftarGagal.push(`${label} :: komik segmen+musik-loop`); console.log(`  GAGAL  komik segmen cadangan musik\n    ${((rSegL.stderr || "") + (rSegL.stdout || "")).slice(0, 300)}`); }
+    // v0.34.0 — POTONGAN GAMBAR 2 DETIK: satu segmen = 3 gambar galeri nyata
+    // (pra-skala + zoompan per potongan + concat) — wajib lolos di kedua build.
+    const galeriK = ["latar-kuburan.png", "pocong-1.png", "latar-hutan.png"]
+      .map((f) => pathGambarGaleri(f));
+    if (galeriK.every((p) => existsSync(p) && statSync(p).size > 20000)) {
+      const segMulti = path.join(tmp, "seg-komik-multi.mp4");
+      const rSegX = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenSegmenKomik({
+        tema: TEMA_HOROR[0], lebar: W, tinggi: H, panelTinggi: panelTinggiK,
+        ilustrasiAbs: galeriK[0], ilustrasiAbsList: galeriK,
+        panelTeksAbs: pngPanelK, kamera: "dalam",
+        durasi: 5.5, wavAbs: null, volumeNarasi: 1, keluar: segMulti,
+      })], { encoding: "utf8", timeout: 120_000 });
+      const okSegX = rSegX.status === 0 && existsSync(segMulti) && statSync(segMulti).size > 20000;
+      if (okSegX) { lulus++; console.log("  LULUS  komik segmen multi-gambar 3 potongan (ganti ±2 dtk)"); }
+      else { gagal++; daftarGagal.push(`${label} :: komik segmen multi-gambar`); console.log(`  GAGAL  komik segmen multi-gambar\n    ${((rSegX.stderr || "") + (rSegX.stdout || "")).slice(0, 400)}`); }
+      // multi-gambar + musik di dalam (pola produksi penuh)
+      const segMultiM = path.join(tmp, "seg-komik-multi-musik.mp4");
+      const rSegXM = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenSegmenKomik({
+        tema: TEMA_HOROR[0], lebar: W, tinggi: H, panelTinggi: panelTinggiK,
+        ilustrasiAbs: galeriK[0], ilustrasiAbsList: galeriK,
+        panelTeksAbs: pngPanelK, kamera: "geser-kanan",
+        durasi: 5.5, wavAbs: null, volumeNarasi: 1,
+        musikAbs: wavK, mulaiMusik: 0.5, volumeMusik: 0.8, keluar: segMultiM,
+      })], { encoding: "utf8", timeout: 120_000 });
+      const okSegXM = rSegXM.status === 0 && existsSync(segMultiM) && statSync(segMultiM).size > 20000;
+      if (okSegXM) { lulus++; console.log("  LULUS  komik segmen multi-gambar + musik di dalam"); }
+      else { gagal++; daftarGagal.push(`${label} :: komik multi+musik`); console.log(`  GAGAL  komik multi-gambar+musik\n    ${((rSegXM.stderr || "") + (rSegXM.stdout || "")).slice(0, 400)}`); }
+    } else {
+      gagal++; daftarGagal.push(`${label} :: galeri hantu hilang`); console.log("  GAGAL  galeri hantu tak ditemukan — assets/hantu wajib ada");
+    }
     // v0.33.0 — musik-panjang dgn loudnorm I=-18 (backsound konsisten di semua genre)
     const panjangK = path.join(tmp, "musik-panjang-k.wav");
     const rPanjang = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenMusikPanjang(wavK, DUR * 2, panjangK, true)], { encoding: "utf8", timeout: 120_000 });

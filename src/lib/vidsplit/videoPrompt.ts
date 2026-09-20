@@ -3,11 +3,13 @@
 //   AI Story Generator -> (1) Text-to-Speech (TTS)  (2) AI Text-to-Video Generator
 //   -> audio TTS disisipkan ke video, SEMUA DISINKRONKAN saat membuat video.
 // "Prompt" utk generator video dibangun DARI cerita hasil AI Story Generator:
-//   gaya KOMIK — gambar di ATAS (panel berganti ±3 detik mengikuti alur cerita),
+//   gaya KOMIK — gambar di ATAS (v0.34.0: panel berganti tiap ±2 detik dgn gambar
+//   HANTU NUSANTARA sesuai yang disebut cerita — pocong, kuntilanak, genderuwo, dll.),
 //   kolom teks cerita di BAWAH, TANPA tulisan bab/chapter di dalam video.
 // Modul murni (tanpa node:*) — aman dipakai di client & server.
 import type { Cerita } from "./hororCerita";
 import { ADEGAN_GENRE, type JenisAdegan } from "./hororIlustrasi";
+import { deteksiHantu, ambilGaleri } from "./hororGaleri";
 import { ambilGenre, type GenreId } from "./videoAi";
 
 export type KameraKomik = "dalam" | "keluar" | "geser-kiri" | "geser-kanan";
@@ -28,6 +30,9 @@ export interface AdeganKomik {
   kamera: KameraKomik;
   /** catatan prompt visual singkat (deskripsi panel utk generator) */
   catatan: string;
+  /** v0.34.0 — id hantu galeri yang terdeteksi di kalimat ini (null = latar
+   *  suasana). Dipakai renderer utk memilih gambar hantu Nusantara. */
+  hantu?: string | null;
 }
 
 /** PROMPT LENGKAP utk AI Text-to-Video Generator — dibangun dari cerita. */
@@ -38,7 +43,7 @@ export interface PromptVideoKomik {
   labelJudul: string;
   /** tata letak versi komik: gambar ATAS, kolom teks cerita BAWAH */
   layout: { gambar: "atas"; teksCerita: "bawah" };
-  /** gambar berusaha berganti tiap ±3 detik mengikuti alur cerita */
+  /** gambar berusaha berganti tiap ±2 detik mengikuti alur cerita (v0.34.0) */
   lajuAdeganDetik: number;
   adegan: AdeganKomik[];
   /** estimasi total durasi video (dtk) bila TTS tidak tersedia */
@@ -134,9 +139,10 @@ function moodAdegan(posisi: number): string {
 
 /**
  * Bangun PROMPT AI Text-to-Video Generator dari cerita hasil AI Story Generator.
- * - tiap adegan = 1 kalimat (dipendekkan bila kepanjangan) → panel berganti cepat (±3 dtk)
+ * - tiap adegan = 1 kalimat (dipendekkan bila kepanjangan) → panel berganti cepat (±2 dtk)
  * - kalimat sangat pendek digabung dgn tetangganya agar tak terlalu cepat ganti
  * - jenis ilustrasi SELALU berbeda dari adegan sebelumnya (berganti-ganti mengikuti alur)
+ * - v0.34.0: hantu yang disebut kalimat terdeteksi → panel memakai gambar hantu itu
  * - TANPA judul bab: hanya kalimat cerita yang masuk prompt.
  */
 export function bangunPromptVideo(cerita: Cerita, genreId?: GenreId | null): PromptVideoKomik {
@@ -168,13 +174,17 @@ export function bangunPromptVideo(cerita: Cerita, genreId?: GenreId | null): Pro
     const posisi = gabung.length > 1 ? i / (gabung.length - 1) : 0;
     const label = LABEL_ADEGAN[jenis][genre.cerah ? 1 : 0];
     const kamera = KAMERA_KOMIK[(i + Math.floor(r() * 4)) % KAMERA_KOMIK.length];
+    // v0.34.0 — deteksi hantu di kalimat ini → catatan prompt menyebut hantunya
+    const idHantu = genre.cerah ? null : deteksiHantu(gabung[i]);
+    const namaHantu = idHantu ? ambilGaleri(idHantu)?.label ?? null : null;
     adegan.push({
       i,
       teks: gabung[i],
       jenisAdegan: jenis,
       seedAdegan: (cerita.seed ^ (i * 2654435761) ^ 0x9e3779b9) >>> 0,
       kamera,
-      catatan: `panel komik ${genre.nama.toLowerCase()} — ${moodAdegan(posisi)}: ${label}, gerak kamera ${kamera}`,
+      catatan: `panel komik ${genre.nama.toLowerCase()} — ${moodAdegan(posisi)}: ${label}${namaHantu ? `, ${namaHantu} muncul dalam panel` : ""}, gerak kamera ${kamera}, berganti ±2 dtk`,
+      hantu: idHantu,
     });
   }
 
@@ -184,7 +194,7 @@ export function bangunPromptVideo(cerita: Cerita, genreId?: GenreId | null): Pro
     judul: cerita.judul,
     labelJudul: genre.labelJudul,
     layout: { gambar: "atas", teksCerita: "bawah" },
-    lajuAdeganDetik: 3,
+    lajuAdeganDetik: 2,
     adegan,
     estimasiDetik: Math.round(estimasi),
   };

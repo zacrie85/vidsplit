@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Cerita } from "./hororCerita";
 import { estimasiDurasi } from "./hororCerita";
+import { potonganAdegan } from "./hororGaleri";
 import type { IntensitasHoror } from "./hororMusik";
 import { jenisAdeganBab, type JenisAdegan } from "./hororIlustrasi";
 import { ambilGenre, type GenreId } from "./videoAi";
@@ -293,8 +294,13 @@ export interface OpsiSegmenKomik {
   tinggi: number;
   /** tinggi panel ilustrasi atas (tataLetakKomik) */
   panelTinggi: number;
-  /** png ilustrasi adegan (lebih besar dr panel utk ruang zoom) */
+  /** png ilustrasi adegan (lebih besar dr panel utk ruang zoom) — jatuh bila
+   *  ilustrasiAbsList tak diisi (kompatibilitas jalur lama 1 gambar/adegan) */
   ilustrasiAbs: string;
+  /** v0.34.0 — daftar gambar utk POTONGAN 2 DETIK dalam satu adegan (gambar
+   *  berganti cepat mengikuti hantu/latar yang disebut cerita). Panjang bebas;
+   *  potongan frame dibagi otomatis ±2 dtk (potonganAdegan). */
+  ilustrasiAbsList?: string[];
   /** png overlay kanvas penuh: kolom teks cerita bawah */
   panelTeksAbs: string;
   kamera: string;
@@ -340,41 +346,82 @@ export interface OpsiSegmenKomik {
  *  (c) -t durasi di OUTPUT — muxer WAJIB berhenti di durasi adegan walau satu
  *  cabang filter tak pernah EOF. Dgn 3 lapis ini segmen mustahil berjalan
  *  lebih lama dr durasinya, apa pun build ffmpeg-nya. */
+const KAMERA_POTONGAN = ["geser-kanan", "dalam", "geser-kiri", "keluar"] as const;
+
+/** v0.34.0 — kamera per potongan: potongan 0 memakai kamera adegan, sisanya
+ *  diputar lewat daftar variasi (gerak kamera AI berganti tiap potongan). */
+function kameraPotongan(kamera: string, p: number): string {
+  return p === 0 ? kamera : KAMERA_POTONGAN[(p - 1) % KAMERA_POTONGAN.length];
+}
+
 export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   const D = Math.max(1, Math.round(o.durasi * 30));
   const durasi = D / 30;
   const [pw, ph] = [o.lebar, o.panelTinggi];
-  const zp = ekspresiZoompan(o.kamera, D);
   const adaMusik = !!o.musikAbs && (o.volumeMusik ?? 0) > 0;
+  // v0.34.0 — POTONGAN 2 DETIK: satu adegan = beberapa gambar yang berganti
+  // tiap ±2 dtk (zoompan + concat di dalam satu ffmpeg). Kalau pemanggil tak
+  // mengirim daftar → jalur lama 1 gambar utk seluruh adegan (kompat penuh).
+  const daftarGambar = (o.ilustrasiAbsList?.length ? o.ilustrasiAbsList : [o.ilustrasiAbs]).slice();
+  const nGambar = Math.max(1, daftarGambar.length);
+  const splits0 = potonganAdegan(durasi, 2);
+  let splits: number[];
+  if (nGambar === 1) splits = [durasi];
+  else if (daftarGambar.length === splits0.length) splits = splits0;
+  else if (daftarGambar.length < splits0.length) {
+    // lebih sedikit gambar dr potongan → gabung ekor (ritme 2 dtk awal tetap)
+    splits = splits0.slice(0, nGambar - 1);
+    splits.push(+splits0.slice(nGambar - 1).reduce((a, b) => a + b, 0).toFixed(4));
+  } else {
+    // lebih banyak gambar dr potongan → bagi merata
+    const f = Math.floor(D / nGambar);
+    let sisa = D;
+    splits = [];
+    for (let i = 0; i < nGambar; i++) { const fi = i === nGambar - 1 ? sisa : Math.max(1, f); splits.push(fi / 30); sisa -= fi; }
+  }
   // v0.33.0 — jalur cadangan: sumber musik diloop DEMUXER (-stream_loop -1) dan
   // potongan diambil lewat atrim di dalam graf (tanpa -ss demuxer yang berperilaku
   // beda antar build Windows saat dipadukan stream_loop).
   const musikLoop = !!adaMusik && !!o.musikLoopSumber;
 
-  const masuk: string[] = [
-    "-y",
-    "-i", o.ilustrasiAbs, // input 0: satu frame → zoompan memperpanjang
-    "-loop", "1", "-t", durasi.toFixed(3), "-i", o.panelTeksAbs, // input 1 (terbatas)
-  ];
-  if (o.wavAbs) masuk.push("-i", o.wavAbs); // input 2
+  const masuk: string[] = ["-y"];
+  for (const g of daftarGambar) masuk.push("-i", g); // input 0..nGambar-1: potongan gambar
+  const idxPanel = nGambar; // input panel teks (loop TERBATAS -t durasi)
+  masuk.push("-loop", "1", "-t", durasi.toFixed(3), "-i", o.panelTeksAbs);
+  const idxNarasi = idxPanel + 1;
+  if (o.wavAbs) masuk.push("-i", o.wavAbs);
   else masuk.push("-f", "lavfi", "-t", durasi.toFixed(3), "-i", "anullsrc=r=44100:cl=stereo");
+  let idxMusik = -1;
   if (adaMusik) {
+    idxMusik = idxNarasi + 1;
     if (musikLoop) {
-      // input 3 (cadangan): musik diloop terus-menerus; potongan via atrim di graf
+      // input musik (cadangan): diloop terus-menerus; potongan via atrim di graf
       masuk.push("-stream_loop", "-1", "-i", o.musikAbs!);
     } else {
-      // input 3: potongan musik mulai posisi adegan ini (-ss input-seek, instan utk WAV)
+      // input musik: potongan mulai posisi adegan ini (-ss input-seek, instan utk WAV)
       masuk.push("-ss", Math.max(0, o.mulaiMusik ?? 0).toFixed(3), "-t", (durasi + 0.25).toFixed(3), "-i", o.musikAbs!);
     }
   }
 
   const fc: string[] = [];
-  fc.push(
-    `[0:v]zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=${D}:s=${pw}x${ph}:fps=30[zb]`,
-  );
-  fc.push(`[zb]fade=t=in:st=0:d=0.35[kb]`);
+  // v0.34.0 — tiap potongan: pra-skala ke 1.2× panel (ruang zoom, aman utk
+  // gambar galeri 1024²  maupun SVG 1.35×) lalu zoompan Ken Burns dgn kamera
+  // yang BERGANTI antar-potongan, lalu concat → ilustrasi berganti tiap ±2 dtk.
+  const wPre = Math.round(pw * 1.2);
+  const hPre = Math.round(ph * 1.2);
+  const cabang: string[] = [];
+  daftarGambar.forEach((_, p) => {
+    const Dp = Math.max(1, Math.round((splits[p] ?? durasi) * 30));
+    const zp = ekspresiZoompan(kameraPotongan(o.kamera, p), Dp);
+    fc.push(
+      `[${p}:v]scale=${wPre}:${hPre}:force_original_aspect_ratio=increase,crop=${wPre}:${hPre},zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=${Dp}:s=${pw}x${ph}:fps=30[zp${p}]`,
+    );
+    cabang.push(`[zp${p}]`);
+  });
+  fc.push(nGambar > 1 ? `${cabang.join("")}concat=n=${nGambar}:v=1:a=0[seq]` : `${cabang.join("")}null[seq]`);
+  fc.push(`[seq]fade=t=in:st=0:d=0.35[kb]`);
   fc.push(`[kb]pad=${o.lebar}:${o.tinggi}:0:0:color=${hexFf(o.tema.grad[0])}[pad]`);
-  fc.push(`[pad][1:v]overlay=0:0[vo]`);
+  fc.push(`[pad][${idxPanel}:v]overlay=0:0[vo]`);
   const fadeOut = o.fadeKeluar ? `,fade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
   fc.push(`[vo]format=yuv420p${fadeOut}[vout]`);
   const aFade = o.fadeKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 0.7).toFixed(2)}:d=0.7` : "";
@@ -383,14 +430,14 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   // apak tak berujung; atrim tetap ada sbg lapis kedua.
   const sampelPad = Math.round(durasi * 44100);
   fc.push(
-    `[2:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad=whole_len=${sampelPad},atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[nar]`,
+    `[${idxNarasi}:a]aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${o.volumeNarasi.toFixed(2)},adelay=150|150,apad=whole_len=${sampelPad},atrim=0:${durasi.toFixed(4)},asetpts=N/SR/TB${aFade}[nar]`,
   );
   if (adaMusik) {
     const mFade = o.fadeMusikKeluar ? `,afade=t=out:st=${Math.max(0, durasi - 1.2).toFixed(2)}:d=1.2` : "";
     const potong = musikLoop
       ? `atrim=start=${Math.max(0, o.mulaiMusik ?? 0).toFixed(3)}:end=${(Math.max(0, o.mulaiMusik ?? 0) + durasi + 0.25).toFixed(3)},asetpts=PTS-STARTPTS,`
       : "";
-    fc.push(`[3:a]${potong}aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${(o.volumeMusik ?? 0.8).toFixed(2)}${mFade}[ms]`);
+    fc.push(`[${idxMusik}:a]${potong}aresample=44100,aformat=sample_fmts=s16:channel_layouts=stereo,volume=${(o.volumeMusik ?? 0.8).toFixed(2)}${mFade}[ms]`);
     fc.push(`[nar][ms]amix=inputs=2:duration=first:normalize=0[aout]`);
   } else {
     fc.push(`[nar]anull[aout]`);
@@ -407,6 +454,22 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
     "-r", "30", "-pix_fmt", "yuv420p",
     "-f", "mp4", o.keluar,
   ];
+}
+
+/** v0.34.0 — cari berkas gambar galeri hantu (env VIDSPLIT_HANTU / cwd/assets)
+ *  — pola sama dgn pathMusikBundel: mencari kandidat folder sampai berkas ada. */
+export function pathGambarGaleri(file: string): string {
+  const kandidat = [
+    process.env.VIDSPLIT_HANTU,
+    path.join(process.cwd(), "assets", "hantu"),
+    path.join(process.cwd(), "..", "assets", "hantu"),
+    path.join(process.cwd(), "..", "..", "assets", "hantu"),
+  ].filter(Boolean) as string[];
+  for (const d of kandidat) {
+    const p = path.join(d, file);
+    try { if (readFileSync(p).length > 1000) return p; } catch { /* lanjut */ }
+  }
+  return path.join(process.cwd(), "assets", "hantu", file);
 }
 
 /** v0.33.0 — Argumen MENYIAPKAN musik sepanjang video (musik-panjang.wav).

@@ -7,12 +7,13 @@ import { statSync, writeFileSync } from "node:fs";
 import {
   TEMA_HOROR, rencanaHoror, pecahChunk, waktuKilat, buatArgumenLatar,
   buatArgumenChunk, buatArgumenConcat, isiListConcat, ukuranHoror,
-  MUSIK_BUNDEL, pathMusikBundel,
+  MUSIK_BUNDEL, pathMusikBundel, pathGambarGaleri,
   tataLetakKomik, durasiAdeganKomik, ekspresiZoompan, buatArgumenSegmenKomik, buatArgumenCampurMusik, buatArgumenMusikPanjang,
 } from "../src/lib/vidsplit/hororRender";
 import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 import { bangunPromptVideo, pecahKalimat, type Cerita } from "../src/lib/vidsplit/videoPrompt";
+import { GALERI, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, ambilGaleri } from "../src/lib/vidsplit/hororGaleri";
 
 let gagal = 0;
 function ok(kondisi: boolean, nama: string) {
@@ -173,7 +174,7 @@ console.log("== 4b. AI Text-to-Video Generator — prompt komik (v0.30.0) ==");
 const pk = bangunPromptVideo(c1);
 ok(pk.gaya === "komik-sinematik", "gaya komik-sinematik");
 ok(pk.layout.gambar === "atas" && pk.layout.teksCerita === "bawah", "layout: gambar ATAS + kolom cerita BAWAH");
-ok(pk.lajuAdeganDetik === 3, "gambar berganti ±3 dtk");
+ok(pk.lajuAdeganDetik === 2, "gambar berganti ±2 dtk (v0.34.0)");
 ok(pk.adegan.length >= 6, `adegan cukup (${pk.adegan.length})`);
 ok(pk.adegan.every((a) => a.teks.trim().length > 3), "teks adegan terisi");
 ok(pk.adegan.every((a) => !/^bab\b/i.test(a.teks.trim())), "TANPA tulisan bab di dalam adegan");
@@ -265,6 +266,57 @@ const argsPanjangPolos = buatArgumenMusikPanjang("/tmp/m.wav", 121, "/tmp/panjan
 ok(argsPanjangKuat.join(" ").includes("loudnorm=I=-18:TP=-2:LRA=11"), "musik-panjang: loudnorm I=-18 (backsound pasti terdengar di semua genre)");
 ok(argsPanjangKuat.includes("-stream_loop") && argsPanjangKuat[argsPanjangKuat.indexOf("-t") + 1] === "121.00", "musik-panjang: stream_loop + -t total+1");
 ok(!argsPanjangPolos.join(" ").includes("loudnorm"), "musik-panjang polos (percobaan ulang): tanpa loudnorm");
+// ===================== v0.34.0 — GALERI HANTU + POTONGAN 2 DTK =====================
+console.log("== 4b. Galeri hantu Nusantara + potongan gambar 2 detik ==");
+ok(deteksiHantu("Pocong itu bergerak mendekat.") === "pocong", "deteksi hantu: pocong");
+ok(deteksiHantu("Kuntilanak berdiri di ujung lorong.") === "kuntilanak", "deteksi hantu: kuntilanak");
+ok(deteksiHantu("Sundel bolong meninggalkan jejak.") === "kuntilanak", "deteksi hantu: sundel bolong → kuntilanak");
+ok(deteksiHantu("Genderuwo meraung dari balik pepohonan.") === "genderuwo", "deteksi hantu: genderuwo");
+ok(deteksiHantu("Tuyul itu tertawa kecil.") === "tuyul", "deteksi hantu: tuyul");
+ok(deteksiHantu("Wewe gombel mengintai di atap.") === "wewe", "deteksi hantu: wewe gombel");
+ok(deteksiHantu("Leak menguntit di tepi pemakaman.") === "leak", "deteksi hantu: leak");
+ok(deteksiHantu("Sesosok bayangan berdiri di kegelapan.") === "sosok", "deteksi hantu: sosok generik");
+ok(deteksiHantu("Sawah terbentang luas dan sunyi.") === null, "deteksi hantu: tanpa hantu → null");
+ok(deteksiLatar("di kuburan tua itu sangat sepi") === "latar-kuburan", "deteksi latar: kuburan");
+ok(deteksiLatar("rumah itu berdiri tua di tepi jalan") === "latar-rumah", "deteksi latar: rumah");
+ok(hantuDominan(["pocong keluar dari kuburan", "pocong mendekat lagi", "kuntilanak datang"]) === "pocong", "hantu dominan: pocong");
+ok(JSON.stringify(potonganAdegan(5.5)) === "[2,2,1.5]", "potongan 5.5 dtk = 2+2+1.5 (2 dtk per gambar)");
+ok(JSON.stringify(potonganAdegan(2)) === "[2]", "potongan 2 dtk = [2]");
+ok(JSON.stringify(potonganAdegan(3.5)) === "[2,1.5]", "potongan 3.5 dtk = 2+1.5");
+ok(Math.min(...potonganAdegan(6.05)) >= 0.8, "potongan 6.05 dtk: tanpa ekor kilat <0.8 dtk");
+for (const dP of [2, 3.2, 5.5, 6.05, 9.5, 12.4]) {
+  const tot = potonganAdegan(dP).reduce((a, b) => a + b, 0);
+  ok(Math.round(tot * 30) === Math.round(dP * 30), `potongan ${dP} dtk: total frame TEPAT (${Math.round(tot * 30)})`);
+}
+const pil1 = pilihGambarPotongan({ teks: "Pocong itu bergerak mendekat.", indeks: 1, posisi: 0.3, seed: 99, jumlahPotongan: 3 });
+ok(JSON.stringify(pil1) === JSON.stringify(pilihGambarPotongan({ teks: "Pocong itu bergerak mendekat.", indeks: 1, posisi: 0.3, seed: 99, jumlahPotongan: 3 })), "pilihGambarPotongan deterministik");
+ok(VARIAN_HANTU.pocong.includes(pil1[0]) && pil1[0].startsWith("pocong"), "potongan 0 adegan pocong = gambar pocong");
+ok(ambilGaleri(pil1[1])?.jenis === "latar", "potongan 1 adegan pocong = latar pasangan");
+ok(pil1.length === 3, "jumlah gambar = jumlah potongan");
+ok(pilihGambarPotongan({ teks: "Aku berjalan di kuburan tua.", indeks: 2, posisi: 0.2, seed: 5, jumlahPotongan: 2 }).includes("latar-kuburan"), "adegan kuburan → latar kuburan");
+ok(pilihGambarPotongan({ teks: "malam makin gelap", indeks: 3, posisi: 0.8, seed: 7, jumlahPotongan: 2, hantuDominan: "kuntilanak" }).some((nid) => nid.startsWith("kuntilanak")), "klimaks tanpa sebutan: hantu dominan disuntik");
+ok(GALERI.length === 21, `manifest galeri = 21 gambar (${GALERI.length})`);
+ok(new Set(GALERI.map((g) => g.id)).size === GALERI.length, "id galeri semuanya unik");
+for (const g of GALERI) {
+  const p = pathGambarGaleri(g.file);
+  ok(statSync(p).size > 20000, `galeri ada: ${g.id} (${Math.round(statSync(p).size / 1024)} KB)`);
+}
+const argsMulti = buatArgumenSegmenKomik({
+  tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
+  ilustrasiAbs: "/tmp/i.png", ilustrasiAbsList: ["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"],
+  panelTeksAbs: "/tmp/p.png", kamera: "dalam", durasi: 5.5, wavAbs: "/tmp/n.wav", volumeNarasi: 1,
+  keluar: "/tmp/seg6.mp4",
+});
+ok(argsMulti.includes("/tmp/a.png") && argsMulti.includes("/tmp/b.png") && argsMulti.includes("/tmp/c.png"), "arg multi: 3 gambar potongan jadi input ffmpeg");
+ok(argsMulti.join(" ").includes("concat=n=3:v=1:a=0"), "arg multi: concat 3 potongan zoompan");
+ok(argsMulti.join(" ").split("d=60").length - 1 === 2 && argsMulti.join(" ").includes("d=45"), "arg multi: frame potongan 60+60+45 (2+2+1.5 dtk)");
+ok(argsMulti.indexOf("/tmp/p.png") > argsMulti.indexOf("/tmp/c.png"), "arg multi: input panel teks SETELAH gambar potongan");
+ok(argsMulti[argsMulti.indexOf("-frames:v") + 1] === "165", "arg multi: 165 frame @ 5.5 dtk");
+ok(argsMulti.join(" ").includes("apad=whole_len=242550"), "arg multi: audio pad PERSIS 5.5 dtk (242550 sampel)");
+ok(argsMulti.join(" ").includes("force_original_aspect_ratio=increase"), "arg multi: pra-skala 1.2x utk ruang zoom");
+ok(argsMulti.join(" ").includes("s=1080x1190"), "arg multi: zoompan ke ukuran panel atas");
+ok(argsMulti.join(" ").includes("(iw-iw/zoom)*min(1,on/"), "arg multi: kamera geser antar-potongan berganti");
+ok(buatArgumenSegmenKomik({ tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190, ilustrasiAbs: "/tmp/i.png", ilustrasiAbsList: ["/tmp/a.png"], panelTeksAbs: "/tmp/p.png", kamera: "keluar", durasi: 3.5, wavAbs: null, volumeNarasi: 1, keluar: "/tmp/seg7.mp4" }).join(" ").includes("concat=n=1") === false, "arg multi 1 gambar: TANPA concat (jalur tunggal)");
 // PNG panel komik
 const pngIlus = renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) });
 ok(pngIlus.length > 5000 && pngIlus.equals(renderIlustrasiPng({ lebar: 720, tinggi: 540, adeganSvg: svgAdegan({ jenis: "hutan", lebar: 720, tinggi: 540, seed: 9, tema }), defsSvg: defsAdegan(tema) })), `PNG ilustrasi panel jadi + deterministik (${Math.round(pngIlus.length / 1024)} KB)`);

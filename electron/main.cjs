@@ -92,6 +92,8 @@ function nyalakanServer() {
     VIDSPLIT_MUSIK: path.join(res, "musik-horor"),
     // v0.28.0 — AI Voice Generator (Piper TTS neural) bundel
     VIDSPLIT_PIPER: path.join(res, "tts-piper"),
+    // v0.34.0 — pustaka gambar hantu Nusantara utk AI Text-to-Video Generator
+    VIDSPLIT_HANTU: path.join(res, "hantu"),
     VIDSPLIT_VOKAL_AI: path.join(res, "vokal-ai"),
     VIDSPLIT_ORT: path.join(res, "server"),
     VIDSPLIT_ELECTRON: "1",
