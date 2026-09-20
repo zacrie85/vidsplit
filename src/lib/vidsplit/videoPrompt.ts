@@ -143,6 +143,8 @@ function moodAdegan(posisi: number): string {
  * - kalimat sangat pendek digabung dgn tetangganya agar tak terlalu cepat ganti
  * - jenis ilustrasi SELALU berbeda dari adegan sebelumnya (berganti-ganti mengikuti alur)
  * - v0.34.0: hantu yang disebut kalimat terdeteksi → panel memakai gambar hantu itu
+ * - v0.35.0: referensi pustaka 60 ilustrasi hantu/latar + variasi kamera-warna-kabut
+ *   per potongan 2 dtk (perencana rencanaGambarCerita) → tiap potongan TAMPIL BEDA.
  * - TANPA judul bab: hanya kalimat cerita yang masuk prompt.
  */
 export function bangunPromptVideo(cerita: Cerita, genreId?: GenreId | null): PromptVideoKomik {
@@ -183,7 +185,7 @@ export function bangunPromptVideo(cerita: Cerita, genreId?: GenreId | null): Pro
       jenisAdegan: jenis,
       seedAdegan: (cerita.seed ^ (i * 2654435761) ^ 0x9e3779b9) >>> 0,
       kamera,
-      catatan: `panel komik ${genre.nama.toLowerCase()} — ${moodAdegan(posisi)}: ${label}${namaHantu ? `, ${namaHantu} muncul dalam panel` : ""}, gerak kamera ${kamera}, berganti ±2 dtk`,
+      catatan: `panel komik ${genre.nama.toLowerCase()} — ${moodAdegan(posisi)}: ${label}${namaHantu ? `, ${namaHantu} muncul dalam panel (referensi pustaka hantu)` : ""}, gerak kamera ${kamera}, berganti tiap 2 dtk dgn gambar & pewarnaan berbeda-beda`,
       hantu: idHantu,
     });
   }

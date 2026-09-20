@@ -8,3 +8,7 @@ next-env.d.ts
 .DS_Store
 *.tsbuildinfo
 tools/
+
+# piper Linux (sandbox dev saja — Windows memakai piper.exe bundel)
+assets/tts-piper/piper
+assets/tts-piper/lib*.so*

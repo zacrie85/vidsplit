@@ -1,12 +1,18 @@
-Pustaka Gambar Hantu Nusantara — VidSplit v0.34.0
+Pustaka Gambar Hantu Nusantara — VidSplit v0.35.0
 ===================================================
 
-21 ilustrasi gaya komik horor (1024x1024 PNG) untuk AI Text-to-Video Generator:
+60 ilustrasi gaya komik horor (1024x1024 PNG) untuk AI Text-to-Video Generator
+(versi komik) — dipakai per potongan 2 detik dengan variasi kamera/warna/kabut
+agar tiap potongan tampil berbeda (video 6 menit = 180 potongan unik).
 
-  Hantu  : pocong-1, pocong-2, kuntilanak-1, kuntilanak-2, genderuwo-1,
-           genderuwo-2, tuyul-1, wewe-1, leak-1, sosok-1, sosok-2
-  Latar  : latar-kuburan, latar-rumah, latar-hutan, latar-lorong, latar-kamar,
-           latar-jalan, latar-sumur, latar-gang, latar-gunung, latar-laut
+  Hantu (36) : pocong-1..4, kuntilanak-1..4, sundel-1, genderuwo-1..4,
+               tuyul-1..3, wewe-1..2, leak-1..2, suster-1..2 (ngesot),
+               banaspati-1, siluman-1 (ular), arwah-1..2, sosok-1..4,
+               pohon-1, penunggu-1, tembok-1, ranjang-1, kubur-1, belakang-1
+  Latar (24) : kuburan, makam, gerbang-kuburan, beringin, rumah, hutan,
+               lorong, sekolah, rumah-sakit, kamar, atap, tangga, dapur,
+               gudang, sawah, setapak, jalan, jembatan, gua, pasar, gang,
+               sumur, gunung, laut
 
 Sumber: dibangkitkan secara prosedural oleh mesin gambar AI khusus untuk
 VidSplit — BUKAN karya pihak ketiga, bebas hak cipta pihak luar.

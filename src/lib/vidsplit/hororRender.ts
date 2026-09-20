@@ -6,7 +6,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Cerita } from "./hororCerita";
 import { estimasiDurasi } from "./hororCerita";
-import { potonganAdegan } from "./hororGaleri";
+import { potonganAdegan, GRADE_JUMLAH } from "./hororGaleri";
+import type { VariasiPotongan } from "./hororGaleri";
 import type { IntensitasHoror } from "./hororMusik";
 import { jenisAdeganBab, type JenisAdegan } from "./hororIlustrasi";
 import { ambilGenre, type GenreId } from "./videoAi";
@@ -328,6 +329,34 @@ export interface OpsiSegmenKomik {
   /** v0.33.0 — sumber musik TAK terpotong (stream_loop -1) dan dipotong lewat
    *  atrim di dalam graf — jalur CADANGAN bila berkas musik-panjang gagal dibuat */
   musikLoopSumber?: boolean;
+  /** v0.35.0 — variasi visual per potongan (flip/warna/kabut/grain) SEJAJAR dgn
+   *  ilustrasiAbsList — inilah yg membuat tiap potongan 2 dtk tampil unik.
+   *  Absen/null → potongan polos (kompat penuh dgn jalur lama). */
+  variasiList?: (VariasiPotongan | null)[];
+}
+
+/** v0.35.0 — 8 pewarnaan sinematik utk variasi potongan (eq/hue = filter ffmpeg
+ *  standar, teruji di build 7.0.2 & 7.1.5). Indeks 0 = netral. */
+const GRADE_TABEL: string[] = [
+  "", // 0 netral
+  "eq=brightness=-0.04:saturation=0.82:contrast=1.08,hue=h=-14", // malam biru
+  "eq=brightness=-0.02:saturation=0.72:contrast=1.06,hue=h=28:s=0.92", // hijau sakit
+  "eq=brightness=0.02:saturation=0.5:contrast=1.02,hue=h=9:s=0.55", // sepia tua
+  "hue=s=0,eq=contrast=1.2:brightness=-0.03", // noir
+  "eq=brightness=-0.05:saturation=1.25:contrast=1.12,hue=h=-24", // merah bara
+  "eq=brightness=0.05:saturation=0.95:gamma=0.94,hue=h=16", // lilin hangat
+  "eq=brightness=0.06:saturation=0.55:contrast=0.97", // pucat lemam
+];
+
+/** rantai filter variasi SEBELUM zoompan utk satu potongan (bisa kosong). */
+function rantaiVariasi(vr: VariasiPotongan | null | undefined): string {
+  if (!vr) return "";
+  const s: string[] = [];
+  if (vr.hflip) s.push("hflip");
+  const g = GRADE_TABEL[Math.max(0, Math.min(GRADE_JUMLAH - 1, vr.grade | 0))];
+  if (g) s.push(g);
+  if (vr.kabut) s.push("boxblur=luma_radius=3:luma_power=1,eq=brightness=0.04:saturation=0.85");
+  return s.length ? s.join(",") + "," : "";
 }
 
 /** Argumen ffmpeg SATU SEGMEN ADEGAN KOMIK (mp4, siap concat -c copy).
@@ -413,8 +442,12 @@ export function buatArgumenSegmenKomik(o: OpsiSegmenKomik): string[] {
   daftarGambar.forEach((_, p) => {
     const Dp = Math.max(1, Math.round((splits[p] ?? durasi) * 30));
     const zp = ekspresiZoompan(kameraPotongan(o.kamera, p), Dp);
+    // v0.35.0 — variasi visual per potongan: hflip + pewarnaan + kabut SEBELUM
+    // zoompan; grain (noise) SESUDAH zoompan agar tak ikut membesar.
+    const vr = o.variasiList?.[p] ?? null;
+    const derau = vr?.derau ? ",noise=alls=6:allf=t" : "";
     fc.push(
-      `[${p}:v]scale=${wPre}:${hPre}:force_original_aspect_ratio=increase,crop=${wPre}:${hPre},zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=${Dp}:s=${pw}x${ph}:fps=30[zp${p}]`,
+      `[${p}:v]scale=${wPre}:${hPre}:force_original_aspect_ratio=increase,crop=${wPre}:${hPre},${rantaiVariasi(vr)}zoompan=z='${zp.z}':x='${zp.x}':y='${zp.y}':d=${Dp}:s=${pw}x${ph}:fps=30${derau}[zp${p}]`,
     );
     cabang.push(`[zp${p}]`);
   });

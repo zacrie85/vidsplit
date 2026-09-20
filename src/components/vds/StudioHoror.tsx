@@ -314,7 +314,7 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
         <div>
           <h2 className="flex items-center gap-2 text-lg font-bold text-slate-100">
             <Wand2 className="h-5 w-5 text-amber-300" /> Studio Video AI
-            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.34.0</span>
+            <span className="rounded-full border border-amber-400/40 bg-amber-400/10 px-2 py-0.5 text-[10px] font-semibold text-amber-300">AI Video Generator v0.35.0</span>
           </h2>
           <p className="mt-1 text-xs text-slate-400">
             100% offline — AI Story Generator menulis cerita → teks dikirim ke Text-to-Speech (TTS) dan AI Text-to-Video Generator → video komik berisi gambar hantu sesuai cerita (pocong, kuntilanak, genderuwo, dst. — berganti tiap 2 detik), narasi tersinkron.
@@ -526,15 +526,15 @@ export function StudioHoror({ onKirimKeVideo }: { onKirimKeVideo?: (file: string
 
           <Kartu
             judul="5. AI Text-to-Video Generator (versi komik)"
-            deskripsi="Gambar komik HOROR di ATAS berganti tiap 2 DETIK mengikuti alur cerita — hantu yang disebut dalam cerita muncul sebagai gambar (pocong, kuntilanak, genderuwo, tuyul, wewe gombel, leak, arwah) — kolom cerita di BAWAH, tanpa tulisan bab, narasi TTS tersinkron."
+            deskripsi="Gambar komik HOROR di ATAS berganti tiap 2 DETIK dgn gambar yang BERBEDA-BEDA (kamera, warna, kabut ikut berganti) — hantu yang disebut dalam cerita muncul sebagai gambar (pocong, kuntilanak, genderuwo, tuyul, wewe gombel, leak, arwah, suster ngesot, banaspati, siluman ular, dll.) — kolom cerita di BAWAH, tanpa tulisan bab, narasi TTS tersinkron."
             ikon={<Film className="h-4 w-4" />}
           >
             <div className="flex flex-wrap items-center gap-1.5">
-              {["Pocong", "Kuntilanak", "Genderuwo", "Tuyul", "Wewe Gombel", "Leak", "Arwah"].map((h) => (
+              {["Pocong", "Kuntilanak", "Genderuwo", "Tuyul", "Wewe Gombel", "Leak", "Arwah", "Suster Ngesot", "Banaspati", "Siluman Ular", "Penunggu Kubur"].map((h) => (
                 <span key={h} className="inline-flex items-center gap-1 rounded-lg bg-rose-400/10 px-2 py-0.5 text-[11px] font-medium text-rose-200"><Ghost className="h-3 w-3" /> {h}</span>
               ))}
             </div>
-            <p className="mt-1.5 text-[11px] text-slate-500">Pustaka 21 gambar terpasang di aplikasi (100% offline). Genre cerah (Dongeng/Motivasi/Fakta) tetap memakai ilustrasi animasi.</p>
+            <p className="mt-1.5 text-[11px] text-slate-500">Pustaka 60 gambar AI terpasang di aplikasi (100% offline) — video 6 menit = 180 potongan 2 detik, semuanya tampil beda (gambar beda + cermin/pewarnaan/kabut/grain berganti). Genre cerah (Dongeng/Motivasi/Fakta) tetap memakai ilustrasi animasi.</p>
             <label className="mt-3 flex items-center justify-between">
               <span className="text-sm text-slate-300">Ilustrasi komik pada adegan</span>
               <button type="button" onClick={() => { setIlustrasi(!ilustrasi); simpanAtur({ ilustrasi: !ilustrasi }); }}

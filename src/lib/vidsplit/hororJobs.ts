@@ -22,7 +22,8 @@ import {
   type OpsiRenderHoror,
 } from "./hororRender";
 import { svgAdegan, defsAdegan, type JenisAdegan } from "./hororIlustrasi";
-import { pilihGambarPotongan, potonganAdegan, hantuDominan, ambilGaleri } from "./hororGaleri";
+import { rencanaGambarCerita, ambilGaleri } from "./hororGaleri";
+import type { VariasiPotongan } from "./hororGaleri";
 import { ambilGenre } from "./videoAi";
 import { bangunPromptVideo, type PromptVideoKomik } from "./videoPrompt";
 import { slugify } from "./types";
@@ -307,41 +308,42 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     }
 
     // ---- 4) PANEL KOMIK (36..52): ilustrasi atas + kolom teks bawah ----
-    // v0.34.0 — genre GELAP memakai PUSTAKA GAMBAR HANTU: tiap adegan dipecah
-    // jadi potongan 2 dtk, tiap potongan dapat gambar sesuai isi kalimatnya
-    // (hantu disebut → gambar hantu itu; polos → latar suasana; klimaks → hantu
-    // dominan cerita). Genre cerah tetap ilustrasi SVG prosedural v0.29.
+    // v0.35.0 — genre GELAP memakai PUSTAKA GAMBAR HANTU dgn PERENCANA
+    // TINGKAT-VIDEO: semua adegan dipecah jadi potongan 2 dtk dan tiap potongan
+    // mendapat kombinasi (gambar, variasi) UNIK — tak ada gambar sama dalam
+    // jendela 12 potongan (≈24 dtk) sepanjang video + dipandu isi cerita.
+    // Dulu: pilihan per-adegan dgn 21 gambar → "5 gambar terus diulang-ulang".
     ktx.maju("halaman", 37, "Menggambar panel komik…");
     const skalaIlus = 1.35; // ruang zoom kamera (jalur SVG)
     const wIlus = Math.round(lebar * skalaIlus);
     const hIlus = Math.round(tata.panelTinggi * skalaIlus);
     const pakaiGaleri = !genre.cerah && opsi.ilustrasi !== false;
-    const dominan = pakaiGaleri ? hantuDominan(unit.map((u) => u.teks)) : null;
+    const rencana = pakaiGaleri
+      ? rencanaGambarCerita({
+          adegan: unit.map((u) => ({ teks: u.teks, durasi: u.durasi, seedAdegan: u.seedAdegan })),
+          seed: (cerita.seed ^ 0x1a2b3c4d) >>> 0,
+        })
+      : [];
     const ilus: string[] = [];
     const panel: string[] = [];
     const gambarPerUnit: string[][] = [];
+    const variasiPerUnit: VariasiPotongan[][] = [];
     for (let i = 0; i < unit.length; i++) {
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
       const ilusAbs = path.join(folderTmp, `ilus-${String(i).padStart(3, "0")}.png`);
       const panelAbs = path.join(folderTmp, `panel-${String(i).padStart(3, "0")}.png`);
-      // --- v0.34.0: pilih gambar galeri per potongan 2 dtk (bila tersedia) ---
+      // --- v0.35.0: gambar + variasi per potongan 2 dtk dari rencana se-video ---
       let daftarGambar: string[] = [];
+      let daftarVariasi: VariasiPotongan[] = [];
       if (pakaiGaleri) {
-        const pot = potonganAdegan(u.durasi, 2);
-        const ids = pilihGambarPotongan({
-          teks: u.teks,
-          indeks: i,
-          posisi: unit.length > 1 ? i / (unit.length - 1) : 0,
-          seed: (cerita.seed ^ (u.seedAdegan || 0)) >>> 0,
-          jumlahPotongan: pot.length,
-          hantuDominan: dominan,
-        });
-        daftarGambar = ids
-          .map((nid) => ambilGaleri(nid)?.file)
-          .filter((f): f is string => !!f)
-          .map((f) => pathGambarGaleri(f))
-          .filter((p) => { try { return statSync(p).size > 20000; } catch { return false; } });
+        const pasangan = (rencana[i] ?? [])
+          .map((p) => ({ file: ambilGaleri(p.id)?.file, variasi: p.variasi }))
+          .filter((x): x is { file: string; variasi: VariasiPotongan } => !!x.file)
+          .map((x) => ({ abs: pathGambarGaleri(x.file), variasi: x.variasi }))
+          .filter((x) => { try { return statSync(x.abs).size > 20000; } catch { return false; } });
+        daftarGambar = pasangan.map((x) => x.abs);
+        daftarVariasi = pasangan.map((x) => x.variasi);
       }
       if (!daftarGambar.length) {
         // jalur lama: ilustrasi SVG prosedural (genre cerah / galeri tak tersedia)
@@ -365,6 +367,7 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       ilus.push(daftarGambar[0]);
       panel.push(panelAbs);
       gambarPerUnit.push(daftarGambar);
+      variasiPerUnit.push(daftarVariasi);
       ktx.maju("halaman", 37 + 15 * ((i + 1) / unit.length), `Menggambar panel adegan ${i + 1}/${unit.length}…`);
     }
 
@@ -384,6 +387,7 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       const dasar = {
         tema, lebar, tinggi, panelTinggi: tata.panelTinggi,
         ilustrasiAbs: ilus[i], ilustrasiAbsList: gambarPerUnit[i],
+        variasiList: variasiPerUnit[i],
         panelTeksAbs: panel[i],
         kamera: u.kamera, durasi: u.durasi, wavAbs: u.wav,
         volumeNarasi: Math.min(1.5, Math.max(0, opsi.volumeNarasi ?? 1)),

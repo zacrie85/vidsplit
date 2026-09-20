@@ -13,7 +13,7 @@ import {
 import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 import { bangunPromptVideo, pecahKalimat, type Cerita } from "../src/lib/vidsplit/videoPrompt";
-import { GALERI, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, ambilGaleri } from "../src/lib/vidsplit/hororGaleri";
+import { GALERI, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, rencanaGambarCerita, ambilGaleri } from "../src/lib/vidsplit/hororGaleri";
 
 let gagal = 0;
 function ok(kondisi: boolean, nama: string) {
@@ -295,12 +295,82 @@ ok(ambilGaleri(pil1[1])?.jenis === "latar", "potongan 1 adegan pocong = latar pa
 ok(pil1.length === 3, "jumlah gambar = jumlah potongan");
 ok(pilihGambarPotongan({ teks: "Aku berjalan di kuburan tua.", indeks: 2, posisi: 0.2, seed: 5, jumlahPotongan: 2 }).includes("latar-kuburan"), "adegan kuburan → latar kuburan");
 ok(pilihGambarPotongan({ teks: "malam makin gelap", indeks: 3, posisi: 0.8, seed: 7, jumlahPotongan: 2, hantuDominan: "kuntilanak" }).some((nid) => nid.startsWith("kuntilanak")), "klimaks tanpa sebutan: hantu dominan disuntik");
-ok(GALERI.length === 21, `manifest galeri = 21 gambar (${GALERI.length})`);
+ok(GALERI.length === 60, `manifest galeri = 60 gambar v0.35.0 (${GALERI.length})`);
 ok(new Set(GALERI.map((g) => g.id)).size === GALERI.length, "id galeri semuanya unik");
 for (const g of GALERI) {
   const p = pathGambarGaleri(g.file);
   ok(statSync(p).size > 20000, `galeri ada: ${g.id} (${Math.round(statSync(p).size / 1024)} KB)`);
 }
+// ---- v0.35.0 — hantu & latar BARU + PERENCANA SE-VIDEO (anti "5 gambar berulang") ----
+ok(deteksiHantu("Suster ngesot merayap di lorong rumah sakit.") === "suster", "deteksi hantu: suster ngesot");
+ok(deteksiHantu("Arwah itu melayang di atas laut gelap.") === "arwah", "deteksi hantu: arwah (bukan sosok)");
+ok(deteksiHantu("Banaspati menyala di dapur tua.") === "banaspati", "deteksi hantu: banaspati");
+ok(deteksiHantu("Siluman ular itu berguling di semak.") === "siluman", "deteksi hantu: siluman ular");
+ok(deteksiHantu("Penunggu kuburan membawa lentera redup.") === "penunggu", "deteksi hantu: penunggu kuburan");
+ok(deteksiHantu("Sosok di pohon beringin itu menunduk.") === "pohon", "deteksi hantu: hantu pohon");
+ok(deteksiHantu("Tangan-tangan bangkit dari kubur.") === "kubur", "deteksi hantu: bangkit dari kubur");
+ok(deteksiLatar("padi sawah terbentang berkabut") === "latar-sawah", "deteksi latar: sawah");
+ok(deteksiLatar("mereka menyeberangi jembatan kayu") === "latar-jembatan", "deteksi latar: jembatan");
+ok(deteksiLatar("kelas sekolah tua itu berdebu") === "latar-sekolah", "deteksi latar: sekolah");
+ok(deteksiLatar("jalan setapak itu menembus semak") === "latar-setapak", "deteksi latar: setapak (sebelum jalan)");
+ok(deteksiLatar("bola api melayang di udara gelap") === null, "deteksi latar: kata hantu tak dianggap latar");
+const KALIMAT_ADEGAN = [
+  "Pocong itu muncul lagi di dekat makam tua.",
+  "Malam makin gelap, angin berhembus lembut.",
+  "Kuntilanak berdiri di bawah pohon beringin.",
+  "Hujan mulai turun membasahi tanah pekarangan.",
+  "Genderuwo meraung dari balik pepohonan.",
+  "Cahaya lilin berkedip di kamar tua itu.",
+  "Tuyul tertawa kecil di atas atap genteng.",
+  "Wewe gombel mengintai dari dinding rumah.",
+  "Leak menguntit di tepi pemakaman.",
+  "Suster ngesot merayap di lorong rumah sakit.",
+];
+const adegan180 = Array.from({ length: 90 }, (_, i) => ({
+  teks: KALIMAT_ADEGAN[i % KALIMAT_ADEGAN.length],
+  durasi: 4, // 2 potongan 2 dtk per adegan
+}));
+const r1 = rencanaGambarCerita({ adegan: adegan180, seed: 777 });
+const datar = r1.flat();
+ok(r1.length === 90 && r1.every((b) => b.length === 2), "rencana per-adegan = jumlah potonganAdegan");
+ok(datar.length === 180, `video 6 menit → 180 potongan 2 dtk (${datar.length})`);
+let adaUlang = false;
+for (let i = 0; i < datar.length; i++) {
+  for (let j = i + 1; j < Math.min(datar.length, i + 10); j++) {
+    if (datar[i].id === datar[j].id) adaUlang = true;
+  }
+}
+ok(!adaUlang, "jendela 10 potongan berurutan: TIDAK ada gambar sama (anti 5-gambar-berulang)");
+let samaTampil = 0;
+for (let i = 1; i < datar.length; i++) {
+  const a = datar[i - 1].variasi, b = datar[i].variasi;
+  if (a.grade === b.grade && a.hflip === b.hflip) samaTampil++;
+}
+ok(samaTampil === 0, "pasangan potongan berurutan selalu beda tampilan (grade/hflip)");
+ok(new Set(datar.map((d) => d.id)).size >= 45, `rencana memakai >=45 gambar berbeda dr pustaka (${new Set(datar.map((d) => d.id)).size})`);
+ok(r1[0][0].id.startsWith("pocong"), "rencana: adegan pocong → gambar pocong");
+ok(r1[2][0].id.startsWith("kuntilanak"), "rencana: adegan kuntilanak → gambar kuntilanak");
+ok(r1[1][0].id.startsWith("latar-"), "rencana: adegan polos → latar suasana");
+const r2 = rencanaGambarCerita({ adegan: adegan180, seed: 777 });
+ok(JSON.stringify(r1) === JSON.stringify(r2), "rencanaGambarCerita deterministik");
+const rLain = rencanaGambarCerita({ adegan: adegan180, seed: 778 });
+ok(JSON.stringify(r1) !== JSON.stringify(rLain), "rencanaGambarCerita beda seed → beda rencana");
+const argsVar = buatArgumenSegmenKomik({
+  tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
+  ilustrasiAbs: "/tmp/i.png", ilustrasiAbsList: ["/tmp/a.png", "/tmp/b.png"],
+  variasiList: [
+    { hflip: true, grade: 1, kabut: true, derau: true },
+    { hflip: false, grade: 0, kabut: false, derau: false },
+  ],
+  panelTeksAbs: "/tmp/p.png", kamera: "dalam", durasi: 4, wavAbs: "/tmp/n.wav", volumeNarasi: 1,
+  keluar: "/tmp/segv.mp4",
+});
+const fcVar = argsVar.join(" ");
+const cabang0 = (fcVar.match(/\[0:v\][^\[]+/) ?? [""])[0];
+const cabang1 = (fcVar.match(/\[1:v\][^\[]+/) ?? [""])[0];
+ok(cabang0.includes("hflip") && cabang0.includes("eq=brightness=-0.04") && cabang0.includes("boxblur"), "arg variasi potongan 0: cermin + malam biru + kabut");
+ok(fcVar.includes("noise=alls=6:allf=t"), "arg variasi potongan 0: grain film sesudah zoompan");
+ok(cabang1.includes("zoompan") && !cabang1.includes("hflip") && !cabang1.includes("eq="), "arg variasi potongan 1 netral: rantai polos (kompat)");
 const argsMulti = buatArgumenSegmenKomik({
   tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
   ilustrasiAbs: "/tmp/i.png", ilustrasiAbsList: ["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"],

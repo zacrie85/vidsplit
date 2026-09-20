@@ -269,6 +269,23 @@ function uji(bin: string, label: string) {
       const okSegXM = rSegXM.status === 0 && existsSync(segMultiM) && statSync(segMultiM).size > 20000;
       if (okSegXM) { lulus++; console.log("  LULUS  komik segmen multi-gambar + musik di dalam"); }
       else { gagal++; daftarGagal.push(`${label} :: komik multi+musik`); console.log(`  GAGAL  komik multi-gambar+musik\n    ${((rSegXM.stderr || "") + (rSegXM.stdout || "")).slice(0, 400)}`); }
+      // v0.35.0 — VARIASI VISUAL per potongan (hflip + eq/hue + boxblur kabut +
+      // noise grain) — filter standar wajib jalan di kedua build ffmpeg.
+      const segVar = path.join(tmp, "seg-komik-variasi.mp4");
+      const rSegV = spawnSync(bin, ["-hide_banner", "-v", "error", ...buatArgumenSegmenKomik({
+        tema: TEMA_HOROR[0], lebar: W, tinggi: H, panelTinggi: panelTinggiK,
+        ilustrasiAbs: galeriK[0], ilustrasiAbsList: galeriK,
+        variasiList: [
+          { hflip: true, grade: 1, kabut: true, derau: true },
+          { hflip: false, grade: 4, kabut: false, derau: true },
+          { hflip: true, grade: 7, kabut: true, derau: false },
+        ],
+        panelTeksAbs: pngPanelK, kamera: "keluar",
+        durasi: 5.5, wavAbs: null, volumeNarasi: 1, keluar: segVar,
+      })], { encoding: "utf8", timeout: 120_000 });
+      const okSegV = rSegV.status === 0 && existsSync(segVar) && statSync(segVar).size > 20000;
+      if (okSegV) { lulus++; console.log("  LULUS  komik variasi visual 3 potongan (flip/eq/hue/kabut/grain)"); }
+      else { gagal++; daftarGagal.push(`${label} :: komik variasi visual`); console.log(`  GAGAL  komik variasi visual\n    ${((rSegV.stderr || "") + (rSegV.stdout || "")).slice(0, 400)}`); }
     } else {
       gagal++; daftarGagal.push(`${label} :: galeri hantu hilang`); console.log("  GAGAL  galeri hantu tak ditemukan — assets/hantu wajib ada");
     }
