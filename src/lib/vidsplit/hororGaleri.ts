@@ -290,15 +290,39 @@ export interface OpsiRencanaCerita {
   seed: number;
   /** detik per potongan (bawaan 2 — permintaan user) */
   laju?: number;
+  /** v0.36.0 — genre cerah (Dongeng/Motivasi/Fakta): pustaka yang SAMA dipakai
+   *  semua genre (dulu cerah memakai SVG prosedural lama → "5 gambar terus
+   *  berulang" — laporan user memakai tema Permata Dongeng!). Mode cerah hanya
+   *  menyetel TAMPILAN: pewarnaan terang saja (netral/sepia/lilin/pucat),
+   *  kabut & grain lebih jarang, dan lukisan hantu TIDAK disuntikkan ke adegan
+   *  polos — hantu hanya tampil bila ceritanya memang menyebutnya. */
+  cerah?: boolean;
 }
+
+/** v0.36.0 — indeks pewarnaan TERANG utk genre cerah (dari GRADE_TABEL di
+ *  hororRender): 0 netral, 3 sepia tua, 6 lilin hangat, 7 pucat lemam.
+ *  Pewarnaan gelap (malam biru/hijau sakit/noir/merah bara) tidak dipakai di
+ *  mode cerah agar dongeng/motivasi/fakta tetap hangat. */
+export const GRADE_CERAH: number[] = [0, 3, 6, 7];
 
 /** VARIASI potongan baru yang DIJAMIN BERBEDA dari variasi sebelumnya pada
  *  pasangan (grade, hflip) — mata langsung melihat potongan 2 dtk berbeda. */
-function buatVariasi(r: () => number, prev?: VariasiPotongan): VariasiPotongan {
-  let grade = Math.floor(r() * GRADE_JUMLAH);
+function buatVariasi(r: () => number, prev?: VariasiPotongan, cerah = false): VariasiPotongan {
+  let grade = cerah
+    ? GRADE_CERAH[Math.floor(r() * GRADE_CERAH.length)]
+    : Math.floor(r() * GRADE_JUMLAH);
   let hflip = r() < 0.45;
-  if (prev && grade === prev.grade && hflip === prev.hflip) grade = (grade + 3) % GRADE_JUMLAH;
-  return { hflip, grade, kabut: r() < 0.26, derau: r() < 0.42 };
+  if (prev && grade === prev.grade && hflip === prev.hflip) {
+    grade = cerah
+      ? GRADE_CERAH[(GRADE_CERAH.indexOf(grade) + 1) % GRADE_CERAH.length]
+      : (grade + 3) % GRADE_JUMLAH;
+  }
+  return {
+    hflip,
+    grade,
+    kabut: r() < (cerah ? 0.1 : 0.26),
+    derau: r() < (cerah ? 0.25 : 0.42),
+  };
 }
 
 /** PERENCANA GAMBAR SEPANJANG CERITA (v0.35.0 — inti jawaban "5 gambar terus
@@ -362,14 +386,16 @@ export function rencanaGambarCerita(o: OpsiRencanaCerita): PilihanPotongan[][] {
         else if (p % 3 === 1) id = pilih([latarUtama ?? LATAR_PASANGAN[hantu] ?? semuaLatar[0], ...semuaLatar]);
         else id = pilih(r() < 0.6 ? varian : semuaHantu);
       } else {
-        // polos: latar suasana (potongan pembuka); sesekali lukisan hantu
-        // generik muncul di potongan berikut (rasa misteri)
-        const kandidat = p > 0 && r() < 0.22
+        // polos: latar suasana (potongan pembuka); genre GELAP sesekali
+        // menyuntik lukisan hantu generik di potongan berikut (rasa misteri) —
+        // genre CERAH tanpa suntikan: dongeng tampil bersih dgn latar beragam
+        const suntikHantu = o.cerah ? false : p > 0 && r() < 0.22;
+        const kandidat = suntikHantu
           ? semuaHantu
           : (latarUtama ? [latarUtama, ...semuaLatar] : semuaLatar);
         id = pilih(kandidat);
       }
-      const variasi = buatVariasi(r, variasiSebelumnya);
+      const variasi = buatVariasi(r, variasiSebelumnya, o.cerah === true);
       variasiSebelumnya = variasi;
       baris.push({ id, variasi });
     }

@@ -13,7 +13,7 @@ import {
 import { svgAdegan, defsAdegan, jenisAdeganBab } from "../src/lib/vidsplit/hororIlustrasi";
 import { renderIlustrasiPng, renderTeksPanelPng } from "../src/lib/vidsplit/teksLayar";
 import { bangunPromptVideo, pecahKalimat, type Cerita } from "../src/lib/vidsplit/videoPrompt";
-import { GALERI, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, rencanaGambarCerita, ambilGaleri } from "../src/lib/vidsplit/hororGaleri";
+import { GALERI, VARIAN_HANTU, deteksiHantu, deteksiLatar, hantuDominan, potonganAdegan, pilihGambarPotongan, rencanaGambarCerita, ambilGaleri, GRADE_CERAH } from "../src/lib/vidsplit/hororGaleri";
 
 let gagal = 0;
 function ok(kondisi: boolean, nama: string) {
@@ -355,6 +355,48 @@ const r2 = rencanaGambarCerita({ adegan: adegan180, seed: 777 });
 ok(JSON.stringify(r1) === JSON.stringify(r2), "rencanaGambarCerita deterministik");
 const rLain = rencanaGambarCerita({ adegan: adegan180, seed: 778 });
 ok(JSON.stringify(r1) !== JSON.stringify(rLain), "rencanaGambarCerita beda seed → beda rencana");
+
+// ==== v0.36.0 — mode CERAH: pustaka yang sama utk semua genre (akar laporan
+// user "5 gambar terus berulang" = adegan ujinya memakai tema Permata Dongeng
+// = genre cerah yang dulu MELEWATI seluruh pustaka & memakai SVG lama) ====
+const adeganCerah = Array.from({ length: 40 }, (_, i) => ({
+  teks: `Awan di atas desa itu bergerak melawan angin, bagian ${i} penuh keajaiban.`,
+  durasi: 4, // 2 potongan 2 dtk per adegan
+}));
+const rc = rencanaGambarCerita({ adegan: adeganCerah, seed: 55, cerah: true });
+const datarC = rc.flat();
+ok(datarC.length === 80, `rencana cerah: 40 adegan × 4 dtk = 80 potongan (${datarC.length})`);
+ok(rc.every((b) => b.every((p) => ambilGaleri(p.id)?.jenis === "latar")),
+  "rencana cerah polos: SEMUA latar — tanpa suntikan hantu ke adegan yang tak menyebutnya");
+ok(datarC.every((p) => GRADE_CERAH.includes(p.variasi.grade)),
+  `rencana cerah: hanya pewarnaan terang ${JSON.stringify(GRADE_CERAH)}`);
+ok(datarC.every((p) => !p.variasi.kabut || true) && datarC.filter((p) => p.variasi.kabut).length < datarC.length * 0.3,
+  "rencana cerah: kabut jarang (<30% potongan)");
+let samaC = 0;
+for (let i = 1; i < datarC.length; i++) {
+  const a = datarC[i - 1].variasi, b = datarC[i].variasi;
+  if (a.grade === b.grade && a.hflip === b.hflip) samaC++;
+}
+ok(samaC === 0, "rencana cerah: pasangan berurutan tetap selalu beda tampilan (grade/hflip)");
+let ulangC = false;
+for (let i = 0; i < datarC.length; i++) {
+  for (let j = i + 1; j < Math.min(datarC.length, i + 12); j++) {
+    if (datarC[i].id === datarC[j].id) ulangC = true;
+  }
+}
+ok(!ulangC, "rencana cerah: TIDAK ada gambar sama dalam jendela 12 potongan (≈24 dtk)");
+ok(new Set(datarC.map((d) => d.id)).size >= 12,
+  `rencana cerah memutar banyak latar berbeda (${new Set(datarC.map((d) => d.id)).size} dr 24)`);
+const rcH = rencanaGambarCerita({
+  adegan: [
+    { teks: "Pocong itu bangkit dari kuburan di balik desa.", durasi: 6 },
+    { teks: "Penduduk desa berlari menyelamatkan diri.", durasi: 6 },
+  ],
+  seed: 9, cerah: true,
+});
+ok(rcH[0].some((p) => p.id.startsWith("pocong")), "rencana cerah: cerita SEBUT pocong → gambar pocong tetap tampil");
+ok(JSON.stringify(rencanaGambarCerita({ adegan: adeganCerah, seed: 55, cerah: true })) === JSON.stringify(rc),
+  "rencana cerah juga deterministik");
 const argsVar = buatArgumenSegmenKomik({
   tema, lebar: 1080, tinggi: 1920, panelTinggi: 1190,
   ilustrasiAbs: "/tmp/i.png", ilustrasiAbsList: ["/tmp/a.png", "/tmp/b.png"],

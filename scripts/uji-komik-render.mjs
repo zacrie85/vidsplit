@@ -4,7 +4,8 @@
 // verifikasi: ikhtisar job, MP4, durasi, NARASI TERDENGAR, dan SINKRON
 // (jendela kartu judul = musik saja lebih senyap daripada jendela adegan pertama
 // yang berisi narasi). Jalankan: VIDSPLIT_PIPER=<dir> node scripts/uji-komik-render.mjs
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
+const execFileSync3 = execFileSync;
 import { existsSync, statSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -71,16 +72,22 @@ const jR = await rR.json();
 cek(jR.ok && typeof jR.id === "string", `render komik dimulai (id=${jR.id ?? "-"})`);
 
 let job = null;
-const t0 = Date.now();
-while (Date.now() - t0 < 600_000) {
-  await tidur(1500);
-  const jJ = await (await fetch(`${BASE}/api/horor/job?id=${jR.id}`)).json();
-  if (jJ.ok) {
-    if (job?.tahap !== jJ.job.tahap || job?.progres !== jJ.job.progres) console.log(`    ${jJ.job.tahap} ${jJ.job.progres}% — ${jJ.job.pesan}`);
-    job = jJ.job;
-    if (job.selesai) break;
+async function tungguJob(id) {
+  let j = null;
+  const t0 = Date.now();
+  while (Date.now() - t0 < 600_000) {
+    await tidur(1500);
+    const jJ = await (await fetch(`${BASE}/api/horor/job?id=${id}`)).json();
+    if (jJ.ok) {
+      if (j?.tahap !== jJ.job.tahap || j?.progres !== jJ.job.progres) console.log(`    ${jJ.job.tahap} ${jJ.job.progres}% — ${jJ.job.pesan}`);
+      j = jJ.job;
+      if (j.selesai || j.error) break;
+    }
   }
+  return j;
 }
+const t0 = Date.now();
+job = await tungguJob(jR.id);
 cek(job?.selesai === true && !job.error, `job selesai tanpa error (${job?.error ?? "bersih"})`);
 cek(!job?.peringatan?.length, `tanpa peringatan narasi (${job?.peringatan?.join(" | ") ?? "kosong"})`);
 cek(/video komik \d+ adegan \+ narasi/.test(job?.pesan ?? ""), `ikhtisar: video komik + narasi (${job?.pesan ?? "-"})`);
@@ -115,6 +122,52 @@ if (mp4) {
     { encoding: "utf8" },
   ).match(/YAVG=([0-9.]+)/) || [0, 0])[1]);
   cek(yavg > 8, `frame tengah bukan hitam (YAVG=${yavg.toFixed(1)})`);
+}
+
+// ================= v0.36.0 — SKENARIO 2: GENRE DONGENG (CERAH) =================
+// Persis kasus user: tema "Permata Dongeng" = genre cerah. Dulu (v0.34-0.35)
+// genre cerah MELEWATI seluruh pustaka 60 gambar dan memakai ilustrasi SVG
+// prosedural lama (~8 jenis berulang) → "hanya ada 5 gambar yang terus diulang".
+// Kini: genre cerah WAJIB memakai pustaka yang sama (pewarnaan terang), dan
+// ikhtisar menyebut jumlah ilustrasi berbeda yang benar-benar tampil.
+console.log("\n-- Skenario 2: genre DONGENG (cerah — kasus user) --");
+const rC2 = await fetch(`${BASE}/api/horor/cerita`, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ panjang: "pendek", seed: 404, genre: "dongeng", ide: "kancil dan bubah yang menabur bintang di sawah" }),
+});
+const jC2 = await rC2.json();
+cek(jC2.ok && jC2.cerita?.bab?.length >= 1, `cerita dongeng dibuat (${jC2.cerita?.judul ?? "?"})`);
+const paragraf2 = jC2.cerita.bab.flatMap((b) => b.paragraf);
+const cerita2 = { ...jC2.cerita, bab: [{ judul: "", paragraf: paragraf2 }] };
+const rR2 = await fetch(`${BASE}/api/horor/render`, {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    cerita: cerita2, judul: "Uji Komik Dongeng", genreId: "dongeng",
+    narasi: true, mesinNarasi: "ai", kecepatanNarasi: 1, volumeNarasi: 1,
+    intensitasMusik: "santai", volumeMusik: 0.7, rasio: "9:16", resolusi: "720p",
+    temaId: "permata", sumberMusik: "sintesis", ilustrasi: true,
+  }),
+});
+const jR2 = await rR2.json();
+cek(jR2.ok && typeof jR2.id === "string", `render dongeng dimulai (id=${jR2.id ?? "-"})`);
+const job2 = await tungguJob(jR2.id);
+cek(job2?.selesai === true && !job2.error, `job dongeng selesai tanpa error (${job2?.error ?? "bersih"})`);
+cek(!(job2?.peringatan ?? []).some((p) => p.includes("Pustaka 60 gambar")),
+  `pustaka 60 gambar TERPAKAI utk genre dongeng (peringatan: ${job2?.peringatan?.join(" | ") ?? "kosong"})`);
+const mIkhtisar = /\((\d+) ilustrasi pustaka berbeda/.exec(job2?.pesan ?? "");
+cek(!!mIkhtisar && Number(mIkhtisar[1]) >= 10,
+  `ikhtisar menyebut jumlah ilustrasi berbeda (${job2?.pesan ?? "-"})`);
+const mp42 = job2?.outputs?.[0];
+if (mp42) {
+  const abs2 = path.join(WORK, "output", jR2.id, mp42.file);
+  cek(existsSync(abs2) && statSync(abs2).size > 200_000, `MP4 dongeng ada (${Math.round(statSync(abs2).size / 1024)} KB)`);
+  const { execSync } = await import("node:child_process");
+  // ekstrak 3 frame pada potongan berbeda utk bukti visual gambar berganti
+  for (const t of [6, 22, 50]) {
+    const f = path.join(WORK, `frame-dongeng-t${t}.jpg`);
+    try { execFileSync3(`node_modules/ffmpeg-static/ffmpeg`, ["-y", "-ss", String(t), "-i", abs2, "-frames:v", "1", f]); } catch {}
+    cek(existsSync(f), `frame dongeng t=${t} terekstrak (bukti visual gambar berganti)`);
+  }
 }
 
 if (proc) { try { proc.kill(); } catch {} }

@@ -308,26 +308,36 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     }
 
     // ---- 4) PANEL KOMIK (36..52): ilustrasi atas + kolom teks bawah ----
-    // v0.35.0 — genre GELAP memakai PUSTAKA GAMBAR HANTU dgn PERENCANA
-    // TINGKAT-VIDEO: semua adegan dipecah jadi potongan 2 dtk dan tiap potongan
-    // mendapat kombinasi (gambar, variasi) UNIK — tak ada gambar sama dalam
-    // jendela 12 potongan (≈24 dtk) sepanjang video + dipandu isi cerita.
-    // Dulu: pilihan per-adegan dgn 21 gambar → "5 gambar terus diulang-ulang".
+    // v0.36.0 — SEMUA genre (gelap MAUPUN cerah) memakai PUSTAKA GAMBAR +
+    // PERENCANA TINGKAT-VIDEO. Dulu genre cerah (Dongeng/Motivasi/Fakta) masih
+    // memakai ilustrasi SVG prosedural lama (~8 jenis adegan berputar) — inilah
+    // akar laporan user "hanya ada 5 gambar yang terus diulang-ulang": adegan
+    // uji user memakai tema Permata Dongeng = genre cerah, jadi SELURUH sistem
+    // pustaka v0.34/v0.35 dilewati. Kini satu pustaka 60 gambar utk semua genre;
+    // mode cerah hanya menyetel tampilan (pewarnaan terang, tanpa suntikan
+    // hantu ke adegan polos — hantu hanya bila cerita menyebutnya).
     ktx.maju("halaman", 37, "Menggambar panel komik…");
     const skalaIlus = 1.35; // ruang zoom kamera (jalur SVG)
     const wIlus = Math.round(lebar * skalaIlus);
     const hIlus = Math.round(tata.panelTinggi * skalaIlus);
-    const pakaiGaleri = !genre.cerah && opsi.ilustrasi !== false;
+    const pakaiGaleri = opsi.ilustrasi !== false;
     const rencana = pakaiGaleri
       ? rencanaGambarCerita({
           adegan: unit.map((u) => ({ teks: u.teks, durasi: u.durasi, seedAdegan: u.seedAdegan })),
           seed: (cerita.seed ^ 0x1a2b3c4d) >>> 0,
+          cerah: genre.cerah,
         })
       : [];
     const ilus: string[] = [];
     const panel: string[] = [];
     const gambarPerUnit: string[][] = [];
     const variasiPerUnit: VariasiPotongan[][] = [];
+    // v0.36.0 — DIAGNOSTIK YANG TERLIHAT: hitung berapa potongan benar-benar
+    // memakai gambar pustaka + berapa berkas berbeda terpakai, agar user bisa
+    // MEMBUKTIKAN sendiri di pesan selesai bahwa video kini kaya gambar (dan
+    // pustaka hilang tidak lagi gagal senyap ke SVG lama).
+    let potonganGaleri = 0;
+    const gambarBeda = new Set<string>();
     for (let i = 0; i < unit.length; i++) {
       if (apakahBatal(id)) throw new Error("dibatalkan");
       const u = unit[i];
@@ -344,9 +354,14 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
           .filter((x) => { try { return statSync(x.abs).size > 20000; } catch { return false; } });
         daftarGambar = pasangan.map((x) => x.abs);
         daftarVariasi = pasangan.map((x) => x.variasi);
+        if (pasangan.length) {
+          potonganGaleri += pasangan.length;
+          for (const x of pasangan) gambarBeda.add(path.basename(x.abs));
+        }
       }
       if (!daftarGambar.length) {
-        // jalur lama: ilustrasi SVG prosedural (genre cerah / galeri tak tersedia)
+        // jalur lama: ilustrasi SVG prosedural (HANYA bila pustaka tak ditemukan
+        // di instalasi — mis. instalasi lama/rusak; dicatat jelas di peringatan)
         const markup = opsi.ilustrasi === false ? undefined : svgAdegan({
           jenis: u.jenis, lebar: wIlus, tinggi: hIlus, seed: u.seedAdegan,
           tema, ambient: false, cerah: genre.cerah,
@@ -369,6 +384,12 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
       gambarPerUnit.push(daftarGambar);
       variasiPerUnit.push(daftarVariasi);
       ktx.maju("halaman", 37 + 15 * ((i + 1) / unit.length), `Menggambar panel adegan ${i + 1}/${unit.length}…`);
+    }
+    // v0.36.0 — pustaka hilang TIDAK lagi senyap: peringatan tegas di UI + saran
+    if (pakaiGaleri && potonganGaleri === 0) {
+      const p = "Pustaka 60 gambar AI tidak ditemukan di instalasi ini — video memakai ilustrasi animasi bawaan. Instal ulang aplikasi versi terbaru agar pustaka ikut terpasang.";
+      job.peringatan = [...(job.peringatan ?? []), p];
+      ktx.maju("halaman", 52, p);
     }
 
     // ---- 5) SEGMEN VIDEO PER ADEGAN (52..90) — sinkron by construction ----
@@ -441,9 +462,14 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     // galeri tak pernah terpakai (akar bug "gambar galeri keluar SVG lama").
     job.outputs = [{ video: judul, file: namaMp4, ukuran: statSync(mp4Abs).size }];
     const suaraMusik = musikPanjangAbs ? " + musik" : " (tanpa musik)";
+    // v0.36.0 — ikhtisar menyebut JUMLAH GAMBAR BERBEDA yang benar-benar tampil:
+    // bukti terukur bagi user bahwa "gambar sama terus berulang" sudah hilang.
+    const sumberGambar = potonganGaleri > 0
+      ? `${gambarBeda.size} ilustrasi pustaka berbeda`
+      : "ilustrasi animasi";
     const ikhtisar = pakaiNarasi
-      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap (gambar hantu berganti tiap 2 dtk)`
-      : `Selesai — video komik ${unit.length} adegan${suaraMusik} siap (gambar hantu berganti tiap 2 dtk)`;
+      ? `Selesai — video komik ${unit.length} adegan + narasi${metodeNarasi ? ` (${metodeNarasi})` : ""}${suaraMusik} siap (${sumberGambar}, berganti tiap 2 dtk)`
+      : `Selesai — video komik ${unit.length} adegan${suaraMusik} siap (${sumberGambar}, berganti tiap 2 dtk)`;
     ktx.maju("selesai", 100, ikhtisar);
     job.selesai = true;
     bersihkanBatal(id);
