@@ -94,9 +94,11 @@ export const pengaturanDefault: Pengaturan = {
   judul: "Judul Video",
   // v0.8.0 default ukuran font atas permintaan user: judul 40, Part 35
   // v0.9.2 default font atas permintaan user: Cinzel Decorative (cinzeldec) utk judul & Part
-  gayaJudul: { font: "cinzeldec", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+  // v0.40.0 default ukuran baru atas permintaan user: judul 35, Part 30 (instalasi lama
+  // yang masih menyimpan ukuran default lama dimigrasi otomatis di page.tsx)
+  gayaJudul: { font: "cinzeldec", ukuran: 35, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
   kataPart: "Part",
-  gayaPart: { font: "cinzeldec", ukuran: 35, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+  gayaPart: { font: "cinzeldec", ukuran: 30, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
   durasiPart: 20,
   bgId: "",
   durasiIntro: 3,
@@ -107,8 +109,9 @@ export const pengaturanDefault: Pengaturan = {
   akhirDetik: 0,
   codec: "h264",
   // v0.39.0 — deskripsi: bawaan kosong (fitur mati) + posisi tengah-bawah yang aman
+  // v0.40.0 — bawaan ukuran deskripsi 23 (dr 28) menyusul judul & Part yang diperkecil
   deskripsi: "",
-  gayaDeskripsi: { font: "bersih", ukuran: 28, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
+  gayaDeskripsi: { font: "bersih", ukuran: 23, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
   deskripsiX: 50,
   deskripsiY: 80,
   logoId: "",
@@ -120,6 +123,29 @@ export const pengaturanDefault: Pengaturan = {
   prosesParalel: 2,
   pakaiGpu: true,
 };
+
+/**
+ * v0.40.0 — migrasi preferensi tersimpan (localStorage) dari instalasi lama:
+ *   (1) font bawaan lama "tebal" → "cinzeldec" (lanjutan pola migrasi v0.9.2);
+ *   (2) ukuran bawaan lama judul 40 → 35, Part 35 → 30, deskripsi 28 → 23
+ *       (permintaan user: "buat default besar huruf pada Tulisan judul sebesar 35,
+ *       pada Tulisan Part otomatis sebesar 30 dan pada Tulis Deskripsi sebesar 23").
+ * Nilai lain yang sengaja dipilih user TIDAK disentuh. Fungsi murni — input tidak
+ * diubah, hasil salinan baru. Catatan ambigu (didokumentasikan): Part 35 lama adalah
+ * bawaan lama, jadi user yang sengaja mengatur 35 ikut bergeser ke 30.
+ */
+export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengaturan> {
+  const hasil = { ...simpanan };
+  if (hasil.gayaJudul?.font === "tebal")
+    hasil.gayaJudul = { ...hasil.gayaJudul, font: "cinzeldec" };
+  if (hasil.gayaPart?.font === "tebal")
+    hasil.gayaPart = { ...hasil.gayaPart, font: "cinzeldec" };
+  if (hasil.gayaJudul?.ukuran === 40) hasil.gayaJudul = { ...hasil.gayaJudul, ukuran: 35 };
+  if (hasil.gayaPart?.ukuran === 35) hasil.gayaPart = { ...hasil.gayaPart, ukuran: 30 };
+  if (hasil.gayaDeskripsi?.ukuran === 28)
+    hasil.gayaDeskripsi = { ...hasil.gayaDeskripsi, ukuran: 23 };
+  return hasil;
+}
 
 export const INFO_FONT: Record<NamaFont, string> = {
   tebal: "Tebal (bawaan)",

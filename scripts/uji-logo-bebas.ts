@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { bangunArgumenPart } from "../src/lib/vidsplit/ffmpeg";
 import {
+  migrasiSimpanan,
   pengaturanDefault,
   POSISI_LOGO_PRESET,
   type Pengaturan,
@@ -59,12 +60,51 @@ function bangun(p: Pengaturan, W: number, H: number) {
   return { filter: args[i + 1] ?? "", args };
 }
 
-console.log("\n════ FITUR 4 — default font judul 40 / Part 35 ════");
-cek("gayaJudul.ukuran default = 40", pengaturanDefault.gayaJudul.ukuran === 40, `ada ${pengaturanDefault.gayaJudul.ukuran}`);
-cek("gayaPart.ukuran default = 35", pengaturanDefault.gayaPart.ukuran === 35, `ada ${pengaturanDefault.gayaPart.ukuran}`);
+console.log("\n════ FITUR 4 — default ukuran judul 35 / Part 30 (v0.40.0) ════");
+cek("gayaJudul.ukuran default = 35", pengaturanDefault.gayaJudul.ukuran === 35, `ada ${pengaturanDefault.gayaJudul.ukuran}`);
+cek("gayaPart.ukuran default = 30", pengaturanDefault.gayaPart.ukuran === 30, `ada ${pengaturanDefault.gayaPart.ukuran}`);
 // v0.9.2 — default font Cinzel Decorative utk menu 2 & 3 (permintaan user)
 cek("gayaJudul.font default = cinzeldec (Cinzel Decorative)", pengaturanDefault.gayaJudul.font === "cinzeldec", `ada ${pengaturanDefault.gayaJudul.font}`);
 cek("gayaPart.font default = cinzeldec (Cinzel Decorative)", pengaturanDefault.gayaPart.font === "cinzeldec", `ada ${pengaturanDefault.gayaPart.font}`);
+
+console.log("\n════ v0.40.0 — migrasiSimpanan (ukuran bawaan lama → baru) ════");
+{
+  // simpanan instalasi LAMA = seluruh bawaan lama (judul 40, Part 35, deskripsi 28)
+  const lama = migrasiSimpanan({
+    ...pengaturanDefault,
+    gayaJudul: { font: "tebal", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+    gayaPart: { font: "cinzeldec", ukuran: 35, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+    gayaDeskripsi: { font: "bersih", ukuran: 28, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
+  });
+  cek("judul bawaan lama 40 → 35", lama.gayaJudul?.ukuran === 35, `ada ${lama.gayaJudul?.ukuran}`);
+  cek("Part bawaan lama 35 → 30", lama.gayaPart?.ukuran === 30, `ada ${lama.gayaPart?.ukuran}`);
+  cek("deskripsi bawaan lama 28 → 23", lama.gayaDeskripsi?.ukuran === 23, `ada ${lama.gayaDeskripsi?.ukuran}`);
+  cek("font 'tebal' ikut dimigrasi → cinzeldec", lama.gayaJudul?.font === "cinzeldec", `ada ${lama.gayaJudul?.font}`);
+
+  // nilai khas user TIDAK disentuh
+  const khas = migrasiSimpanan({
+    gayaJudul: { font: "anton", ukuran: 64, warna: "#ff0000", outlineLebar: 2, outlineWarna: "#000000" },
+    gayaPart: { font: "bebas", ukuran: 52, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
+    gayaDeskripsi: { font: "klasik", ukuran: 31, warna: "#00ff00", outlineLebar: 1, outlineWarna: "#000000" },
+  });
+  cek("judul khas 64 tetap 64", khas.gayaJudul?.ukuran === 64, `ada ${khas.gayaJudul?.ukuran}`);
+  cek("Part khas 52 tetap 52", khas.gayaPart?.ukuran === 52, `ada ${khas.gayaPart?.ukuran}`);
+  cek("deskripsi khas 31 tetap 31", khas.gayaDeskripsi?.ukuran === 31, `ada ${khas.gayaDeskripsi?.ukuran}`);
+  cek("font khas tetap (anton/bebas/klasik)", khas.gayaJudul?.font === "anton" && khas.gayaPart?.font === "bebas" && khas.gayaDeskripsi?.font === "klasik", "font khas berubah!");
+
+  // judul 35 (khas dlm instalasi lama) tak tersentuh — bukan 40, bukan target migrasi
+  const j35 = migrasiSimpanan({ gayaJudul: { font: "cinzeldec", ukuran: 35, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" } });
+  cek("judul 35 (khas lama) tetap 35", j35.gayaJudul?.ukuran === 35, `ada ${j35.gayaJudul?.ukuran}`);
+
+  // murni: input tidak berubah
+  const masuk: Partial<Pengaturan> = { gayaJudul: { font: "tebal", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" } };
+  migrasiSimpanan(masuk);
+  cek("input migrasi tidak diubah (murni)", masuk.gayaJudul?.ukuran === 40 && masuk.gayaJudul?.font === "tebal", "input berubah — tidak murni!");
+
+  // simpanan kosong aman
+  const kosong = migrasiSimpanan({});
+  cek("simpanan kosong → hasil kosong aman", Object.keys(kosong).length === 0, `ada ${Object.keys(kosong).length}`);
+}
 
 console.log("\n════ FITUR 2 — posisi bebas watermark ════");
 cek("default logoX = 81.5 (≈ kanan-bawah lama)", pengaturanDefault.logoX === 81.5, `ada ${pengaturanDefault.logoX}`);

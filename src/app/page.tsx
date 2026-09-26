@@ -35,6 +35,7 @@ import {
   BATAS_VIDEO,
   formatDurasi,
   judulDariNama,
+  migrasiSimpanan,
   pengaturanDefault,
   terapkanSebagian,
   type Pengaturan,
@@ -101,15 +102,9 @@ export default function Halaman() {
     try {
       const mentah = localStorage.getItem(KUNCI_SIMPAN);
       if (mentah) {
-        const simpanan = JSON.parse(mentah) as Partial<Pengaturan>;
-        // v0.9.2 — migrasi default font: preferensi tersimpan dari instalasi lama
-        // yang masih memakai font default lama ("tebal") dinaikkan otomatis ke
-        // default baru ("cinzeldec" — Cinzel Decorative); pilihan font lain yang
-        // sengaja dipilih user tidak disentuh
-        if (simpanan.gayaJudul?.font === "tebal")
-          simpanan.gayaJudul = { ...simpanan.gayaJudul, font: "cinzeldec" };
-        if (simpanan.gayaPart?.font === "tebal")
-          simpanan.gayaPart = { ...simpanan.gayaPart, font: "cinzeldec" };
+        // v0.40.0 — migrasi font (v0.9.2) + ukuran bawaan lama→baru lewat fungsi murni
+        // migrasiSimpanan() di types.ts (dites di uji-logo-bebas.ts)
+        const simpanan = migrasiSimpanan(JSON.parse(mentah) as Partial<Pengaturan>);
         // sinkron pasca-hidrasi dgn preferensi tersimpan — pola memuat localStorage
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setDasar((p) => ({ ...p, ...simpanan, bgId: "" }));
@@ -138,6 +133,10 @@ export default function Halaman() {
   }, [dasar, opsiEkspor]);
 
   const videoAktif = daftar[aktif] ?? null;
+
+  // v0.40.0 — mode desktop (Electron)? hanya dipakai utk memilih handler klik zona
+  // unggah (dialog natif vs input HTML) — tidak memengaruhi render, aman dari hidrasi
+  const diDesktop = typeof window !== "undefined" && !!window.vdsplitDesktop;
 
   /** pasang satu video (hasil unggah web / pilihan dialog Electron) ke antrean */
   const pasangVideo = async (
@@ -220,24 +219,17 @@ export default function Halaman() {
     await pasangVideo(j.file, f.name, j.ukuran || f.size);
   };
 
+  // v0.40.0 — perbaikan "impor harus 2x": mode desktop TIDAK lagi membuka dialog
+  // Electron dari dalam handler unggah. Dulu: klik zona → dialog HTML terbuka →
+  // user memilih file → handler melihat jembatan desktop → membuka dialog NATIF
+  // kedua → user terpaksa memilih file sekali lagi sebelum video masuk. Kini alur
+  // dipisah rapi:
+  //   klik zona (desktop)    → pilihVideoDesktop() — SATU dialog natif, path langsung
+  //   klik zona (web)        → input file HTML biasa
+  //   seret-lepas (keduanya) → unggah HTTP lokal via unggahSatu()
   const unggahVideo = async (f: File) => {
     setSibukVideo(true);
     try {
-      // mode desktop: file langsung dari dialog Electron, tak perlu unggah
-      if (typeof window !== "undefined" && window.vdsplitDesktop) {
-        const dipilih = await window.vdsplitDesktop.pilih("video");
-        if (!dipilih) return;
-        let kuota = BATAS_VIDEO - daftar.length;
-        for (const it of dipilih) {
-          if (kuota <= 0) {
-            toast.error(`Antrean penuh — maksimal ${BATAS_VIDEO} video. Sisanya dilewati.`);
-            break;
-          }
-          await pasangVideo(it.path, it.nama, it.ukuran);
-          kuota -= 1;
-        }
-        return;
-      }
       await unggahSatu(f, BATAS_VIDEO - daftar.length);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal impor video");
@@ -246,23 +238,35 @@ export default function Halaman() {
     }
   };
 
+  /** mode desktop: dialog natif Electron utk antrean video — boleh pilih banyak */
+  const pilihVideoDesktop = async () => {
+    if (typeof window === "undefined" || !window.vdsplitDesktop) return;
+    setSibukVideo(true);
+    try {
+      const dipilih = await window.vdsplitDesktop.pilih("video");
+      if (!dipilih || !dipilih.length) return;
+      let kuota = BATAS_VIDEO - daftar.length;
+      for (const it of dipilih) {
+        if (kuota <= 0) {
+          toast.error(`Antrean penuh — maksimal ${BATAS_VIDEO} video. Sisanya dilewati.`);
+          break;
+        }
+        await pasangVideo(it.path, it.nama, it.ukuran);
+        kuota -= 1;
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal impor video");
+    } finally {
+      setSibukVideo(false);
+    }
+  };
+
+  // v0.40.0 — alur desktop & web dipisah (sama dgn unggahVideo): handler unggah murni
+  // HTTP, dialog natif Elektron kini lewat pilihBgDesktop() dari klik zona langsung
   const unggahBg = async (f: File) => {
     if (!videoAktif) return;
     setSibukBg(true);
     try {
-      if (typeof window !== "undefined" && window.vdsplitDesktop) {
-        const dipilih = await window.vdsplitDesktop.pilih("bg");
-        if (!dipilih.length) return;
-        const bg = dipilih[0];
-        perbaruiAktif((p) => ({ ...p, bgId: bg.path }));
-        setDaftar((d) =>
-          d.map((v, i) =>
-            i === aktif ? { ...v, bgInfo: { nama: bg.nama, ukuran: bg.ukuran } } : v,
-          ),
-        );
-        toast.success(`Background "${bg.nama}" dipasang ke video #${aktif + 1}`);
-        return;
-      }
       const r = await fetch(`/api/upload?kind=bg&nama=${encodeURIComponent(f.name)}`, {
         method: "POST",
         body: f,
@@ -284,29 +288,40 @@ export default function Halaman() {
     }
   };
 
+  /** mode desktop: dialog natif Electron utk background video aktif */
+  const pilihBgDesktop = async () => {
+    if (typeof window === "undefined" || !window.vdsplitDesktop || !videoAktif) return;
+    setSibukBg(true);
+    try {
+      const dipilih = await window.vdsplitDesktop.pilih("bg");
+      if (!dipilih.length) return;
+      const bg = dipilih[0];
+      perbaruiAktif((p) => ({ ...p, bgId: bg.path }));
+      setDaftar((d) =>
+        d.map((v, i) =>
+          i === aktif ? { ...v, bgInfo: { nama: bg.nama, ukuran: bg.ukuran } } : v,
+        ),
+      );
+      toast.success(`Background "${bg.nama}" dipasang ke video #${aktif + 1}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal pasang background");
+    } finally {
+      setSibukBg(false);
+    }
+  };
+
   const hapusBg = () => {
     if (!videoAktif) return;
     perbaruiAktif((p) => ({ ...p, bgId: "" }));
     setDaftar((d) => d.map((v, i) => (i === aktif ? { ...v, bgInfo: null } : v)));
   };
 
+  // v0.40.0 — alur desktop & web dipisah (sama dgn unggahVideo): handler unggah murni
+  // HTTP, dialog natif Elektron kini lewat pilihLogoDesktop() dari klik zona langsung
   const unggahLogo = async (f: File) => {
     if (!videoAktif) return;
     setSibukLogo(true);
     try {
-      if (typeof window !== "undefined" && window.vdsplitDesktop) {
-        const dipilih = await window.vdsplitDesktop.pilih("logo");
-        if (!dipilih.length) return;
-        const lg = dipilih[0];
-        perbaruiAktif((p) => ({ ...p, logoId: lg.path }));
-        setDaftar((d) =>
-          d.map((v, i) =>
-            i === aktif ? { ...v, logoInfo: { nama: lg.nama, ukuran: lg.ukuran } } : v,
-          ),
-        );
-        toast.success(`Logo "${lg.nama}" dipasang ke video #${aktif + 1}`);
-        return;
-      }
       const r = await fetch(`/api/upload?kind=logo&nama=${encodeURIComponent(f.name)}`, {
         method: "POST",
         body: f,
@@ -321,6 +336,28 @@ export default function Halaman() {
         ),
       );
       toast.success(`Logo "${f.name}" dipasang ke video #${aktif + 1}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal pasang logo");
+    } finally {
+      setSibukLogo(false);
+    }
+  };
+
+  /** mode desktop: dialog natif Electron utk watermark video aktif */
+  const pilihLogoDesktop = async () => {
+    if (typeof window === "undefined" || !window.vdsplitDesktop || !videoAktif) return;
+    setSibukLogo(true);
+    try {
+      const dipilih = await window.vdsplitDesktop.pilih("logo");
+      if (!dipilih.length) return;
+      const lg = dipilih[0];
+      perbaruiAktif((p) => ({ ...p, logoId: lg.path }));
+      setDaftar((d) =>
+        d.map((v, i) =>
+          i === aktif ? { ...v, logoInfo: { nama: lg.nama, ukuran: lg.ukuran } } : v,
+        ),
+      );
+      toast.success(`Logo "${lg.nama}" dipasang ke video #${aktif + 1}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal pasang logo");
     } finally {
@@ -429,7 +466,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.39.0
+            v0.40.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -498,6 +535,7 @@ export default function Halaman() {
                 hint={`MP4, MOV, MKV, AVI, WebM, TS — maks ${BATAS_VIDEO} video, maks 20 GB per video`}
                 sibuk={sibukVideo}
                 multiple
+                bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
               />
             ) : (
               <div className="space-y-2">
@@ -581,6 +619,7 @@ export default function Halaman() {
                     hint={`Tambah lagi — sisa ${BATAS_VIDEO - daftar.length} slot`}
                     sibuk={sibukVideo}
                     multiple
+                    bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
                   />
                 )}
                 <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
@@ -702,6 +741,7 @@ export default function Halaman() {
                 onHapusBg={hapusBg}
                 bgSibuk={sibukBg}
                 nomorVideo={aktif + 1}
+                bukaDialog={diDesktop ? pilihBgDesktop : undefined}
               />
               <PanelWatermark
                 pengaturan={videoAktif.pengaturan}
@@ -714,6 +754,7 @@ export default function Halaman() {
                 tinggiVideo={videoAktif.info.tinggi}
                 srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                 nomorVideo={aktif + 1}
+                bukaDialog={diDesktop ? pilihLogoDesktop : undefined}
               />
             </>
           )}

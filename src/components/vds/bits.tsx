@@ -139,6 +139,7 @@ export function JatuhBerkas({
   hint,
   sibuk = false,
   multiple = false,
+  bukaDialog,
 }: {
   terima: string;
   onFile: (f: File) => void;
@@ -146,9 +147,25 @@ export function JatuhBerkas({
   sibuk?: boolean;
   /** true = input file & drop menerima BANYAK file (onFile dipanggil satu per satu, urut) */
   multiple?: boolean;
+  /** v0.40.0 — mode desktop: klik zona memanggil ini (dialog natif Electron) alih-alih
+   * membuka input file HTML; boleh async (picker jembatan mengembalikan Promise) */
+  bukaDialog?: () => void | Promise<void>;
 }) {
   const [diAtas, setDiatas] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
+
+  // v0.40.0 — mode desktop (Electron): klik zona langsung membuka dialog NATIF lewat
+  // jembatan vdsplitDesktop.pilih() — input file HTML DILEWATI. Dulu kedua dialog
+  // terbuka berurutan (klik → dialog HTML → handler → dialog Electron lagi) sehingga
+  // user terpaksa memilih file 2x sebelum video masuk antrean. Dgn bukaDialog, satu
+  // klik = satu dialog. Seret-lepas tetap lewat onFile (unggah HTTP lokal).
+  const klik = () => {
+    if (bukaDialog) {
+      void bukaDialog();
+      return;
+    }
+    ref.current?.click();
+  };
 
   const lepas = (e: DragEvent) => {
     e.preventDefault();
@@ -173,10 +190,10 @@ export function JatuhBerkas({
       }}
       onDragLeave={() => setDiatas(false)}
       onDrop={lepas}
-      onClick={() => ref.current?.click()}
+      onClick={klik}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && ref.current?.click()}
+      onKeyDown={(e) => e.key === "Enter" && klik()}
       className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition ${
         diAtas
           ? "border-amber-400 bg-amber-400/10"

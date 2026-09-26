@@ -23,7 +23,7 @@ function ok(kondisi: boolean, nama: string, detail?: unknown) {
 console.log("== DEFAULT & TIPE ==");
 ok(pengaturanDefault.deskripsi === "", "bawaan deskripsi = kosong (fitur mati)");
 ok(pengaturanDefault.gayaDeskripsi.font === "bersih", "bawaan gayaDeskripsi.font = bersih (mudah dibaca)");
-ok(pengaturanDefault.gayaDeskripsi.ukuran === 28, "bawaan gayaDeskripsi.ukuran = 28");
+ok(pengaturanDefault.gayaDeskripsi.ukuran === 23, "bawaan gayaDeskripsi.ukuran = 23");
 ok(pengaturanDefault.deskripsiX === 50, "bawaan deskripsiX = 50 (tengah)");
 ok(pengaturanDefault.deskripsiY === 80, "bawaan deskripsiY = 80 (bawah-tengah, aman dari judul/Part atas)");
 

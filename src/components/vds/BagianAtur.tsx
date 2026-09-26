@@ -535,6 +535,7 @@ export function PanelBackground({
   onHapusBg,
   bgSibuk,
   nomorVideo,
+  bukaDialog,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -543,6 +544,8 @@ export function PanelBackground({
   onHapusBg: () => void;
   bgSibuk: boolean;
   nomorVideo: number;
+  /** v0.40.0 — mode desktop: klik zona membuka dialog natif Electron (bukan input HTML) */
+  bukaDialog?: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
@@ -580,6 +583,7 @@ export function PanelBackground({
           onFile={onBgFile}
           hint="PNG / JPG / WebP — maks 25 MB"
           sibuk={bgSibuk}
+          bukaDialog={bukaDialog}
         />
       )}
       {bgInfo && (
@@ -611,6 +615,7 @@ export function PanelWatermark({
   tinggiVideo,
   srcUrl,
   nomorVideo,
+  bukaDialog,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -622,6 +627,8 @@ export function PanelWatermark({
   tinggiVideo: number;
   srcUrl: string;
   nomorVideo: number;
+  /** v0.40.0 — mode desktop: klik zona membuka dialog natif Electron (bukan input HTML) */
+  bukaDialog?: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
@@ -659,6 +666,7 @@ export function PanelWatermark({
           onFile={onLogoFile}
           hint="PNG transparan paling cocok untuk watermark — maks 25 MB"
           sibuk={logoSibuk}
+          bukaDialog={bukaDialog}
         />
       )}
       {logoInfo && (
