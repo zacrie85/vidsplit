@@ -63,6 +63,15 @@ export interface Pengaturan {
   akhirDetik: number;
   /** codec video hasil — h265 menghasilkan file jauh lebih kecil */
   codec: CodecVideo;
+  /** v0.39.0 — teks deskripsi bebas yang dibakar ke dalam video ("" = tanpa deskripsi).
+   *  Boleh multi-baris; posisinya BEBAS di mana pun lewat deskripsiX/deskripsiY. */
+  deskripsi: string;
+  /** v0.39.0 — gaya huruf deskripsi */
+  gayaDeskripsi: GayaTeks;
+  /** v0.39.0 posisi BEBAS deskripsi — persen LEBAR frame, titik TENGAH teks (0–100) */
+  deskripsiX: number;
+  /** v0.39.0 posisi BEBAS deskripsi — persen TINGGI frame, titik ATAS teks (0–100) */
+  deskripsiY: number;
   /** path relatif logo watermark di work/upload ("" = tanpa logo) */
   logoId: string;
   /** sudut penempatan logo — preset cepat (v0.8.0: posisi sebenarnya di logoX/logoY) */
@@ -97,6 +106,11 @@ export const pengaturanDefault: Pengaturan = {
   mulaiDetik: 0,
   akhirDetik: 0,
   codec: "h264",
+  // v0.39.0 — deskripsi: bawaan kosong (fitur mati) + posisi tengah-bawah yang aman
+  deskripsi: "",
+  gayaDeskripsi: { font: "bersih", ukuran: 28, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
+  deskripsiX: 50,
+  deskripsiY: 80,
   logoId: "",
   posisiLogo: "kanan-bawah",
   // v0.8.0 posisi bebas logo — default ≈ kanan-bawah lama (kiri-atas logo)
@@ -162,10 +176,12 @@ export function rentangPart(
  *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, resolusi,
  *     codec, rentang diproses)
  *   • kartu 3 — Tulisan Part otomatis (kata part, durasi, gaya huruf, posisi teks)
- *   • kartu 5 — Watermark / logo (logoId, posisi & ukuran)
+ *   • kartu 6 — Watermark / logo (logoId, posisi & ukuran)
  *  Yang TIDAK disentuh (tetap milik masing-masing video):
  *   • kartu 2 — Tulisan judul (judul + gayaJudul) — tiap video punya judulnya sendiri
- *   • kartu 4 — Background intro (bgId + durasiIntro)
+ *   • kartu 4 — Tulis Deskripsi (deskripsi + gayaDeskripsi + deskripsiX/Y) — tiap
+ *     video punya deskripsinya sendiri (v0.39.0)
+ *   • kartu 5 — Background intro (bgId + durasiIntro)
  *   • setelan performa ekspor (prosesParalel, pakaiGpu) */
 export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengaturan {
   return {

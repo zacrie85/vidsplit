@@ -54,6 +54,7 @@ export function Preview({
 
   const ukuranJudul = `${(pengaturan.gayaJudul.ukuran / 1080) * 100}cqw`;
   const ukuranPart = `${(pengaturan.gayaPart.ukuran / 1080) * 100}cqw`;
+  const ukuranDeskripsi = `${(pengaturan.gayaDeskripsi.ukuran / 1080) * 100}cqw`;
   const posisi = pengaturan.posisiTeks;
   // mode "asli": bingkai pratinjau mengikuti rasio sumber, bukan 9:16
   // v0.8.0 — pratinjau 3× lebih lebar (280→840) + tinggi proporsional ke bawah;
@@ -180,6 +181,28 @@ export function Preview({
             </>
           )}
           {susunTeks}
+          {/* v0.39.0 — deskripsi posisi bebas di pratinjau live (non-interaktif;
+              seret lewat kartu 4. Tulis Deskripsi). Titik jangkar sama dgn render:
+              X = tengah blok teks, Y = atas blok teks. */}
+          {pengaturan.deskripsi.trim() && (
+            <p
+              className="teks-stroke pointer-events-none absolute z-10 whitespace-pre leading-snug"
+              style={
+                {
+                  left: `${Math.min(100, Math.max(0, pengaturan.deskripsiX))}%`,
+                  top: `${Math.min(100, Math.max(0, pengaturan.deskripsiY))}%`,
+                  transform: "translate(-50%, 0)",
+                  fontSize: ukuranDeskripsi,
+                  fontFamily: FONT_CSS[pengaturan.gayaDeskripsi.font],
+                  color: pengaturan.gayaDeskripsi.warna,
+                  "--stroke-w": `${(pengaturan.gayaDeskripsi.outlineLebar / 1080) * 100}cqw`,
+                  "--stroke-color": pengaturan.gayaDeskripsi.outlineWarna,
+                } as React.CSSProperties
+              }
+            >
+              {pengaturan.deskripsi}
+            </p>
+          )}
           <span className="absolute left-2 top-2 z-10 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-200">
             pratinjau — tanpa intro bg
           </span>

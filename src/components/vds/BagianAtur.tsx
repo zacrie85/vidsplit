@@ -5,6 +5,7 @@
 // Isi masing-masing kartu IDENTIK dengan PanelAtur lama — hanya tata letak yang berubah.
 import { useState } from "react";
 import {
+  AlignLeft,
   Copy,
   Crop,
   Droplets,
@@ -40,6 +41,7 @@ import {
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
 import { PratinjauLogo } from "./PratinjauLogo";
+import { PratinjauDeskripsi } from "./PratinjauDeskripsi";
 
 const FONT_SINEMATIK = (Object.keys(INFO_FONT) as NamaFont[]).filter(
   (f) => !FONT_DASAR.includes(f),
@@ -194,7 +196,7 @@ export function PanelMode({
           Video original aktif — video TIDAK diubah sama sekali: rasio &amp; resolusi tetap
           persis seperti saat diimpor ({lebarVideo > 0 ? `${lebarVideo} × ${tinggiVideo}` : "mengikuti sumber"} px).
           16:9 tetap melebar horizontal, 9:16 tetap vertikal. Yang tetap berjalan: split per
-          durasi, tulisan judul/Part, background intro, watermark, dan pilihan codec.
+          durasi, tulisan judul/Part/deskripsi, background intro, watermark, dan pilihan codec.
         </p>
       )}
       {pengaturan.mode === "crop" && (
@@ -426,7 +428,104 @@ export function PanelPart({
   );
 }
 
-/* ============ 4 — BACKGROUND INTRO ============ */
+/* ============ 4 — TULIS DESKRIPSI ============ */
+
+export function PanelDeskripsi({
+  pengaturan,
+  onChange,
+  nomorVideo,
+  srcUrl,
+  lebarVideo,
+  tinggiVideo,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+  srcUrl: string;
+  lebarVideo: number;
+  tinggiVideo: number;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  const adaTeks = !!(pengaturan.deskripsi || "").trim();
+  return (
+    <Kartu
+      judul="4. Tulis Deskripsi"
+      deskripsi={`Teks deskripsi bebas ikut terbakar ke dalam video #${nomorVideo} — letakkan di mana saja`}
+      ikon={<AlignLeft className="h-4 w-4" />}
+    >
+      <textarea
+        value={pengaturan.deskripsi}
+        onChange={(e) => set("deskripsi", e.target.value)}
+        rows={3}
+        maxLength={500}
+        placeholder="Tulis deskripsi… boleh lebih dari satu baris — kosong = tanpa deskripsi"
+        className="w-full resize-y rounded-lg border border-slate-700 bg-slate-800/70 p-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
+      />
+      <p className="mt-1.5 text-[11px] text-slate-500">
+        {adaTeks
+          ? `Deskripsi tampil di SETIAP potongan video #${nomorVideo} (${pengaturan.deskripsi.trim().length}/500 karakter, boleh multi-baris).`
+          : "Kosong = tanpa deskripsi — video dirender tanpa tulisan ini."}
+      </p>
+      <GayaEditor
+        gaya={pengaturan.gayaDeskripsi}
+        onChange={(g) => set("gayaDeskripsi", g)}
+        maxUkuran={120}
+      />
+      <div className="mt-3 border-t border-slate-700/50 pt-3">
+        <p className="mb-1 text-xs text-slate-400">Posisi cepat</p>
+        <ChipPilihan<string>
+          pilihan={[
+            { v: "50-8", label: "Tengah-atas" },
+            { v: "50-46", label: "Tengah" },
+            { v: "50-80", label: "Tengah-bawah" },
+          ]}
+          nilai={`${pengaturan.deskripsiX}-${pengaturan.deskripsiY}`}
+          onChange={(v) => {
+            const [x, y] = v.split("-").map(Number);
+            onChange({ ...pengaturan, deskripsiX: x, deskripsiY: y });
+          }}
+        />
+      </div>
+      <div className="mt-3">
+        <PratinjauDeskripsi
+          srcUrl={srcUrl}
+          lebar={lebarVideo}
+          tinggi={tinggiVideo}
+          deskripsi={pengaturan.deskripsi}
+          gayaDeskripsi={pengaturan.gayaDeskripsi}
+          deskripsiX={pengaturan.deskripsiX}
+          deskripsiY={pengaturan.deskripsiY}
+          mode={pengaturan.mode}
+          warnaLatar={pengaturan.warnaLatar}
+          onPosisi={(x, y) =>
+            onChange({ ...pengaturan, deskripsiX: x, deskripsiY: y })
+          }
+        />
+      </div>
+      <div className="mt-3 space-y-2">
+        <BarisSlider
+          label="Geser kiri ↔ kanan"
+          nilai={pengaturan.deskripsiX}
+          min={0}
+          max={100}
+          onChange={(n) => set("deskripsiX", n)}
+          fmt={(n) => `${n.toFixed(0)}%`}
+        />
+        <BarisSlider
+          label="Geser atas ↔ bawah"
+          nilai={pengaturan.deskripsiY}
+          min={0}
+          max={100}
+          onChange={(n) => set("deskripsiY", n)}
+          fmt={(n) => `${n.toFixed(0)}%`}
+        />
+      </div>
+    </Kartu>
+  );
+}
+
+/* ============ 5 — BACKGROUND INTRO ============ */
 
 export function PanelBackground({
   pengaturan,
@@ -449,7 +548,7 @@ export function PanelBackground({
     onChange({ ...pengaturan, [k]: v });
   return (
     <Kartu
-      judul="4. Background intro (opsional)"
+      judul="5. Background intro (opsional)"
       deskripsi={`Gambar PNG/JPG muncul di awal SETIAP hasil split video #${nomorVideo}`}
       ikon={<ImageIcon className="h-4 w-4" />}
     >
@@ -499,7 +598,7 @@ export function PanelBackground({
   );
 }
 
-/* ============ 5 — WATERMARK / LOGO ============ */
+/* ============ 6 — WATERMARK / LOGO ============ */
 
 export function PanelWatermark({
   pengaturan,
@@ -528,7 +627,7 @@ export function PanelWatermark({
     onChange({ ...pengaturan, [k]: v });
   return (
     <Kartu
-      judul="5. Watermark / logo (opsional)"
+      judul="6. Watermark / logo (opsional)"
       deskripsi={`Gambar logo menempel di SETIAP potongan video #${nomorVideo} — pilih posisi & ukuran`}
       ikon={<Stamp className="h-4 w-4" />}
     >
@@ -674,6 +773,13 @@ export function PanelRingkasan({
             ? `${pengaturan.logoX.toFixed(0)}%,${pengaturan.logoY.toFixed(0)}% · ${pengaturan.ukuranLogo}%`
             : "tanpa logo"}
         </dd>
+        {/* v0.39.0 — status deskripsi */}
+        <dt className="text-slate-500">Deskripsi</dt>
+        <dd className="text-right text-slate-200">
+          {(pengaturan.deskripsi || "").trim()
+            ? `"${pengaturan.deskripsi.trim().slice(0, 16)}${pengaturan.deskripsi.trim().length > 16 ? "…" : ""}" @ ${pengaturan.deskripsiX.toFixed(0)}%,${pengaturan.deskripsiY.toFixed(0)}%`
+            : "tanpa deskripsi"}
+        </dd>
         <dt className="text-slate-500">Hasil split</dt>
         <dd className="text-right text-slate-200">
           {nPart} file × ≤{pengaturan.durasiPart} dtk
@@ -707,13 +813,15 @@ export function PanelRingkasan({
             <Copy className="h-3.5 w-3.5" />
             Terapkan pengaturan video #{nomorVideo} ke SEMUA video ({totalVideo})
           </button>
-          {/* v0.38.0 — jelaskan BATASAN terapkan: judul & background tidak ikut */}
+          {/* v0.38.0 — jelaskan BATASAN terapkan: judul & background tidak ikut.
+              v0.39.0 — nomor kartu menyusut (deskripsi = kartu 4) + deskripsi tidak ikut */}
           <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
             Yang ikut: <b className="text-slate-400">1. Cara ubah ke vertikal</b> ·{" "}
             <b className="text-slate-400">3. Tulisan Part otomatis</b> ·{" "}
-            <b className="text-slate-400">5. Watermark/logo</b> — logo cukup diunggah{" "}
+            <b className="text-slate-400">6. Watermark/logo</b> — logo cukup diunggah{" "}
             <b className="text-slate-400">sekali</b>, langsung terpasang di semua video.{" "}
-            <b className="text-amber-300/80">Tulisan judul</b> tiap video &{" "}
+            <b className="text-amber-300/80">Tulisan judul</b>,{" "}
+            <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video &{" "}
             <b className="text-amber-300/80">background intro</b> tidak diubah.
           </p>
         </>

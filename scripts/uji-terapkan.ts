@@ -28,6 +28,11 @@ const sumber: Pengaturan = {
   // kartu 2 — judul khas video #1
   judul: "Judul Video Satu",
   gayaJudul: { font: "creepster", ukuran: 88, warna: "#ff0044", outlineLebar: 9, outlineWarna: "#110000" },
+  // kartu 4 — deskripsi khas video #1 (v0.39.0: TIDAK ikut tersalin)
+  deskripsi: "Deskripsi khas video satu",
+  gayaDeskripsi: { font: "oswald", ukuran: 40, warna: "#00ddff", outlineLebar: 4, outlineWarna: "#001122" },
+  deskripsiX: 12.5,
+  deskripsiY: 90.5,
   // kartu 3
   kataPart: "Bagian",
   durasiPart: 45,
@@ -60,6 +65,11 @@ const target: Pengaturan = {
   // kartu 2 — JUDUL KHAS VIDEO LAIN (harus TETAP)
   judul: "Judul Khas Video Dua",
   gayaJudul: { font: "cinzel", ukuran: 33, warna: "#00ff88", outlineLebar: 2, outlineWarna: "#001100" },
+  // kartu 4 — DESKRIPSI KHAS VIDEO LAIN (harus TETAP, v0.39.0)
+  deskripsi: "Deskripsi khas video dua",
+  gayaDeskripsi: { font: "bersih", ukuran: 24, warna: "#ffffff", outlineLebar: 1, outlineWarna: "#000000" },
+  deskripsiX: 70,
+  deskripsiY: 20,
   // kartu 3 (harus DIGANTI)
   kataPart: "Part",
   durasiPart: 20,
@@ -96,6 +106,14 @@ cek("gayaJudul TIDAK ikut — font", hasil.gayaJudul.font === "cinzel");
 cek("gayaJudul TIDAK ikut — ukuran", hasil.gayaJudul.ukuran === 33);
 cek("gayaJudul TIDAK ikut — warna", hasil.gayaJudul.warna === "#00ff88");
 cek("gayaJudul tetap objek target sendiri (bukan referensi sumber)", hasil.gayaJudul !== sumber.gayaJudul);
+
+// ===== kartu 4 — Tulis Deskripsi: TIDAK IKUT, tetap milik target (v0.39.0) =====
+cek("deskripsi TIDAK ikut", hasil.deskripsi === "Deskripsi khas video dua", `dapat "${hasil.deskripsi}"`);
+cek("gayaDeskripsi TIDAK ikut — font", hasil.gayaDeskripsi.font === "bersih");
+cek("gayaDeskripsi TIDAK ikut — ukuran", hasil.gayaDeskripsi.ukuran === 24);
+cek("gayaDeskripsi tetap objek target sendiri (bukan referensi sumber)", hasil.gayaDeskripsi !== sumber.gayaDeskripsi);
+cek("deskripsiX TIDAK ikut", hasil.deskripsiX === 70);
+cek("deskripsiY TIDAK ikut", hasil.deskripsiY === 20);
 
 // ===== kartu 3 — Tulisan Part otomatis: MENGIKUTI sumber =====
 cek("kataPart mengikuti", hasil.kataPart === "Bagian");

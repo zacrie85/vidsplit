@@ -143,8 +143,12 @@ export function mulaiEksporAntrean(
   (async () => {
     const ff = await pilihFfmpeg();
     // ffmpeg tanpa drawtext hanya fatal kalau memang ada video yang butuh tulisan
+    // v0.39.0 — deskripsi ikut dihitung tulisan
     const butuhTeks = daftar.some(
-      (it) => !!(it.pengaturan.judul || "").trim() || !!(it.pengaturan.kataPart || "").trim(),
+      (it) =>
+        !!(it.pengaturan.judul || "").trim() ||
+        !!(it.pengaturan.kataPart || "").trim() ||
+        !!(it.pengaturan.deskripsi || "").trim(),
     );
     if (butuhTeks && !ff.drawtext) {
       throw new Error(
@@ -238,6 +242,7 @@ export function mulaiEksporAntrean(
         adaAudio: it.info.adaAudio,
         judulTxt: p.judul || "",
         partTxt: `${p.kataPart || "Part"} ${n}`,
+        deskripsiTxt: p.deskripsi || "",
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -249,7 +254,7 @@ export function mulaiEksporAntrean(
         perbaruiProgres();
       }, ff.bin, (c) => daftarkanProses(id, c))
         .then(() => {
-          for (const akhiran of ["judul", "part"]) {
+          for (const akhiran of ["judul", "part", "deskripsi"]) {
             try {
               unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
             } catch {

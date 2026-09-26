@@ -19,6 +19,7 @@ import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import {
   PanelBackground,
+  PanelDeskripsi,
   PanelJudul,
   PanelMode,
   PanelPart,
@@ -428,14 +429,14 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.38.0
+            v0.39.0
           </span>
           <TombolGantiPassword />
         </div>
         <p className="mt-2 max-w-xl text-sm text-slate-400">
           Antrean video (maks {BATAS_VIDEO}) → atur tiap video sendiri → ekspor & split
           <b> berurutan dari atas ke bawah</b>, tiap potongan vertikal 9:16 + judul + Part
-          + background intro.
+          + deskripsi + background intro.
         </p>
         {/* v0.10.0 — sakelar dua mode */}
         <div className="mt-4 inline-flex rounded-xl border border-slate-700 bg-slate-900/70 p-1">
@@ -672,6 +673,27 @@ export default function Halaman() {
         <div className="space-y-4">
           {videoAktif && (
             <>
+              {/* v0.39.0 — urutan kolom kanan dikelompokkan ulang: keluarga teks
+                  (2. judul, 3. Part, 4. Deskripsi) lalu aset (5. background, 6. watermark) */}
+              <PanelJudul
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+              />
+              <PanelPart
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+                durasiVideo={videoAktif.info.durasi}
+              />
+              <PanelDeskripsi
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+                srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
+                lebarVideo={videoAktif.info.lebar}
+                tinggiVideo={videoAktif.info.tinggi}
+              />
               <PanelBackground
                 pengaturan={videoAktif.pengaturan}
                 onChange={gantiPengaturanAktif}
@@ -692,17 +714,6 @@ export default function Halaman() {
                 tinggiVideo={videoAktif.info.tinggi}
                 srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                 nomorVideo={aktif + 1}
-              />
-              <PanelJudul
-                pengaturan={videoAktif.pengaturan}
-                onChange={gantiPengaturanAktif}
-                nomorVideo={aktif + 1}
-              />
-              <PanelPart
-                pengaturan={videoAktif.pengaturan}
-                onChange={gantiPengaturanAktif}
-                nomorVideo={aktif + 1}
-                durasiVideo={videoAktif.info.durasi}
               />
             </>
           )}

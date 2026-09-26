@@ -221,8 +221,37 @@ function rantaiUtama(
   ].join(";");
 }
 
-/** Dua drawtext (judul + Part) di atas hasil concat → [vout] */
-function rantaiTeks(p: Pengaturan, W: number, H: number, fileJudul: string, filePart: string): string {
+/** v0.39.0 — ekspresi posisi drawtext deskripsi, murni & teruji:
+ *   • X = persen LEBAR frame, dihitung dari TENGAH blok teks → x = W*X/100 - text_w/2
+ *   • Y = persen TINGGI frame, dihitung dari ATAS blok teks → y = H*Y/100
+ *   • min/max menjaga teks tetap di dalam frame (identik dgn perilaku overlay logo)
+ *  Nilai tak valid (NaN/Infinity/di luar 0–100) diclamp ke bawaan 50/80. */
+export function ekspresiPosisiDeskripsi(
+  xPersen: number,
+  yPersen: number,
+): { x: string; y: string } {
+  const bulat = (n: number, bawaan: number) => {
+    if (!Number.isFinite(n)) return bawaan;
+    return Math.min(100, Math.max(0, n));
+  };
+  const x = bulat(xPersen, 50);
+  const y = bulat(yPersen, 80);
+  const fmt = (n: number) => String(Number(n.toFixed(2)));
+  return {
+    x: `min(max(0,W*${fmt(x)}/100-text_w/2),W-text_w)`,
+    y: `min(max(0,H*${fmt(y)}/100),H-text_h)`,
+  };
+}
+
+/** Dua-tiga drawtext (judul + Part + deskripsi) di atas hasil concat → [vout] */
+function rantaiTeks(
+  p: Pengaturan,
+  W: number,
+  H: number,
+  fileJudul: string,
+  filePart: string,
+  fileDeskripsi: string,
+): string {
   // skala berdasar SISI TERPENDEK: identik dgn perilaku lama utk vertikal 1080/720
   // (min(1080,1920)=1080, min(720,1280)=720), dan memberi ukuran proporsional saat
   // mode "asli" memakai dimensi landscape/square/4K dari video sumber.
@@ -278,6 +307,23 @@ function rantaiTeks(p: Pengaturan, W: number, H: number, fileJudul: string, file
       `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP)}`,
     );
   }
+  // v0.39.0 — deskripsi posisi BEBAS (persen frame): X = tengah blok teks,
+  // Y = atas blok teks; multi-baris didukung lewat textfile + line_spacing
+  if ((p.deskripsi || "").trim()) {
+    const ffD = fontfile(p.gayaDeskripsi) || fontfile(p.gayaJudul) || fontfile(p.gayaPart);
+    const posD = ekspresiPosisiDeskripsi(p.deskripsiX, p.deskripsiY);
+    const uD = Math.max(10, p.gayaDeskripsi.ukuran * skala);
+    let d = `fontsize=${uD.toFixed(1)}:fontcolor=${warnaFf(p.gayaDeskripsi.warna)}`;
+    if (p.gayaDeskripsi.outlineLebar > 0) {
+      d += `:borderw=${Math.max(1, Math.round(p.gayaDeskripsi.outlineLebar * skala))}:bordercolor=${warnaFf(p.gayaDeskripsi.outlineWarna)}`;
+    }
+    // PENTING: ekspresi mengandung KOMA (min(max(...),...)) yang memecah parser
+    // filter_complex — wajib dibungkus kutip tunggal (pola sama dgn overlay logo)
+    d += `:x='${posD.x}':y='${posD.y}'`;
+    if (ffD) d += `:fontfile=${kutipFilter(ffD)}`;
+    d += `:line_spacing=${(uD * 0.3).toFixed(1)}`;
+    bagian.push(`drawtext=textfile=${kutipFilter(fileDeskripsi)}:${d}`);
+  }
   if (!bagian.length) return `[cc]null[vout]`;
   return `[cc]${bagian.join(",")}[vout]`;
 }
@@ -299,6 +345,8 @@ export interface ArgPart {
   /** ISI teks judul & part — ditulis ke textfile agar aman unicode */
   judulTxt: string;
   partTxt: string;
+  /** v0.39.0 — isi teks deskripsi ("" = tanpa deskripsi) */
+  deskripsiTxt: string;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -320,8 +368,10 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
 
   writeFileSync(path.join(a.dirTmp, `${a.tag}-judul.txt`), a.judulTxt, "utf8");
   writeFileSync(path.join(a.dirTmp, `${a.tag}-part.txt`), a.partTxt, "utf8");
+  writeFileSync(path.join(a.dirTmp, `${a.tag}-deskripsi.txt`), a.deskripsiTxt || "", "utf8");
   const fileJudul = path.join(a.dirTmp, `${a.tag}-judul.txt`);
   const filePart = path.join(a.dirTmp, `${a.tag}-part.txt`);
+  const fileDeskripsi = path.join(a.dirTmp, `${a.tag}-deskripsi.txt`);
 
   // URUTAN INPUT PENTING (indeks filter graph): 0=src, 1=bg?, lalu anullsrc,
   // lalu logo PALING AKHIR — sehingga idxLogo = pakaiBg ? 3 : 2 selalu benar
@@ -370,7 +420,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
       rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong).replace("[mv]", "[cc]"),
     );
   }
-  const rantaiTeksStr = rantaiTeks(p, W, H, fileJudul, filePart);
+  const rantaiTeksStr = rantaiTeks(p, W, H, fileJudul, filePart, fileDeskripsi);
   if (pakaiLogo) {
     // rantai teks menghasilkan [vtx] lalu logo di-overlay → [vout]
     filterVideo.push(rantaiTeksStr.replace("[vout]", "[vtx]"));
