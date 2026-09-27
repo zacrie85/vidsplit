@@ -822,14 +822,16 @@ export function PanelRingkasan({
             Terapkan pengaturan video #{nomorVideo} ke SEMUA video ({totalVideo})
           </button>
           {/* v0.38.0 — jelaskan BATASAN terapkan: judul & background tidak ikut.
-              v0.39.0 — nomor kartu menyusut (deskripsi = kartu 4) + deskripsi tidak ikut */}
+              v0.39.0 — nomor kartu menyusut (deskripsi = kartu 4) + deskripsi tidak ikut
+              v0.41.0 — ukuran huruf tiap video juga tidak ikut */}
           <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
             Yang ikut: <b className="text-slate-400">1. Cara ubah ke vertikal</b> ·{" "}
             <b className="text-slate-400">3. Tulisan Part otomatis</b> ·{" "}
             <b className="text-slate-400">6. Watermark/logo</b> — logo cukup diunggah{" "}
             <b className="text-slate-400">sekali</b>, langsung terpasang di semua video.{" "}
             <b className="text-amber-300/80">Tulisan judul</b>,{" "}
-            <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video &{" "}
+            <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video,{" "}
+            <b className="text-amber-300/80">ukuran huruf</b> masing-masing video &{" "}
             <b className="text-amber-300/80">background intro</b> tidak diubah.
           </p>
         </>

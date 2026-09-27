@@ -2,6 +2,9 @@
 // yang kini SELEKTIF: hanya kartu 1 (vertikal), 3 (Part otomatis) & 5 (watermark)
 // yang mengikuti video sumber; judul (kartu 2), background (kartu 4) & performa
 // ekspor tetap milik tiap video.
+// v0.41.0 — ukuran huruf juga TIDAK ikut diterapkan (permintaan user: "hanya
+// ukuran videonya ya kawan bukan judul dan part nya"): gaya Part (font/warna/
+// outline) mengikuti sumber, ukuran huruf Part tetap milik tiap video.
 import { pengaturanDefault, terapkanSebagian, type Pengaturan } from "../src/lib/vidsplit/types";
 
 let lulus = 0;
@@ -115,12 +118,14 @@ cek("gayaDeskripsi tetap objek target sendiri (bukan referensi sumber)", hasil.g
 cek("deskripsiX TIDAK ikut", hasil.deskripsiX === 70);
 cek("deskripsiY TIDAK ikut", hasil.deskripsiY === 20);
 
-// ===== kartu 3 — Tulisan Part otomatis: MENGIKUTI sumber =====
+// ===== kartu 3 — Tulisan Part otomatis: mengikuti sumber KECUALI ukuran (v0.41.0) =====
 cek("kataPart mengikuti", hasil.kataPart === "Bagian");
 cek("durasiPart mengikuti", hasil.durasiPart === 45);
 cek("gayaPart mengikuti — font", hasil.gayaPart.font === "anton");
-cek("gayaPart mengikuti — ukuran", hasil.gayaPart.ukuran === 52);
+cek("gayaPart ukuran TIDAK ikut — tetap 35 milik target (v0.41.0)", hasil.gayaPart.ukuran === 35, `dapat ${hasil.gayaPart.ukuran}`);
 cek("gayaPart mengikuti — warna", hasil.gayaPart.warna === "#fbbf24");
+cek("gayaPart mengikuti — outlineLebar", hasil.gayaPart.outlineLebar === 6);
+cek("gayaPart mengikuti — outlineWarna", hasil.gayaPart.outlineWarna === "#000000");
 cek("posisiTeks mengikuti", hasil.posisiTeks === "tengah");
 
 // ===== kartu 4 — Background intro: TIDAK IKUT =====
@@ -150,6 +155,32 @@ const sumberTanpaLogo: Pengaturan = { ...sumber, logoId: "" };
 const hasil2 = terapkanSebagian(sumberTanpaLogo, target);
 cek("tanpa logo di sumber → logoId target dikosongkan", hasil2.logoId === "");
 cek("tanpa logo di sumber → posisi logo tetap ikut sumber", hasil2.posisiLogo === "kiri-atas");
+
+// ===== v0.41.0 — skenario khusus: ukuran Part tidak ikut, gaya lain tetap ikut =====
+const sumberUkuranBesar: Pengaturan = {
+  ...pengaturanDefault,
+  gayaPart: { font: "anton", ukuran: 90, warna: "#ff0000", outlineLebar: 8, outlineWarna: "#123456" },
+};
+const targetUkuranKecil: Pengaturan = {
+  ...pengaturanDefault,
+  gayaPart: { font: "cinzeldec", ukuran: 26, warna: "#ffffff", outlineLebar: 2, outlineWarna: "#654321" },
+};
+const hasil3 = terapkanSebagian(sumberUkuranBesar, targetUkuranKecil);
+cek("v0.41.0 ukuran Part target tetap 26 (bukan 90 dari sumber)", hasil3.gayaPart.ukuran === 26, `dapat ${hasil3.gayaPart.ukuran}`);
+cek("v0.41.0 font Part ikut sumber (anton)", hasil3.gayaPart.font === "anton");
+cek("v0.41.0 warna Part ikut sumber", hasil3.gayaPart.warna === "#ff0000");
+cek("v0.41.0 outlineLebar Part ikut sumber", hasil3.gayaPart.outlineLebar === 8);
+cek("v0.41.0 outlineWarna Part ikut sumber", hasil3.gayaPart.outlineWarna === "#123456");
+cek("v0.41.0 ukuran judul tetap milik target", hasil3.gayaJudul.ukuran === pengaturanDefault.gayaJudul.ukuran);
+cek("v0.41.0 ukuran deskripsi tetap milik target", hasil3.gayaDeskripsi.ukuran === pengaturanDefault.gayaDeskripsi.ukuran);
+cek("v0.41.0 fungsi murni — sumber & target tak terubah", sumberUkuranBesar.gayaPart.ukuran === 90 && targetUkuranKecil.gayaPart.ukuran === 26);
+
+// ===== v0.41.0 — sumber default vs target default: ukuran bawaan 30 tetap 30 =====
+const hasil4 = terapkanSebagian(
+  { ...pengaturanDefault, gayaPart: { ...pengaturanDefault.gayaPart, ukuran: 77 } },
+  pengaturanDefault,
+);
+cek("v0.41.0 target bawaan tetap 30 (bukan 77)", hasil4.gayaPart.ukuran === 30, `dapat ${hasil4.gayaPart.ukuran}`);
 
 // ===== kasus: bidang default tetap utuh (tidak ada bidang hilang) =====
 const kunciPengaturan = Object.keys(pengaturanDefault).sort().join(",");

@@ -208,7 +208,12 @@ export function rentangPart(
  *   • kartu 4 — Tulis Deskripsi (deskripsi + gayaDeskripsi + deskripsiX/Y) — tiap
  *     video punya deskripsinya sendiri (v0.39.0)
  *   • kartu 5 — Background intro (bgId + durasiIntro)
- *   • setelan performa ekspor (prosesParalel, pakaiGpu) */
+ *   • setelan performa ekspor (prosesParalel, pakaiGpu)
+ *  v0.41.0 — UKURAN HURUF tidak ikut lagi (permintaan user: "hanya ukuran
+ *  videonya ya kawan bukan judul dan part nya"): gaya huruf Part
+ *  (font/warna/outline) tetap mengikuti sumber, tapi ukuran huruf Part tiap
+ *  video tetap miliknya sendiri; ukuran judul & deskripsi memang tidak pernah
+ *  ikut tersalin. */
 export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengaturan {
   return {
     ...target,
@@ -220,10 +225,10 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     codec: sumber.codec,
     mulaiDetik: sumber.mulaiDetik,
     akhirDetik: sumber.akhirDetik,
-    // kartu 3 — Tulisan Part otomatis
+    // kartu 3 — Tulisan Part otomatis (v0.41.0: ukuran huruf TETAP milik target)
     kataPart: sumber.kataPart,
     durasiPart: sumber.durasiPart,
-    gayaPart: { ...sumber.gayaPart },
+    gayaPart: { ...sumber.gayaPart, ukuran: target.gayaPart.ukuran },
     posisiTeks: sumber.posisiTeks,
     // kartu 5 — Watermark / logo
     logoId: sumber.logoId,

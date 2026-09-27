@@ -419,6 +419,9 @@ export default function Halaman() {
   // v0.38.0 — TERAPKAN SELEKTIF: yang mengikuti video sumber hanya kartu 1 (Cara
   // ubah ke vertikal), kartu 3 (Tulisan Part otomatis) & kartu 5 (Watermark/logo).
   // Tulisan judul (kartu 2) & background intro (kartu 4) TETAP milik tiap video.
+  // v0.41.0 — ukuran huruf juga TETAP milik tiap video: gaya huruf Part ikut
+  // sumber tapi ukurannya tidak (permintaan: "hanya ukuran videonya ya kawan
+  // bukan judul dan part nya").
   // Metadata logo (logoInfo) ikut disalin agar kartu watermark tiap video langsung
   // menampilkan logo yang sama — cukup unggah SEKALI, tidak perlu ulang per video
   // (semua video berbagi berkas logo yang sama lewat logoId yang identik).
@@ -435,8 +438,8 @@ export default function Halaman() {
     );
     toast.success(
       s.logoId
-        ? "Vertikal + Part otomatis + watermark diterapkan ke SEMUA video — judul tiap video tetap"
-        : "Vertikal + Part otomatis diterapkan ke SEMUA video — judul tiap video tetap",
+        ? "Vertikal + Part otomatis + watermark diterapkan ke SEMUA video — judul & ukuran huruf tiap video tetap"
+        : "Vertikal + Part otomatis diterapkan ke SEMUA video — judul & ukuran huruf tiap video tetap",
     );
   };
 
@@ -466,7 +469,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.40.0
+            v0.41.0
           </span>
           <TombolGantiPassword />
         </div>
