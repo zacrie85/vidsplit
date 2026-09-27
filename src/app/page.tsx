@@ -38,6 +38,8 @@ import {
   migrasiSimpanan,
   pengaturanDefault,
   terapkanSebagian,
+  terapkanUkuranHuruf,
+  type BagianUkuran,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
 
@@ -443,6 +445,30 @@ export default function Halaman() {
     );
   };
 
+  // v0.42.0 — TERAPKAN UKURAN HURUF satu bagian (judul/Part/deskripsi) dari video
+  // aktif ke SEMUA video — permintaan user: "saya ingin mengubah ukuran font bisa
+  // diterapkan ke semua video". HANYA angka ukurannya yang disalin (font/warna/
+  // outline tiap video tetap), dan preferensi video baru (dasar) ikut disamakan
+  // agar impor berikutnya langsung seragam.
+  const terapkanUkuranSemua = (bagian: BagianUkuran) => {
+    if (!videoAktif) return;
+    const s = videoAktif.pengaturan;
+    const nilai =
+      bagian === "judul"
+        ? s.gayaJudul.ukuran
+        : bagian === "part"
+          ? s.gayaPart.ukuran
+          : s.gayaDeskripsi.ukuran;
+    setDaftar((d) =>
+      d.map((v) => ({ ...v, pengaturan: terapkanUkuranHuruf(s, v.pengaturan, bagian) })),
+    );
+    setDasar((p) => terapkanUkuranHuruf(s, p, bagian));
+    const label = bagian === "judul" ? "judul" : bagian === "part" ? "Part" : "deskripsi";
+    toast.success(
+      `Ukuran huruf ${label} ${nilai} diterapkan ke SEMUA video (${daftar.length}) — font & warna tiap video tetap`,
+    );
+  };
+
   const totalDurasi = daftar.reduce((a, v) => a + v.info.durasi, 0);
   const totalPart = daftar.reduce(
     (a, v) => a + Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart))),
@@ -469,7 +495,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.41.0
+            v0.42.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -721,12 +747,14 @@ export default function Halaman() {
                 pengaturan={videoAktif.pengaturan}
                 onChange={gantiPengaturanAktif}
                 nomorVideo={aktif + 1}
+                onTerapkanUkuran={() => terapkanUkuranSemua("judul")}
               />
               <PanelPart
                 pengaturan={videoAktif.pengaturan}
                 onChange={gantiPengaturanAktif}
                 nomorVideo={aktif + 1}
                 durasiVideo={videoAktif.info.durasi}
+                onTerapkanUkuran={() => terapkanUkuranSemua("part")}
               />
               <PanelDeskripsi
                 pengaturan={videoAktif.pengaturan}
@@ -735,6 +763,7 @@ export default function Halaman() {
                 srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                 lebarVideo={videoAktif.info.lebar}
                 tinggiVideo={videoAktif.info.tinggi}
+                onTerapkanUkuran={() => terapkanUkuranSemua("deskripsi")}
               />
               <PanelBackground
                 pengaturan={videoAktif.pengaturan}

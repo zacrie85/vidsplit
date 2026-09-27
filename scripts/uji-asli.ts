@@ -35,6 +35,10 @@ function buat(parsial: Partial<Pengaturan>): Pengaturan {
     durasiPart: 3,
     bgId: "",
     durasiIntro: 1,
+    deskripsi: "",
+    gayaDeskripsi: { font: "bersih", ukuran: 23, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
+    deskripsiX: 50,
+    deskripsiY: 80,
     resolusi: "1080", // sengaja 1080 — harus DIABAIKAN saat mode asli
     posisiTeks: "atas",
     posisiPotong: 50,
@@ -65,6 +69,7 @@ function bangun(p: Pengaturan, W: number, H: number, bg: string | null = null) {
     adaAudio: true,
     judulTxt: p.judul,
     partTxt: "Part 1",
+    deskripsiTxt: "",
     dirTmp,
     tag: "uji-asli",
     codecArgs: ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"],

@@ -85,7 +85,13 @@ export function StudioMusik({
       const mentah = localStorage.getItem(KUNCI_ATUR);
       if (mentah) {
         const s = JSON.parse(mentah) as Partial<AturMusik>;
-        setAtur((p) => ({ ...p, ...s, vis: { ...p.vis, ...(s.vis || {}) } }));
+        setAtur((p) => {
+          const gabung = { ...p, ...s, vis: { ...p.vis, ...(s.vis || {}) } };
+          // v0.42.0 — bawaan ukuran teks lama 25 → 23 (permintaan user:
+          // "rubah default semua ukuran font nya menjadi 23"); nilai lain milik user
+          if (gabung.vis.ukuranTeks === 25) gabung.vis = { ...gabung.vis, ukuranTeks: 23 };
+          return gabung;
+        });
       }
     } catch { /* abaikan */ }
   }, []);

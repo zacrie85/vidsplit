@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { formatDurasi, FONT_CSS, type Pengaturan } from "@/lib/vidsplit/types";
+import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 
 export function Preview({
   srcUrl,
@@ -68,6 +69,28 @@ export function Preview({
   const potret = modeAsli ? tinggi > lebar : true;
   const kelasBungkusan = potret ? "mx-auto w-fit" : "mx-auto w-full max-w-[1100px]";
 
+  // v0.42.0 — teks DIBUNGKUS dgn aturan yang SAMA dgn render drawtext (bungkus.ts):
+  // dulu pratinjau melipat via CSS (teks bergeser ke bawah) tapi hasil ekspor tetap
+  // 1 baris lurus → terpotong kiri-kanan. Kini kedua sisi memakai baris yang identik
+  // (whitespace-pre = CSS tidak melipat ulang), jadi pratinjau = hasil ekspor.
+  const wWrap = modeAsli ? lebar : 1080;
+  const hWrap = modeAsli ? tinggi : 1920;
+  const judulB = bungkusTeksRender(pengaturan.judul, pengaturan.gayaJudul, wWrap, hWrap, 12);
+  const partB = bungkusTeksRender(
+    `${pengaturan.kataPart} ${partKini}`.trim(),
+    pengaturan.gayaPart,
+    wWrap,
+    hWrap,
+    10,
+  );
+  const deskripsiB = bungkusTeksRender(
+    pengaturan.deskripsi,
+    pengaturan.gayaDeskripsi,
+    wWrap,
+    hWrap,
+    10,
+  );
+
   const susunTeks = (
     <div
       className={`pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-[1.2cqw] px-[4cqw] text-center ${
@@ -80,7 +103,7 @@ export function Preview({
     >
       {pengaturan.judul.trim() && (
         <p
-          className="teks-stroke whitespace-pre-line font-bold leading-tight"
+          className="teks-stroke whitespace-pre font-bold leading-tight"
           style={
             {
               fontSize: ukuranJudul,
@@ -91,12 +114,12 @@ export function Preview({
             } as React.CSSProperties
           }
         >
-          {pengaturan.judul}
+          {judulB}
         </p>
       )}
       {pengaturan.kataPart.trim() && (
         <p
-          className="teks-stroke font-bold leading-tight"
+          className="teks-stroke whitespace-pre font-bold leading-tight"
           style={
             {
               fontSize: ukuranPart,
@@ -107,7 +130,7 @@ export function Preview({
             } as React.CSSProperties
           }
         >
-          {pengaturan.kataPart} {partKini}
+          {partB}
         </p>
       )}
     </div>
@@ -183,7 +206,8 @@ export function Preview({
           {susunTeks}
           {/* v0.39.0 — deskripsi posisi bebas di pratinjau live (non-interaktif;
               seret lewat kartu 4. Tulis Deskripsi). Titik jangkar sama dgn render:
-              X = tengah blok teks, Y = atas blok teks. */}
+              X = tengah blok teks, Y = atas blok teks. v0.42.0 — teks terbungkus
+              sama dgn render (whitespace-pre, tanpa lipat CSS ulang). */}
           {pengaturan.deskripsi.trim() && (
             <p
               className="teks-stroke pointer-events-none absolute z-10 whitespace-pre leading-snug"
@@ -200,7 +224,7 @@ export function Preview({
                 } as React.CSSProperties
               }
             >
-              {pengaturan.deskripsi}
+              {deskripsiB}
             </p>
           )}
           <span className="absolute left-2 top-2 z-10 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-200">

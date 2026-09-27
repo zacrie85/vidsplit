@@ -117,9 +117,12 @@ async function main() {
   // tidak ikut terbunuh (cmdline shell berisi pola literal).
   execSync('pkill -f "next-[s]erver" || true', { shell: "/bin/bash" });
   await sleep(1500);
+  // v0.42.0 — build standalone kini FLAT (.next/standalone/server.js, bukan lagi
+  // bersarang .next/standalone/vidsplit/) + hormati port BASE (jangan hardcode 3000)
+  const portUji = new URL(BASE).port || "3000";
   execSync(
-    `PORT=3000 HOSTNAME=127.0.0.1 VIDSPLIT_WORK=${WORK} ` +
-      `python3 scripts/daemon-jalankan.py /tmp/vidsplit-preview.log node .next/standalone/vidsplit/server.js`,
+    `PORT=${portUji} HOSTNAME=127.0.0.1 VIDSPLIT_WORK=${WORK} ` +
+      `python3 scripts/daemon-jalankan.py /tmp/vidsplit-preview.log node .next/standalone/server.js`,
     { cwd: REPO, shell: "/bin/bash", timeout: 30000 },
   );
   await tungguServer(30000);

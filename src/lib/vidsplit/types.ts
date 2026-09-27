@@ -94,11 +94,13 @@ export const pengaturanDefault: Pengaturan = {
   judul: "Judul Video",
   // v0.8.0 default ukuran font atas permintaan user: judul 40, Part 35
   // v0.9.2 default font atas permintaan user: Cinzel Decorative (cinzeldec) utk judul & Part
-  // v0.40.0 default ukuran baru atas permintaan user: judul 35, Part 30 (instalasi lama
-  // yang masih menyimpan ukuran default lama dimigrasi otomatis di page.tsx)
-  gayaJudul: { font: "cinzeldec", ukuran: 35, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+  // v0.40.0 default ukuran: judul 35, Part 30
+  // v0.42.0 default SEMUA ukuran font = 23 atas permintaan user: "rubah default
+  // semua ukuran font nya menjadi 23" (instalasi lama yang masih menyimpan
+  // ukuran default lama dimigrasi otomatis di migrasiSimpanan)
+  gayaJudul: { font: "cinzeldec", ukuran: 23, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
   kataPart: "Part",
-  gayaPart: { font: "cinzeldec", ukuran: 30, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+  gayaPart: { font: "cinzeldec", ukuran: 23, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
   durasiPart: 20,
   bgId: "",
   durasiIntro: 3,
@@ -109,7 +111,7 @@ export const pengaturanDefault: Pengaturan = {
   akhirDetik: 0,
   codec: "h264",
   // v0.39.0 — deskripsi: bawaan kosong (fitur mati) + posisi tengah-bawah yang aman
-  // v0.40.0 — bawaan ukuran deskripsi 23 (dr 28) menyusul judul & Part yang diperkecil
+  // v0.40.0 — bawaan ukuran deskripsi 23 (dr 28) · v0.42.0 — tetap 23 (seragam semua)
   deskripsi: "",
   gayaDeskripsi: { font: "bersih", ukuran: 23, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
   deskripsiX: 50,
@@ -127,12 +129,14 @@ export const pengaturanDefault: Pengaturan = {
 /**
  * v0.40.0 — migrasi preferensi tersimpan (localStorage) dari instalasi lama:
  *   (1) font bawaan lama "tebal" → "cinzeldec" (lanjutan pola migrasi v0.9.2);
- *   (2) ukuran bawaan lama judul 40 → 35, Part 35 → 30, deskripsi 28 → 23
- *       (permintaan user: "buat default besar huruf pada Tulisan judul sebesar 35,
- *       pada Tulisan Part otomatis sebesar 30 dan pada Tulis Deskripsi sebesar 23").
+ *   (2) ukuran bawaan lama judul 40 → 35, Part 35 → 30, deskripsi 28 → 23.
+ * v0.42.0 — lanjutan: default SEMUA ukuran font = 23 (permintaan user: "rubah
+ * default semua ukuran font nya menjadi 23") — nilai bawaan LAMA dinaikkan/
+ * diturunkan otomatis ke 23: judul 40/35 → 23, Part 35/30 → 23, deskripsi 28 → 23.
  * Nilai lain yang sengaja dipilih user TIDAK disentuh. Fungsi murni — input tidak
- * diubah, hasil salinan baru. Catatan ambigu (didokumentasikan): Part 35 lama adalah
- * bawaan lama, jadi user yang sengaja mengatur 35 ikut bergeser ke 30.
+ * diubah, hasil salinan baru. Catatan ambigu (didokumentasikan): 40/35 (judul)
+ * dan 35/30 (Part) adalah bawaan lama, jadi user yang sengaja mengatur angka itu
+ * ikut bergeser ke 23.
  */
 export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengaturan> {
   const hasil = { ...simpanan };
@@ -140,8 +144,10 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
     hasil.gayaJudul = { ...hasil.gayaJudul, font: "cinzeldec" };
   if (hasil.gayaPart?.font === "tebal")
     hasil.gayaPart = { ...hasil.gayaPart, font: "cinzeldec" };
-  if (hasil.gayaJudul?.ukuran === 40) hasil.gayaJudul = { ...hasil.gayaJudul, ukuran: 35 };
-  if (hasil.gayaPart?.ukuran === 35) hasil.gayaPart = { ...hasil.gayaPart, ukuran: 30 };
+  if (hasil.gayaJudul?.ukuran === 40 || hasil.gayaJudul?.ukuran === 35)
+    hasil.gayaJudul = { ...hasil.gayaJudul, ukuran: 23 };
+  if (hasil.gayaPart?.ukuran === 35 || hasil.gayaPart?.ukuran === 30)
+    hasil.gayaPart = { ...hasil.gayaPart, ukuran: 23 };
   if (hasil.gayaDeskripsi?.ukuran === 28)
     hasil.gayaDeskripsi = { ...hasil.gayaDeskripsi, ukuran: 23 };
   return hasil;
@@ -236,6 +242,33 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     logoX: sumber.logoX,
     logoY: sumber.logoY,
     ukuranLogo: sumber.ukuranLogo,
+  };
+}
+
+/** v0.42.0 — bagian teks yang ukuran hurufnya bisa diterapkan ke semua video:
+ *  judul (kartu 2), part (kartu 3), deskripsi (kartu 4). */
+export type BagianUkuran = "judul" | "part" | "deskripsi";
+
+/**
+ * v0.42.0 — salin UKURAN HURUF satu bagian dari video sumber ke target.
+ * Permintaan user: "saya ingin mengubah ukuran font bisa diterapkan ke semua
+ * video" — kini tiap panel tulisan punya tombol "Terapkan ukuran ke semua video".
+ * HANYA angka ukuran yang ikut — font/warna/outline tiap video tetap miliknya
+ * (berbeda dgn terapkanSebagian yang tidak menyentuh ukuran sama sekali).
+ * Fungsi murni — input tidak diubah.
+ */
+export function terapkanUkuranHuruf(
+  sumber: Pengaturan,
+  target: Pengaturan,
+  bagian: BagianUkuran,
+): Pengaturan {
+  if (bagian === "judul")
+    return { ...target, gayaJudul: { ...target.gayaJudul, ukuran: sumber.gayaJudul.ukuran } };
+  if (bagian === "part")
+    return { ...target, gayaPart: { ...target.gayaPart, ukuran: sumber.gayaPart.ukuran } };
+  return {
+    ...target,
+    gayaDeskripsi: { ...target.gayaDeskripsi, ukuran: sumber.gayaDeskripsi.ukuran },
   };
 }
 

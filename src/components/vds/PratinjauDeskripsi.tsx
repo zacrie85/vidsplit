@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Move } from "lucide-react";
 import { FONT_CSS, type ModeKonversi, type Pengaturan } from "@/lib/vidsplit/types";
+import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 
 export function PratinjauDeskripsi({
   srcUrl,
@@ -93,6 +94,15 @@ export function PratinjauDeskripsi({
   // render final = ukuran × min(W,H)/1080 px → dibagi lebar frame W = ukuran/1080
   const ukuranFont = `${(gayaDeskripsi.ukuran / 1080) * 100}cqw`;
   const adaTeks = !!deskripsi.trim();
+  // v0.42.0 — teks dibungkus dgn aturan SAMA dgn render drawtext (bungkus.ts),
+  // ditampilkan apa adanya (whitespace-pre) → pindah baris pratinjau = hasil ekspor
+  const teksB = bungkusTeksRender(
+    deskripsi,
+    gayaDeskripsi,
+    modeAsli ? lebar : 1080,
+    modeAsli ? tinggi : 1920,
+    10,
+  );
 
   return (
     <div>
@@ -175,7 +185,7 @@ export function PratinjauDeskripsi({
               } as React.CSSProperties
             }
           >
-            {deskripsi}
+            {teksB}
           </p>
         )}
         <span className="pointer-events-none absolute left-1/2 top-1 flex -translate-x-1/2 items-center gap-1 rounded-md bg-slate-900/80 px-1.5 py-0.5 text-[9px] font-medium text-slate-200">

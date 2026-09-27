@@ -111,7 +111,7 @@ const tanpaBg = bangunArgumenPart({
 });
 const filterTanpa = tanpaBg.args[tanpaBg.args.indexOf("-filter_complex") + 1];
 cek(filterTanpa.includes("[2:v]scale=144:"), "logo idx=2 saat tanpa bg (scale 20% dari 720)", filterTanpa.match(/\[\d+:v\]scale=\d+/)?.[0]);
-cek(filterTanpa.includes("[vtx][wmf]overlay=x=W-w-"), "posisi kanan-atas benar");
+cek(filterTanpa.includes("[vtx][wmf]overlay=x='min(max(0,W*81.5/100),W-w)'"), "posisi kanan-atas benar (ekspresi bebas posisi v0.8.0)");
 cek(tanpaBg.args.includes("-loop"), "dgn logo → ada -loop utk input logo");
 const idxI1 = tanpaBg.args.reduce<number[]>((acc, a, i) => (a === "-i" ? [...acc, i] : acc), []);
 cek(tanpaBg.args[idxI1[idxI1.length - 1] + 1] === LOGO, "input logo paling akhir (tanpa bg)");

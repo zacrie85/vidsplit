@@ -5,7 +5,16 @@
 // v0.41.0 — ukuran huruf juga TIDAK ikut diterapkan (permintaan user: "hanya
 // ukuran videonya ya kawan bukan judul dan part nya"): gaya Part (font/warna/
 // outline) mengikuti sumber, ukuran huruf Part tetap milik tiap video.
-import { pengaturanDefault, terapkanSebagian, type Pengaturan } from "../src/lib/vidsplit/types";
+// v0.42.0 — SEKARANG ada jalur khusus utk ukuran: terapkanUkuranHuruf (tombol
+// "Terapkan ukuran … ke semua video" di tiap panel tulisan) — permintaan user:
+// "saya ingin mengubah ukuran font bisa diterapkan ke semua video".
+import {
+  pengaturanDefault,
+  terapkanSebagian,
+  terapkanUkuranHuruf,
+  type BagianUkuran,
+  type Pengaturan,
+} from "../src/lib/vidsplit/types";
 
 let lulus = 0;
 let gagal = 0;
@@ -180,7 +189,53 @@ const hasil4 = terapkanSebagian(
   { ...pengaturanDefault, gayaPart: { ...pengaturanDefault.gayaPart, ukuran: 77 } },
   pengaturanDefault,
 );
-cek("v0.41.0 target bawaan tetap 30 (bukan 77)", hasil4.gayaPart.ukuran === 30, `dapat ${hasil4.gayaPart.ukuran}`);
+cek("v0.41.0 target bawaan tetap 23 (bukan 77)", hasil4.gayaPart.ukuran === 23, `dapat ${hasil4.gayaPart.ukuran}`);
+
+// ===== v0.42.0 — terapkanUkuranHuruf: salin UKURAN satu bagian ke target =====
+{
+  const sumberUk: Pengaturan = {
+    ...pengaturanDefault,
+    gayaJudul: { font: "anton", ukuran: 70, warna: "#ff0000", outlineLebar: 8, outlineWarna: "#111111" },
+    gayaPart: { font: "bebas", ukuran: 55, warna: "#00ff00", outlineLebar: 6, outlineWarna: "#222222" },
+    gayaDeskripsi: { font: "tebal", ukuran: 40, warna: "#0000ff", outlineLebar: 4, outlineWarna: "#333333" },
+  };
+  const targetUk: Pengaturan = {
+    ...pengaturanDefault,
+    gayaJudul: { font: "cinzeldec", ukuran: 23, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+    gayaPart: { font: "oswald", ukuran: 26, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+    gayaDeskripsi: { font: "bersih", ukuran: 21, warna: "#ffffff", outlineLebar: 2, outlineWarna: "#000000" },
+    judul: "Judul khas target",
+    kataPart: "Bagian khas",
+  };
+  const bagian: BagianUkuran[] = ["judul", "part", "deskripsi"];
+  const label = { judul: "judul", part: "Part", deskripsi: "deskripsi" };
+  const nilaiSumber = { judul: 70, part: 55, deskripsi: 40 };
+  for (const b of bagian) {
+    const h = terapkanUkuranHuruf(sumberUk, targetUk, b);
+    const kunci = b === "judul" ? "gayaJudul" : b === "part" ? "gayaPart" : "gayaDeskripsi";
+    const gayaH = h[kunci] as Pengaturan["gayaJudul"];
+    const gayaT = targetUk[kunci] as Pengaturan["gayaJudul"];
+    const gayaS = sumberUk[kunci] as Pengaturan["gayaJudul"];
+    cek(`ukuran ${label[b]} ikut sumber (${nilaiSumber[b]})`, gayaH.ukuran === nilaiSumber[b], `dapat ${gayaH.ukuran}`);
+    cek(`font ${label[b]} tetap milik target`, gayaH.font === gayaT.font, `dapat ${gayaH.font}`);
+    cek(`warna ${label[b]} tetap milik target`, gayaH.warna === gayaT.warna);
+    cek(`outline ${label[b]} tetap milik target`, gayaH.outlineLebar === gayaT.outlineLebar && gayaH.outlineWarna === gayaT.outlineWarna);
+    cek(`gaya ${label[b]} salinan baru (bukan referensi)`, gayaH !== gayaS && gayaH !== gayaT);
+  }
+  // bagian LAIN tidak tersentuh
+  const hJ = terapkanUkuranHuruf(sumberUk, targetUk, "judul");
+  cek("terapkan judul: ukuran Part tak tersentuh", hJ.gayaPart.ukuran === 26);
+  cek("terapkan judul: ukuran deskripsi tak tersentuh", hJ.gayaDeskripsi.ukuran === 21);
+  cek("terapkan judul: teks judul target tetap", hJ.judul === "Judul khas target");
+  const hP = terapkanUkuranHuruf(sumberUk, targetUk, "part");
+  cek("terapkan Part: ukuran judul tak tersentuh", hP.gayaJudul.ukuran === 23);
+  cek("terapkan Part: kata part target tetap", hP.kataPart === "Bagian khas");
+  const hD = terapkanUkuranHuruf(sumberUk, targetUk, "deskripsi");
+  cek("terapkan deskripsi: ukuran judul & Part tak tersentuh", hD.gayaJudul.ukuran === 23 && hD.gayaPart.ukuran === 26);
+  // bidang lain utuh & murni
+  cek("semua bidang tetap ada", Object.keys(hJ).sort().join(",") === Object.keys(pengaturanDefault).sort().join(","));
+  cek("fungsi murni — sumber & target tak terubah", sumberUk.gayaJudul.ukuran === 70 && targetUk.gayaPart.ukuran === 26 && targetUk.judul === "Judul khas target");
+}
 
 // ===== kasus: bidang default tetap utuh (tidak ada bidang hilang) =====
 const kunciPengaturan = Object.keys(pengaturanDefault).sort().join(",");

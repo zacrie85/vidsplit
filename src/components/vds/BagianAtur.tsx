@@ -11,6 +11,7 @@ import {
   Droplets,
   Film,
   Image as ImageIcon,
+  ListChecks,
   MonitorPlay,
   Palette,
   Scan,
@@ -51,10 +52,14 @@ function GayaEditor({
   gaya,
   onChange,
   maxUkuran,
+  onTerapkanSemua,
 }: {
   gaya: GayaTeks;
   onChange: (g: GayaTeks) => void;
   maxUkuran: number;
+  /** v0.42.0 — tampil bila diisi: tombol "Terapkan ukuran ke semua video"
+   *  (permintaan user: "mengubah ukuran font bisa diterapkan ke semua video") */
+  onTerapkanSemua?: () => void;
 }) {
   return (
     <div className="mt-3 space-y-3 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
@@ -95,6 +100,17 @@ function GayaEditor({
         max={maxUkuran}
         onChange={(n) => onChange({ ...gaya, ukuran: n })}
       />
+      {onTerapkanSemua && (
+        <button
+          type="button"
+          onClick={onTerapkanSemua}
+          title="Salin angka ukuran huruf ini ke SEMUA video di antrean"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/60 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-amber-400 hover:text-amber-300"
+        >
+          <ListChecks className="h-3.5 w-3.5" />
+          Terapkan ukuran {gaya.ukuran} ke semua video
+        </button>
+      )}
       <BarisSlider
         label="Ketebalan outline"
         nilai={gaya.outlineLebar}
@@ -304,10 +320,13 @@ export function PanelJudul({
   pengaturan,
   onChange,
   nomorVideo,
+  onTerapkanUkuran,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
   nomorVideo: number;
+  /** v0.42.0 — terapkan ukuran huruf judul video aktif ke SEMUA video */
+  onTerapkanUkuran: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
@@ -329,6 +348,7 @@ export function PanelJudul({
         gaya={pengaturan.gayaJudul}
         onChange={(g) => set("gayaJudul", g)}
         maxUkuran={160}
+        onTerapkanSemua={onTerapkanUkuran}
       />
     </Kartu>
   );
@@ -341,11 +361,14 @@ export function PanelPart({
   onChange,
   nomorVideo,
   durasiVideo,
+  onTerapkanUkuran,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
   nomorVideo: number;
   durasiVideo: number;
+  /** v0.42.0 — terapkan ukuran huruf Part video aktif ke SEMUA video */
+  onTerapkanUkuran: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
@@ -411,6 +434,7 @@ export function PanelPart({
         gaya={pengaturan.gayaPart}
         onChange={(g) => set("gayaPart", g)}
         maxUkuran={120}
+        onTerapkanSemua={onTerapkanUkuran}
       />
       <div className="mt-3 border-t border-slate-700/50 pt-3">
         <p className="mb-1 text-xs text-slate-400">Posisi tulisan</p>
@@ -437,6 +461,7 @@ export function PanelDeskripsi({
   srcUrl,
   lebarVideo,
   tinggiVideo,
+  onTerapkanUkuran,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -444,6 +469,8 @@ export function PanelDeskripsi({
   srcUrl: string;
   lebarVideo: number;
   tinggiVideo: number;
+  /** v0.42.0 — terapkan ukuran huruf deskripsi video aktif ke SEMUA video */
+  onTerapkanUkuran: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
@@ -471,6 +498,7 @@ export function PanelDeskripsi({
         gaya={pengaturan.gayaDeskripsi}
         onChange={(g) => set("gayaDeskripsi", g)}
         maxUkuran={120}
+        onTerapkanSemua={onTerapkanUkuran}
       />
       <div className="mt-3 border-t border-slate-700/50 pt-3">
         <p className="mb-1 text-xs text-slate-400">Posisi cepat</p>
@@ -830,9 +858,10 @@ export function PanelRingkasan({
             <b className="text-slate-400">6. Watermark/logo</b> — logo cukup diunggah{" "}
             <b className="text-slate-400">sekali</b>, langsung terpasang di semua video.{" "}
             <b className="text-amber-300/80">Tulisan judul</b>,{" "}
-            <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video,{" "}
-            <b className="text-amber-300/80">ukuran huruf</b> masing-masing video &{" "}
-            <b className="text-amber-300/80">background intro</b> tidak diubah.
+            <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video &{" "}
+            <b className="text-amber-300/80">background intro</b> tidak diubah —
+            tapi ukuran huruf bisa diterapkan ke semua lewat tombol{" "}
+            <b className="text-amber-300/80">“Terapkan ukuran … ke semua video”</b> di tiap panel tulisan.
           </p>
         </>
       )}

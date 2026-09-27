@@ -2,6 +2,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { teksSiapGambar } from "./bungkus";
 import type { CodecVideo, GayaTeks, ModeKonversi, Pengaturan } from "./types";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
@@ -243,11 +244,17 @@ export function ekspresiPosisiDeskripsi(
   };
 }
 
-/** Dua-tiga drawtext (judul + Part + deskripsi) di atas hasil concat → [vout] */
+/** Dua-tiga drawtext (judul + Part + deskripsi) di atas hasil concat → [vout].
+ *  v0.42.0 — teksJ/teksP/teksD = teks SUDAH DIBUNGKUS (teksSiapGambar): jumlah
+ *  barisnya dipakai utk tata letak tinggi (tJ/tP) & isinya sudah ditulis ke
+ *  textfile — drawtext multi-baris, tidak ada lagi teks 1 baris terpotong kiri-kanan. */
 function rantaiTeks(
   p: Pengaturan,
   W: number,
   H: number,
+  teksJ: string,
+  teksP: string,
+  teksD: string,
   fileJudul: string,
   filePart: string,
   fileDeskripsi: string,
@@ -258,9 +265,15 @@ function rantaiTeks(
   const skala = Math.min(W, H) / 1080;
   const uJ = Math.max(12, p.gayaJudul.ukuran * skala);
   const uP = Math.max(10, p.gayaPart.ukuran * skala);
-  const barisJ = Math.max(1, (p.judul || "").split("\n").length);
-  const tJ = barisJ * uJ * 1.35;
-  const tP = uP * 1.3;
+  // v0.42.0 — jumlah baris dari teks TERBUNGKUS (bukan lagi \n buatan user saja):
+  // blok judul/Part multi-baris menggeser posisi Part di bawahnya dgn benar.
+  // Faktor per baris 1.5 = tinggi baris alami font (±1.2em) + line_spacing 0.3em
+  // yang ditambahkan di drawtext — tanpa ini Part menimpa baris terakhir judul
+  // saat judul terlipat banyak baris (terlihat di uji render nyata).
+  const barisJ = Math.max(1, teksJ.split("\n").length);
+  const barisP = Math.max(1, teksP.split("\n").length);
+  const tJ = barisJ * uJ * 1.5;
+  const tP = barisP * uP * 1.5;
   const gap = uJ * 0.45;
   const mrg = H * 0.045;
 
@@ -295,21 +308,21 @@ function rantaiTeks(
     return s;
   };
 
-  if (p.judul.trim()) {
+  if (teksJ.trim()) {
     const ffJ = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
     bagian.push(
       `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
     );
   }
-  if ((p.kataPart || "").trim()) {
+  if (teksP.trim()) {
     const ffP = fontfile(p.gayaPart) || fontfile(p.gayaJudul);
     bagian.push(
-      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP)}`,
+      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP)}:line_spacing=${(uP * 0.3).toFixed(1)}`,
     );
   }
   // v0.39.0 — deskripsi posisi BEBAS (persen frame): X = tengah blok teks,
-  // Y = atas blok teks; multi-baris didukung lewat textfile + line_spacing
-  if ((p.deskripsi || "").trim()) {
+  // Y = atas blok teks; v0.42.0 — multi-baris juga dari pembungkus otomatis
+  if (teksD.trim()) {
     const ffD = fontfile(p.gayaDeskripsi) || fontfile(p.gayaJudul) || fontfile(p.gayaPart);
     const posD = ekspresiPosisiDeskripsi(p.deskripsiX, p.deskripsiY);
     const uD = Math.max(10, p.gayaDeskripsi.ukuran * skala);
@@ -366,9 +379,14 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const H = a.H;
   const fps = a.fps;
 
-  writeFileSync(path.join(a.dirTmp, `${a.tag}-judul.txt`), a.judulTxt, "utf8");
-  writeFileSync(path.join(a.dirTmp, `${a.tag}-part.txt`), a.partTxt, "utf8");
-  writeFileSync(path.join(a.dirTmp, `${a.tag}-deskripsi.txt`), a.deskripsiTxt || "", "utf8");
+  // v0.42.0 — bungkus teks ke beberapa baris SEBELUM digambar (bug teks besar
+  // terpotong kiri-kanan): aturan lipat SAMA dgn pratinjau (bungkus.ts), jadi
+  // pratinjau = hasil ekspor.
+  const siap = teksSiapGambar(a.judulTxt, a.partTxt, a.deskripsiTxt, p, W, H);
+
+  writeFileSync(path.join(a.dirTmp, `${a.tag}-judul.txt`), siap.judul, "utf8");
+  writeFileSync(path.join(a.dirTmp, `${a.tag}-part.txt`), siap.part, "utf8");
+  writeFileSync(path.join(a.dirTmp, `${a.tag}-deskripsi.txt`), siap.deskripsi || "", "utf8");
   const fileJudul = path.join(a.dirTmp, `${a.tag}-judul.txt`);
   const filePart = path.join(a.dirTmp, `${a.tag}-part.txt`);
   const fileDeskripsi = path.join(a.dirTmp, `${a.tag}-deskripsi.txt`);
@@ -420,7 +438,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
       rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong).replace("[mv]", "[cc]"),
     );
   }
-  const rantaiTeksStr = rantaiTeks(p, W, H, fileJudul, filePart, fileDeskripsi);
+  const rantaiTeksStr = rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi);
   if (pakaiLogo) {
     // rantai teks menghasilkan [vtx] lalu logo di-overlay → [vout]
     filterVideo.push(rantaiTeksStr.replace("[vout]", "[vtx]"));

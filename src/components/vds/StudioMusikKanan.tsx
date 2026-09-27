@@ -90,7 +90,7 @@ export const aturMusikDefault: AturMusik = {
     tampilJudul: true,
     tampilChord: true,
     tampilLirik: true,
-    ukuranTeks: 25,
+    ukuranTeks: 23, // v0.42.0 — default semua ukuran font = 23 (dr 25)
   },
 };
 
@@ -574,7 +574,7 @@ export function PanelVisual({
           onChange={(n) => setVis({ sensitivitas: n })}
         />
         <BarisSlider
-          label="Ukuran teks judul/chord/lirik (bawaan 25)"
+          label="Ukuran teks judul/chord/lirik (bawaan 23)"
           nilai={vis.ukuranTeks}
           min={12}
           max={60}

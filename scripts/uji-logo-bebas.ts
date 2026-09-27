@@ -51,6 +51,7 @@ function bangun(p: Pengaturan, W: number, H: number) {
     adaAudio: true,
     judulTxt: p.judul,
     partTxt: "Part 1",
+    deskripsiTxt: "",
     dirTmp,
     tag: "uji-logo",
     codecArgs: ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "23"],
@@ -60,14 +61,15 @@ function bangun(p: Pengaturan, W: number, H: number) {
   return { filter: args[i + 1] ?? "", args };
 }
 
-console.log("\n════ FITUR 4 — default ukuran judul 35 / Part 30 (v0.40.0) ════");
-cek("gayaJudul.ukuran default = 35", pengaturanDefault.gayaJudul.ukuran === 35, `ada ${pengaturanDefault.gayaJudul.ukuran}`);
-cek("gayaPart.ukuran default = 30", pengaturanDefault.gayaPart.ukuran === 30, `ada ${pengaturanDefault.gayaPart.ukuran}`);
+console.log("\n════ FITUR 4 — default SEMUA ukuran font 23 (v0.42.0) ════");
+cek("gayaJudul.ukuran default = 23", pengaturanDefault.gayaJudul.ukuran === 23, `ada ${pengaturanDefault.gayaJudul.ukuran}`);
+cek("gayaPart.ukuran default = 23", pengaturanDefault.gayaPart.ukuran === 23, `ada ${pengaturanDefault.gayaPart.ukuran}`);
+cek("gayaDeskripsi.ukuran default = 23", pengaturanDefault.gayaDeskripsi.ukuran === 23, `ada ${pengaturanDefault.gayaDeskripsi.ukuran}`);
 // v0.9.2 — default font Cinzel Decorative utk menu 2 & 3 (permintaan user)
 cek("gayaJudul.font default = cinzeldec (Cinzel Decorative)", pengaturanDefault.gayaJudul.font === "cinzeldec", `ada ${pengaturanDefault.gayaJudul.font}`);
 cek("gayaPart.font default = cinzeldec (Cinzel Decorative)", pengaturanDefault.gayaPart.font === "cinzeldec", `ada ${pengaturanDefault.gayaPart.font}`);
 
-console.log("\n════ v0.40.0 — migrasiSimpanan (ukuran bawaan lama → baru) ════");
+console.log("\n════ v0.42.0 — migrasiSimpanan (semua bawaan ukuran lama → 23) ════");
 {
   // simpanan instalasi LAMA = seluruh bawaan lama (judul 40, Part 35, deskripsi 28)
   const lama = migrasiSimpanan({
@@ -76,10 +78,18 @@ console.log("\n════ v0.40.0 — migrasiSimpanan (ukuran bawaan lama → 
     gayaPart: { font: "cinzeldec", ukuran: 35, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
     gayaDeskripsi: { font: "bersih", ukuran: 28, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
   });
-  cek("judul bawaan lama 40 → 35", lama.gayaJudul?.ukuran === 35, `ada ${lama.gayaJudul?.ukuran}`);
-  cek("Part bawaan lama 35 → 30", lama.gayaPart?.ukuran === 30, `ada ${lama.gayaPart?.ukuran}`);
+  cek("judul bawaan lama 40 → 23", lama.gayaJudul?.ukuran === 23, `ada ${lama.gayaJudul?.ukuran}`);
+  cek("Part bawaan lama 35 → 23", lama.gayaPart?.ukuran === 23, `ada ${lama.gayaPart?.ukuran}`);
   cek("deskripsi bawaan lama 28 → 23", lama.gayaDeskripsi?.ukuran === 23, `ada ${lama.gayaDeskripsi?.ukuran}`);
   cek("font 'tebal' ikut dimigrasi → cinzeldec", lama.gayaJudul?.font === "cinzeldec", `ada ${lama.gayaJudul?.font}`);
+
+  // bawaan v0.40.0 (judul 35, Part 30) juga dinaikkan/diturunkan ke 23
+  const v40 = migrasiSimpanan({
+    gayaJudul: { font: "cinzeldec", ukuran: 35, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" },
+    gayaPart: { font: "cinzeldec", ukuran: 30, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
+  });
+  cek("judul bawaan v0.40 (35) → 23", v40.gayaJudul?.ukuran === 23, `ada ${v40.gayaJudul?.ukuran}`);
+  cek("Part bawaan v0.40 (30) → 23", v40.gayaPart?.ukuran === 23, `ada ${v40.gayaPart?.ukuran}`);
 
   // nilai khas user TIDAK disentuh
   const khas = migrasiSimpanan({
@@ -91,10 +101,6 @@ console.log("\n════ v0.40.0 — migrasiSimpanan (ukuran bawaan lama → 
   cek("Part khas 52 tetap 52", khas.gayaPart?.ukuran === 52, `ada ${khas.gayaPart?.ukuran}`);
   cek("deskripsi khas 31 tetap 31", khas.gayaDeskripsi?.ukuran === 31, `ada ${khas.gayaDeskripsi?.ukuran}`);
   cek("font khas tetap (anton/bebas/klasik)", khas.gayaJudul?.font === "anton" && khas.gayaPart?.font === "bebas" && khas.gayaDeskripsi?.font === "klasik", "font khas berubah!");
-
-  // judul 35 (khas dlm instalasi lama) tak tersentuh — bukan 40, bukan target migrasi
-  const j35 = migrasiSimpanan({ gayaJudul: { font: "cinzeldec", ukuran: 35, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" } });
-  cek("judul 35 (khas lama) tetap 35", j35.gayaJudul?.ukuran === 35, `ada ${j35.gayaJudul?.ukuran}`);
 
   // murni: input tidak berubah
   const masuk: Partial<Pengaturan> = { gayaJudul: { font: "tebal", ukuran: 40, warna: "#ffffff", outlineLebar: 4, outlineWarna: "#000000" } };
