@@ -1,8 +1,8 @@
 "use client";
 
-// VidSplit — halaman utama: gerbang password → antrean multi-video (maks 15) →
+// VidSplit — halaman utama: gerbang password → antrean multi-video (maks 100, v0.43.0) →
 // atur tiap video → ekspor & split BERURUTAN dari video teratas sampai terbawah
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -229,15 +229,25 @@ export default function Halaman() {
   //   klik zona (desktop)    → pilihVideoDesktop() — SATU dialog natif, path langsung
   //   klik zona (web)        → input file HTML biasa
   //   seret-lepas (keduanya) → unggah HTTP lokal via unggahSatu()
-  const unggahVideo = async (f: File) => {
+  // v0.43.0 — antrean kini muat 100 video: unggahan banyak file (drop/klik-multi)
+  // DISERIALKAN lewat rantai promise supaya urutan masuk antrean = urutan file
+  // saat dipilih. Dulu tiap file balapan sendiri (unggah+probe paralel) → urutan
+  // antrean bisa campur aduk; padahal urutan antrean = urutan proses ekspor.
+  // Mode desktop sudah berurut sejak v0.40 (loop await satu-per-satu).
+  const rantaiUnggah = useRef<Promise<void>>(Promise.resolve());
+  const sibukUnggah = useRef(0);
+  const unggahVideo = (f: File) => {
+    sibukUnggah.current += 1;
     setSibukVideo(true);
-    try {
-      await unggahSatu(f, BATAS_VIDEO - daftar.length);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal impor video");
-    } finally {
-      setSibukVideo(false);
-    }
+    rantaiUnggah.current = rantaiUnggah.current
+      .then(() => unggahSatu(f, BATAS_VIDEO - daftar.length))
+      .catch((e: unknown) => {
+        toast.error(e instanceof Error ? e.message : "Gagal impor video");
+      })
+      .finally(() => {
+        sibukUnggah.current -= 1;
+        if (sibukUnggah.current <= 0) setSibukVideo(false);
+      });
   };
 
   /** mode desktop: dialog natif Electron utk antrean video — boleh pilih banyak */
@@ -495,7 +505,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.42.0
+            v0.43.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -543,7 +553,7 @@ export default function Halaman() {
       {mode === "horor" && <StudioHoror onKirimKeVideo={kirimKeVideo} />}
 
       {/* v0.9.1 — DASBOR 3 KOLOM 25% / 50% / 25%:
-          KIRI = antrean (muat 15 video) + menu 1 + Ringkasan + Riwayat ekspor ·
+          KIRI = antrean (muat 100 video, v0.43.0) + menu 1 + Ringkasan + Riwayat ekspor ·
           TENGAH = pratinjau + ekspor · KANAN = background, watermark, menu 2
           (Tulisan judul), menu 3 (Tulisan Part otomatis), bersihkan.
           v0.9.1: posisi Ringkasan DITUKAR dgn menu 2, posisi Riwayat ekspor
@@ -568,7 +578,8 @@ export default function Halaman() {
               />
             ) : (
               <div className="space-y-2">
-                {/* tinggi list menampung 15 video langsung; lebih dari itu scroll internal */}
+                {/* v0.43.0 — batas 100 video: list selalu scroll internal (max-h 900px ≈
+                    24 baris) — urutan atas→bawah tetap urutan proses ekspor */}
                 <ul className="max-h-[900px] space-y-1.5 overflow-y-auto pr-0.5">
                   {daftar.map((v, i) => (
                     <li

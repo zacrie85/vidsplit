@@ -1,5 +1,5 @@
 // POST /api/export — mulai job ekspor ANTREAN
-// Body: { daftar: [{ file, bg?, pengaturan? }], modeEkspor } — 1..15 video,
+// Body: { daftar: [{ file, bg?, pengaturan? }], modeEkspor } — 1..100 video (v0.43.0),
 // diproses BERURUTAN sesuai urutan daftar. Bentuk lama { file, bg, pengaturan }
 // (satu video) tetap didukung: otomatis dibungkus jadi daftar 1 item.
 import { existsSync } from "node:fs";

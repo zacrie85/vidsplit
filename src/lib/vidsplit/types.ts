@@ -28,8 +28,12 @@ export type NamaFont =
   | "creepster"
   | "monoton";
 
-/** Batas jumlah video dalam satu antrean ekspor */
-export const BATAS_VIDEO = 15;
+/** Batas jumlah video dalam satu antrean ekspor
+ *  v0.43.0 — 15 → 100 (permintaan user: "apakah bisa kamu buat agar aplikasi ini
+ *  bisa dimasukan video sampai dengan maksimal 100 video kawan dan di proses
+ *  sesuai dengan urutannya") — antrean tetap BERURUTAN atas→bawah, ZIP hasil
+ *  tetap streaming server (satu file di memori per saat) jadi aman utk 100. */
+export const BATAS_VIDEO = 100;
 
 export interface GayaTeks {
   font: NamaFont;
