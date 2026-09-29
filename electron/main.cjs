@@ -97,6 +97,8 @@ function nyalakanServer() {
     // v0.37.0 — pustaka gambar hantu REALISTIS (agen pendamping menu 5)
     VIDSPLIT_HANTU_REAL: path.join(res, "hantu-real"),
     VIDSPLIT_VOKAL_AI: path.join(res, "vokal-ai"),
+    // v0.44.0 — model AI subtitle otomatis (Whisper ASR + opus-mt EN→ID), struktur repo HF
+    VIDSPLIT_AI_MODELS: path.join(res, "ai-models"),
     VIDSPLIT_ORT: path.join(res, "server"),
     VIDSPLIT_ELECTRON: "1",
   };

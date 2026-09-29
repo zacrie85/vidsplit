@@ -140,6 +140,25 @@ function kutipFilter(s: string): string {
   return "'" + s.replace(/\\/g, "/").replace(/'/g, "\\'").replace(/:/g, "\\:") + "'";
 }
 
+/** v0.44.0 — escape path utk nilai opsi filter `subtitles=` (pola musikJobs):
+ *  aman utk drive Windows (C\:\…) — dipakai utk filename & fontsdir. */
+function escapePathFilter(p: string): string {
+  return p.replaceAll("\\", "/").replaceAll(":", "\\:").replaceAll("'", "\\'");
+}
+
+/** Folder font pertama yang benar-benar ada (utk fontsdir libass) */
+function dirFontsSub(): string {
+  const kandidat = [
+    process.env.VIDSPLIT_FONTS,
+    path.join(process.cwd(), "assets", "fonts"),
+    path.join(process.cwd(), "..", "assets", "fonts"),
+    path.join(process.cwd(), "..", "..", "assets", "fonts"),
+    "/usr/share/fonts/truetype/dejavu",
+  ].filter(Boolean) as string[];
+  for (const d of kandidat) if (existsSync(d)) return d;
+  return "/usr/share/fonts/truetype/dejavu";
+}
+
 const NAMA_FONT: Record<GayaTeks["font"], string[]> = {
   tebal: ["DejaVuSans-Bold.ttf", "arialbd.ttf"],
   bersih: ["DejaVuSans.ttf", "arial.ttf"],
@@ -360,6 +379,8 @@ export interface ArgPart {
   partTxt: string;
   /** v0.39.0 — isi teks deskripsi ("" = tanpa deskripsi) */
   deskripsiTxt: string;
+  /** v0.44.0 — berkas .ass subtitle AI utk part ini (absen/kosong = tanpa subtitle) */
+  fileSub?: string | null;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -439,9 +460,18 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     );
   }
   const rantaiTeksStr = rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi);
+  // v0.44.0 — subtitle AI (libass) diselipkan SETELAH drawtext judul/Part/deskripsi
+  // dan SEBELUM overlay logo — memakai pola filter `subtitles=` yang sudah terbukti
+  // di Studio Musik (bundle ffmpeg memiliki libass + fontsdir font bundel).
+  const pakaiSub = !!a.fileSub && existsSync(a.fileSub);
   if (pakaiLogo) {
-    // rantai teks menghasilkan [vtx] lalu logo di-overlay → [vout]
-    filterVideo.push(rantaiTeksStr.replace("[vout]", "[vtx]"));
+    // rantai teks menghasilkan [vtx] (atau [vpre]→subtitles→[vtx]) lalu logo → [vout]
+    filterVideo.push(rantaiTeksStr.replace("[vout]", pakaiSub ? "[vpre]" : "[vtx]"));
+    if (pakaiSub) {
+      filterVideo.push(
+        `[vpre]subtitles=filename='${escapePathFilter(a.fileSub as string)}':fontsdir='${escapePathFilter(dirFontsSub())}',format=yuv420p[vtx]`,
+      );
+    }
     const lebarWm = Math.max(
       24,
       Math.round((W * Math.min(40, Math.max(5, p.ukuranLogo || 15))) / 100),
@@ -456,7 +486,12 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
       `[vtx][wmf]overlay=x='min(max(0,W*${lx}/100),W-w)':y='min(max(0,H*${ly}/100),H-h)'[vout]`,
     );
   } else {
-    filterVideo.push(rantaiTeksStr);
+    filterVideo.push(rantaiTeksStr.replace("[vout]", pakaiSub ? "[vpre]" : "[vout]"));
+    if (pakaiSub) {
+      filterVideo.push(
+        `[vpre]subtitles=filename='${escapePathFilter(a.fileSub as string)}':fontsdir='${escapePathFilter(dirFontsSub())}',format=yuv420p[vout]`,
+      );
+    }
   }
 
   const filter = [...filterVideo, ...filterAudio].join(";");

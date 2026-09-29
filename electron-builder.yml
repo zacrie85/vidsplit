@@ -28,6 +28,10 @@ extraResources:
   # v0.37.0 — pustaka gambar hantu REALISTIS (versi realistis, 100% offline)
   - from: assets/hantu-real
     to: hantu-real
+  # v0.44.0 — model AI subtitle otomatis (Whisper-small + opus-mt-en-id, q8, 100% offline)
+  # diunduh oleh workflow / scripts/unduh-model-ai.sh SEBELUM electron-builder jalan
+  - from: assets/ai-models
+    to: ai-models
 win:
   target:
     - nsis

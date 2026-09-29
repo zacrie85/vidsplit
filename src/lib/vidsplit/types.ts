@@ -78,6 +78,14 @@ export interface Pengaturan {
   deskripsiY: number;
   /** path relatif logo watermark di work/upload ("" = tanpa logo) */
   logoId: string;
+  /** v0.44.0 — subtitle AI otomatis: suara (ID/EN) ditranskrip Whisper lokal,
+   *  diterjemahkan ke Indonesia bila perlu, lalu dibakar libass ke tiap part */
+  subtitleAktif: boolean;
+  /** v0.44.0 — ukuran huruf subtitle (px pada sisi terpendek 1080) */
+  subtitleUkuran: number;
+  /** v0.44.0 — posisi vertikal subtitle: persen tinggi frame titik BAWAH teks
+   *  (88 = 12% dari bawah) */
+  subtitleY: number;
   /** sudut penempatan logo — preset cepat (v0.8.0: posisi sebenarnya di logoX/logoY) */
   posisiLogo: PosisiLogo;
   /** v0.8.0 posisi BEBAS logo — persen dari frame, titik KIRI-ATAS logo (0–100) */
@@ -121,6 +129,11 @@ export const pengaturanDefault: Pengaturan = {
   deskripsiX: 50,
   deskripsiY: 80,
   logoId: "",
+  // v0.44.0 — subtitle AI otomatis: MATI bawaan (ekspor dgn AI menambah waktu
+  // analisis suara), ukuran 26 & posisi 12% dari bawah agar tidak menimpa teks lain
+  subtitleAktif: false,
+  subtitleUkuran: 26,
+  subtitleY: 88,
   posisiLogo: "kanan-bawah",
   // v0.8.0 posisi bebas logo — default ≈ kanan-bawah lama (kiri-atas logo)
   logoX: 81.5,

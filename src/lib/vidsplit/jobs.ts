@@ -1,7 +1,7 @@
 // VidSplit — manajer job ekspor ANTREAN: video diproses berurutan dari atas ke bawah,
 // di dalam tiap video part dirender paralel (pool 1-4 ffmpeg), progres dipolling API
 import { randomBytes } from "node:crypto";
-import { readdirSync, statSync, unlinkSync } from "node:fs";
+import { readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
 import {
@@ -14,6 +14,11 @@ import {
   type PilihanEncoder,
 } from "./ffmpeg";
 import { catatRiwayat } from "./riwayat";
+import {
+  bangunAssSubtitle,
+  siapkanSegmenSubtitle,
+  type SegmenSub,
+} from "./subtitle";
 import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tujuan";
 import { durasiEfektif, hitungPart, rentangPart, slugify, type CodecVideo, type Pengaturan } from "./types";
 
@@ -32,6 +37,8 @@ export interface StatusVideoAntrean {
   total: number;
   selesai: number;
   status: StatusVideo;
+  /** v0.44.0 — teks tahap khusus (mis. "Analisis suara AI… 12 dtk") saat status proses */
+  tahap?: string;
 }
 
 export interface InfoJob {
@@ -66,6 +73,8 @@ export interface InfoJob {
   folderTersimpan?: string | null;
   /** v0.6.4 — pesan peringatan bila penyalinan sebagian/total gagal */
   peringatanSalin?: string | null;
+  /** v0.44.0 — pesan peringatan subtitle AI (mis. penerjemah tidak tersedia) */
+  peringatanSubtitle?: string | null;
 }
 
 const jobs = new Map<string, InfoJob>();
@@ -195,7 +204,12 @@ export function mulaiEksporAntrean(
     };
 
     /** render SATU part dari video ke-vi */
-    const renderSatu = async (vi: number, it: ItemEkspor, n: number) => {
+    const renderSatu = async (
+      vi: number,
+      it: ItemEkspor,
+      n: number,
+      segmenSub: SegmenSub[] | null,
+    ) => {
       if (apakahBatal(id)) throw new Error("DIBATALKAN");
       const p = it.pengaturan;
       const enc = await ambilEnc(p);
@@ -228,6 +242,31 @@ export function mulaiEksporAntrean(
       const nama = `${slug}-part-${String(n).padStart(2, "0")}.mp4`;
       const keluar = path.join(folder, nama);
       const tag = `${id}-${vi}-${n}`;
+      // v0.44.0 — bangun berkas .ass subtitle utk part ini (bila subtitle aktif
+      // dan hasil analisis suara tersedia); waktu segmen RELATIF RENTANG TRIM
+      const pakaiBg = !!it.bgAbs;
+      let fileSub: string | null = null;
+      if (segmenSub && segmenSub.length) {
+        const ass = bangunAssSubtitle({
+          segmen: segmenSub,
+          // rentangPart: mulai ABSOLUT video → relatif trim = mulai - p.mulaiDetik
+          mulaiPartRel: mulai - p.mulaiDetik,
+          durasiPart: durasi,
+          offsetIntro: pakaiBg ? p.durasiIntro : 0,
+          W,
+          H,
+          ukuran: p.subtitleUkuran,
+          yPersen: p.subtitleY,
+        });
+        if (ass) {
+          fileSub = path.join(dirTmp, `${tag}-sub.ass`);
+          try {
+            writeFileSync(fileSub, ass, "utf8");
+          } catch {
+            fileSub = null;
+          }
+        }
+      }
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
         bg: it.bgAbs,
@@ -243,6 +282,7 @@ export function mulaiEksporAntrean(
         judulTxt: p.judul || "",
         partTxt: `${p.kataPart || "Part"} ${n}`,
         deskripsiTxt: p.deskripsi || "",
+        fileSub,
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -254,9 +294,14 @@ export function mulaiEksporAntrean(
         perbaruiProgres();
       }, ff.bin, (c) => daftarkanProses(id, c))
         .then(() => {
-          for (const akhiran of ["judul", "part", "deskripsi"]) {
+          for (const akhiran of ["judul", "part", "deskripsi", "sub"]) {
             try {
               unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
+            } catch {
+              /* abaikan */
+            }
+            try {
+              unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.ass`));
             } catch {
               /* abaikan */
             }
@@ -273,7 +318,7 @@ export function mulaiEksporAntrean(
 
     /** render semua part satu video — pool paralel; antrean video BERURUTAN.
      *  Bila video ini gagal, tandai gagal lalu antrean LANJUT ke video berikutnya. */
-    const renderVideo = async (vi: number, it: ItemEkspor) => {
+    const renderVideo = async (vi: number, it: ItemEkspor, segmenSub: SegmenSub[] | null) => {
       job.videoAktif = vi;
       job.antrean[vi].status = "proses";
       const nTotal = nTotalPerVideo[vi];
@@ -286,7 +331,7 @@ export function mulaiEksporAntrean(
           berikut += 1;
           if (n > nTotal || gagal) return;
           try {
-            await renderSatu(vi, it, n);
+            await renderSatu(vi, it, n, segmenSub);
           } catch (e) {
             // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
             if (apakahBatal(id)) return;
@@ -313,7 +358,51 @@ export function mulaiEksporAntrean(
 
     for (let vi = 0; vi < daftar.length; vi++) {
       if (apakahBatal(id)) break;
-      await renderVideo(vi, daftar[vi]);
+      const it = daftar[vi];
+      // v0.44.0 — SUBTITLE AI OTOMATIS: analisis suara SEKALI per video (dgn cache)
+      // sebelum render part. Gagal AI TIDAK menggagalkan ekspor — lanjut tanpa subtitle.
+      let segmenSub: SegmenSub[] | null = null;
+      if (it.pengaturan.subtitleAktif && it.info.adaAudio) {
+        const mulaiAi = Date.now();
+        const pemantau = setInterval(() => {
+          job.antrean[vi].tahap = `AI: analisis suara… ${Math.round((Date.now() - mulaiAi) / 1000)} dtk`;
+        }, 1000);
+        try {
+          const hasil = await siapkanSegmenSubtitle(
+            it.srcAbs,
+            it.pengaturan.mulaiDetik,
+            it.pengaturan.akhirDetik,
+            it.info.durasi,
+            ff.bin,
+            { onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; } },
+          );
+          if (hasil) {
+            segmenSub = hasil.segmen;
+            if (hasil.bahasa === "en" && !hasil.diterjemahkan && !job.peringatanSubtitle) {
+              job.peringatanSubtitle =
+                "Penerjemah EN→ID tidak tersedia — subtitle dipakai dalam bahasa Inggris asli";
+            }
+          } else if (!job.peringatanSubtitle) {
+            job.peringatanSubtitle =
+              "Mesin subtitle AI tidak tersedia (model tidak ditemukan) — video dirender tanpa subtitle";
+          }
+        } catch (e) {
+          if (!job.peringatanSubtitle) {
+            job.peringatanSubtitle = `Subtitle AI dilewati: ${
+              e instanceof Error ? e.message : String(e)
+            }`;
+          }
+        } finally {
+          clearInterval(pemantau);
+          delete job.antrean[vi].tahap;
+        }
+      } else if (it.pengaturan.subtitleAktif && !it.info.adaAudio) {
+        job.antrean[vi].tahap = undefined;
+        if (!job.peringatanSubtitle) {
+          job.peringatanSubtitle = `${it.nama}: tanpa track audio — subtitle AI dilewati`;
+        }
+      }
+      await renderVideo(vi, it, segmenSub);
     }
 
     // rapikan urutan akhir — slot menjaga posisi meski ada video yang gagal di tengah

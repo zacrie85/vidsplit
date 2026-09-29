@@ -15,6 +15,9 @@ assets/tts-piper/lib*.so*
 assets/tts-piper/espeak-ng
 assets/tts-piper/piper_phonemize
 
+# v0.44.0 — model AI subtitle otomatis diunduh saat build (jangan masuk git, ±350 MB)
+assets/ai-models/
+
 # berkas uji lokal & lockfile (CI pakai npm install)
 package-lock.json
 scripts/uji-mini.mp4

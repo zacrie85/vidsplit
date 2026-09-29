@@ -16,6 +16,10 @@ jobs:
       - name: Ambil kode
         uses: actions/checkout@v4
 
+      - name: Unduh model AI subtitle otomatis (Whisper-small + opus-mt EN→ID, q8)
+        shell: bash
+        run: bash scripts/unduh-model-ai.sh whisper-small
+
       - name: Pasang Node.js 22
         uses: actions/setup-node@v4
         with:

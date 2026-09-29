@@ -87,6 +87,10 @@ export function PanelEkspor({
         if (job.peringatanSalin) {
           toast.warning(job.peringatanSalin);
         }
+        // v0.44.0 — kabari peringatan subtitle AI (ekspor tetap sukses)
+        if (job.peringatanSubtitle) {
+          toast.warning(job.peringatanSubtitle);
+        }
       }
       if (job?.error && !job.selesaiSemua) toast.error(`Ekspor gagal: ${job.error}`);
       return;
@@ -375,9 +379,12 @@ export function PanelEkspor({
                   </button>
                 )}
                 <span className="shrink-0 text-[10px] opacity-80">
-                  {v.status === "proses"
-                    ? `${v.selesai}/${v.total} part`
-                    : LABEL_STATUS[v.status] ?? v.status}
+                  {/* v0.44.0 — tahap AI (analisis suara) menggantikan hitungan part sementara */}
+                  {v.status === "proses" && v.tahap
+                    ? v.tahap
+                    : v.status === "proses"
+                      ? `${v.selesai}/${v.total} part`
+                      : LABEL_STATUS[v.status] ?? v.status}
                 </span>
               </li>
             ))}
@@ -390,6 +397,11 @@ export function PanelEkspor({
           )}
           {job.error && (
             <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-300">{job.error}</p>
+          )}
+          {job.peringatanSubtitle && (
+            <p className="rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+              {job.peringatanSubtitle}
+            </p>
           )}
           {job.batalDiminta && !job.selesaiSemua && (
             <p className="flex items-center gap-1.5 rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">

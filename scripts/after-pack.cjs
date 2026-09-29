@@ -64,6 +64,36 @@ exports.default = async function afterPack(context) {
     console.log("[afterPack] onnxruntime-node (win32/x64 CPU) tersalin ke server/node_modules");
   }
 
+  // v0.44.0 — mesin subtitle AI: @huggingface/transformers + dependensi runtime-nya
+  // (sharp di-require EAGER oleh transformers Node build; jinja & tokenizers utk tokenizer)
+  const paketAi = [
+    "@huggingface/transformers",
+    "@huggingface/jinja",
+    "@huggingface/tokenizers",
+    "sharp",
+  ];
+  for (const nama of paketAi) {
+    const src = path.join(proyek, "node_modules", ...nama.split("/"));
+    if (!fs.existsSync(src)) {
+      throw new Error(`afterPack: paket ${nama} tidak ditemukan di node_modules — jalankan npm install dulu`);
+    }
+    fs.rmSync(path.join(nmServer, ...nama.split("/")), { recursive: true, force: true });
+    fs.cpSync(src, path.join(nmServer, ...nama.split("/")), { recursive: true, dereference: true });
+  }
+  // sharp memuat binari @img/* per platform — buang platform non-Windows (installer x64 saja)
+  const imgSrc = path.join(proyek, "node_modules", "@img");
+  if (fs.existsSync(imgSrc)) {
+    fs.rmSync(path.join(nmServer, "@img"), { recursive: true, force: true });
+    fs.cpSync(imgSrc, path.join(nmServer, "@img"), { recursive: true, dereference: true });
+    const imgDst = path.join(nmServer, "@img");
+    for (const d of fs.readdirSync(imgDst)) {
+      if (/linux|darwin|arm|musl|android|freebsd/i.test(d)) {
+        fs.rmSync(path.join(imgDst, d), { recursive: true, force: true });
+      }
+    }
+  }
+  console.log("[afterPack] @huggingface/transformers + sharp (win32/x64) tersalin ke server/node_modules");
+
   // taruh .next/static dan public tepat di sebelah server.js
   fs.cpSync(sumberStatic, path.join(target, ".next", "static"), { recursive: true, dereference: true });
   if (fs.existsSync(sumberPublic)) {
@@ -87,6 +117,15 @@ exports.default = async function afterPack(context) {
     path.join(target, "node_modules", "onnxruntime-node", "bin", "napi-v6", "win32", "x64", "onnxruntime_binding.node"),
     path.join(target, "node_modules", "onnxruntime-node", "bin", "napi-v6", "win32", "x64", "onnxruntime.dll"),
     path.join(target, "node_modules", "onnxruntime-common", "package.json"),
+    // v0.44.0 — model AI subtitle otomatis (Whisper ASR + penerjemah EN→ID) wajib ada
+    path.join(resDir, "ai-models", "onnx-community", "whisper-small", "onnx", "encoder_model_quantized.onnx"),
+    path.join(resDir, "ai-models", "onnx-community", "whisper-small", "onnx", "decoder_model_merged_quantized.onnx"),
+    path.join(resDir, "ai-models", "onnx-community", "whisper-small", "tokenizer.json"),
+    path.join(resDir, "ai-models", "Xenova", "opus-mt-en-id", "onnx", "encoder_model_quantized.onnx"),
+    path.join(resDir, "ai-models", "Xenova", "opus-mt-en-id", "onnx", "decoder_model_merged_quantized.onnx"),
+    path.join(resDir, "ai-models", "Xenova", "opus-mt-en-id", "tokenizer.json"),
+    path.join(target, "node_modules", "@huggingface", "transformers", "package.json"),
+    path.join(target, "node_modules", "sharp", "package.json"),
   ];
   const kurang = wajib.filter((p) => !fs.existsSync(p));
   if (kurang.length > 0) {

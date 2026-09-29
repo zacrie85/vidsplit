@@ -55,6 +55,10 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   if (!daftarFont.includes(p.gayaPart?.font)) p.gayaPart = { ...p.gayaPart, font: "tebal" };
   p.prosesParalel = clamp(p.prosesParalel, 1, 4, 2);
   p.pakaiGpu = p.pakaiGpu !== false;
+  // v0.44.0 — subtitle AI otomatis
+  p.subtitleAktif = p.subtitleAktif === true;
+  p.subtitleUkuran = clamp(p.subtitleUkuran, 10, 80, 26);
+  p.subtitleY = clamp(p.subtitleY, 30, 100, 88);
   return p;
 }
 

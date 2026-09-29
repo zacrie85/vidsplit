@@ -6,6 +6,7 @@
 import { useState } from "react";
 import {
   AlignLeft,
+  Captions,
   Copy,
   Crop,
   Droplets,
@@ -553,8 +554,81 @@ export function PanelDeskripsi({
   );
 }
 
-/* ============ 5 — BACKGROUND INTRO ============ */
+/* ============ 7 — SUBTITLE AI OTOMATIS ============ */
 
+export function PanelSubtitle({
+  pengaturan,
+  onChange,
+  nomorVideo,
+  onTerapkanSemua,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+  /** v0.44.0 — salin setelan subtitle video aktif ke SEMUA video */
+  onTerapkanSemua: () => void;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  return (
+    <Kartu
+      judul="7. Subtitle AI otomatis"
+      deskripsi={`Suara di video #${nomorVideo} dikenali AI lokal — teks Indonesia otomatis tampil di video hasil ekspor & split`}
+      ikon={<Captions className="h-4 w-4" />}
+    >
+      <button
+        type="button"
+        onClick={() => set("subtitleAktif", !pengaturan.subtitleAktif)}
+        className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
+          pengaturan.subtitleAktif
+            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+            : "border-slate-700 bg-slate-800/60 text-slate-400"
+        }`}
+      >
+        <span className="flex items-center gap-1.5">
+          <Captions className="h-3.5 w-3.5" />
+          Buat subtitle otomatis dari suara video
+        </span>
+        <span className="font-medium">{pengaturan.subtitleAktif ? "Aktif" : "Mati"}</span>
+      </button>
+      <p className="mt-1.5 text-[11px] text-slate-500">
+        Suara <b>Indonesia</b> &amp; <b>Inggris</b> didukung — Inggris diterjemahkan otomatis ke
+        Indonesia. 100% offline (AI di dalam aplikasi), tapi ekspor akan menganalisis suara dulu
+        (kurang lebih <b>1–2 menit per 10 menit video</b>) — video yang sama tak dianalisis ulang.
+      </p>
+      {pengaturan.subtitleAktif && (
+        <div className="mt-3 space-y-3">
+          <BarisSlider
+            label="Ukuran huruf subtitle"
+            nilai={pengaturan.subtitleUkuran}
+            min={10}
+            max={80}
+            onChange={(n) => set("subtitleUkuran", n)}
+          />
+          <BarisSlider
+            label="Posisi vertikal (naik ↔ turun)"
+            nilai={pengaturan.subtitleY}
+            min={30}
+            max={99}
+            onChange={(n) => set("subtitleY", n)}
+            fmt={(n) => `${n.toFixed(0)}%`}
+          />
+          <button
+            type="button"
+            onClick={onTerapkanSemua}
+            title="Salin setelan subtitle (aktif/ukuran/posisi) video ini ke SEMUA video"
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/60 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-amber-400 hover:text-amber-300"
+          >
+            <ListChecks className="h-3.5 w-3.5" />
+            Terapkan subtitle ini ke semua video
+          </button>
+        </div>
+      )}
+    </Kartu>
+  );
+}
+
+/* ============ 5 — BACKGROUND INTRO ============ */
 export function PanelBackground({
   pengaturan,
   onChange,

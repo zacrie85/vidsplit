@@ -24,6 +24,7 @@ import {
   PanelMode,
   PanelPart,
   PanelRingkasan,
+  PanelSubtitle,
   PanelWatermark,
 } from "@/components/vds/BagianAtur";
 import { Preview } from "@/components/vds/Preview";
@@ -479,6 +480,32 @@ export default function Halaman() {
     );
   };
 
+  // v0.44.0 — TERAPKAN SUBTITLE AI (aktif/ukuran/posisi) video aktif ke SEMUA video.
+  const terapkanSubtitleSemua = () => {
+    if (!videoAktif) return;
+    const s = videoAktif.pengaturan;
+    setDaftar((d) =>
+      d.map((v) => ({
+        ...v,
+        pengaturan: {
+          ...v.pengaturan,
+          subtitleAktif: s.subtitleAktif,
+          subtitleUkuran: s.subtitleUkuran,
+          subtitleY: s.subtitleY,
+        },
+      })),
+    );
+    setDasar((p) => ({
+      ...p,
+      subtitleAktif: s.subtitleAktif,
+      subtitleUkuran: s.subtitleUkuran,
+      subtitleY: s.subtitleY,
+    }));
+    toast.success(
+      `Subtitle AI ${s.subtitleAktif ? "AKTIF" : "MATI"} (ukuran ${s.subtitleUkuran}, posisi ${s.subtitleY}%) diterapkan ke SEMUA video (${daftar.length})`,
+    );
+  };
+
   const totalDurasi = daftar.reduce((a, v) => a + v.info.durasi, 0);
   const totalPart = daftar.reduce(
     (a, v) => a + Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart))),
@@ -505,7 +532,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.43.0
+            v0.44.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -775,6 +802,12 @@ export default function Halaman() {
                 lebarVideo={videoAktif.info.lebar}
                 tinggiVideo={videoAktif.info.tinggi}
                 onTerapkanUkuran={() => terapkanUkuranSemua("deskripsi")}
+              />
+              <PanelSubtitle
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+                onTerapkanSemua={terapkanSubtitleSemua}
               />
               <PanelBackground
                 pengaturan={videoAktif.pengaturan}
