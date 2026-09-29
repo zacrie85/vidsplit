@@ -141,13 +141,15 @@ function kutipFilter(s: string): string {
 }
 
 /** v0.44.0 — escape path utk nilai opsi filter `subtitles=` (pola musikJobs):
- *  aman utk drive Windows (C\:\…) — dipakai utk filename & fontsdir. */
-function escapePathFilter(p: string): string {
+ *  aman utk drive Windows (C\:\…) — dipakai utk filename & fontsdir.
+ *  v0.45.0 diekspor — juga dipakai API pratinjau subtitle. */
+export function escapePathFilter(p: string): string {
   return p.replaceAll("\\", "/").replaceAll(":", "\\:").replaceAll("'", "\\'");
 }
 
-/** Folder font pertama yang benar-benar ada (utk fontsdir libass) */
-function dirFontsSub(): string {
+/** Folder font pertama yang benar-benar ada (utk fontsdir libass).
+ *  v0.45.0 diekspor — juga dipakai API pratinjau subtitle. */
+export function dirFontsSub(): string {
   const kandidat = [
     process.env.VIDSPLIT_FONTS,
     path.join(process.cwd(), "assets", "fonts"),

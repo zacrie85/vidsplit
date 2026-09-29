@@ -2,6 +2,7 @@
 
 // VidSplit — halaman utama: gerbang password → antrean multi-video (maks 100, v0.43.0) →
 // atur tiap video → ekspor & split BERURUTAN dari video teratas sampai terbawah
+// v0.45.0 — pratinjau subtitle AI: keping 15 dtk + transkrip tampil SEBELUM ekspor
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -532,7 +533,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.44.0
+            v0.45.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -808,6 +809,8 @@ export default function Halaman() {
                 onChange={gantiPengaturanAktif}
                 nomorVideo={aktif + 1}
                 onTerapkanSemua={terapkanSubtitleSemua}
+                fileRel={videoAktif.info.file}
+                adaAudio={videoAktif.info.adaAudio}
               />
               <PanelBackground
                 pengaturan={videoAktif.pengaturan}

@@ -3,13 +3,14 @@
 // VidSplit — v0.9.0: bagian-bagian pengaturan yang DIPISAH per kartu agar bebas
 // ditempatkan di layout 3 kolom (kiri: mode/judul/part, kanan: background/logo/ringkasan).
 // Isi masing-masing kartu IDENTIK dengan PanelAtur lama — hanya tata letak yang berubah.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlignLeft,
   Captions,
   Copy,
   Crop,
   Droplets,
+  Eye,
   Film,
   Image as ImageIcon,
   ListChecks,
@@ -40,6 +41,7 @@ import {
   type Pengaturan,
   type Resolusi,
 } from "@/lib/vidsplit/types";
+import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
 import { PratinjauLogo } from "./PratinjauLogo";
@@ -556,20 +558,94 @@ export function PanelDeskripsi({
 
 /* ============ 7 — SUBTITLE AI OTOMATIS ============ */
 
+/** Bentuk jawaban /api/subtitle-preview (v0.45.0) — cocok dgn route.ts. */
+interface HasilPratinjauSub {
+  ok: boolean;
+  klip?: string;
+  durasiKlip?: number;
+  bahasa?: string;
+  diterjemahkan?: boolean;
+  jumlahSegmen?: number;
+  segmen?: Array<{ a: number; b: number; t: string }>;
+  alasan?: string;
+  pesan?: string;
+}
+
+const BATAS_TAMPIL_TEKS = 12;
+
 export function PanelSubtitle({
   pengaturan,
   onChange,
   nomorVideo,
   onTerapkanSemua,
+  fileRel,
+  adaAudio,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
   nomorVideo: number;
   /** v0.44.0 — salin setelan subtitle video aktif ke SEMUA video */
   onTerapkanSemua: () => void;
+  /** v0.45.0 — path relatif video aktif di work/ ("" pada mode tertentu) */
+  fileRel: string;
+  /** v0.45.0 — video aktif punya trek audio? (tanpa suara tak bisa dibuatkan teks) */
+  adaAudio: boolean;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
+
+  // ---- v0.45.0 — PRATINJAU SUBTITLE: keping ±15 dtk dgn teks terbakar + transkrip
+  const [pratinjauSibuk, setPratinjauSibuk] = useState(false);
+  const [detikJalan, setDetikJalan] = useState(0);
+  const [hasil, setHasil] = useState<HasilPratinjauSub | null>(null);
+  const [lihatSemua, setLihatSemua] = useState(false);
+  const tetapHidup = useRef(true);
+  useEffect(() => {
+    tetapHidup.current = true;
+    return () => {
+      tetapHidup.current = false;
+    };
+  }, []);
+  // penghitung detik berjalan saat analisis AI (analisis video panjang butuh waktu)
+  useEffect(() => {
+    if (!pratinjauSibuk) return;
+    setDetikJalan(0);
+    const i = setInterval(() => setDetikJalan((d) => d + 1), 1000);
+    return () => clearInterval(i);
+  }, [pratinjauSibuk]);
+  // setelan yang mempengaruhi tampilan subtitle berubah → hasil lama tak lagi valid
+  useEffect(() => {
+    setHasil(null);
+    setLihatSemua(false);
+  }, [pengaturan.subtitleUkuran, pengaturan.subtitleY, pengaturan.mulaiDetik, pengaturan.akhirDetik]);
+
+  const jalankanPratinjau = async () => {
+    if (pratinjauSibuk || !fileRel) return;
+    setPratinjauSibuk(true);
+    setHasil(null);
+    try {
+      const r = await fetch("/api/subtitle-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: fileRel, pengaturan }),
+      });
+      const j = (await r.json()) as HasilPratinjauSub;
+      if (tetapHidup.current) setHasil(j);
+    } catch (e) {
+      if (tetapHidup.current) {
+        setHasil({
+          ok: false,
+          pesan: e instanceof Error ? e.message : "Koneksi ke server terputus",
+        });
+      }
+    } finally {
+      if (tetapHidup.current) setPratinjauSibuk(false);
+    }
+  };
+
+  const segmenTampil = (hasil?.segmen || []).slice(0, lihatSemua ? 60 : BATAS_TAMPIL_TEKS);
+  const sisa = (hasil?.segmen?.length || 0) - segmenTampil.length;
+
   return (
     <Kartu
       judul="7. Subtitle AI otomatis"
@@ -622,6 +698,95 @@ export function PanelSubtitle({
             <ListChecks className="h-3.5 w-3.5" />
             Terapkan subtitle ini ke semua video
           </button>
+
+          {/* ---- v0.45.0 PRATINJAU: bukti subtitle sebelum ekspor ---- */}
+          <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5">
+            <button
+              type="button"
+              onClick={jalankanPratinjau}
+              disabled={pratinjauSibuk || !fileRel}
+              title={
+                !fileRel
+                  ? "Video belum termuat"
+                  : "Analisis suara + render 15 detik pertama dengan subtitle terbakar (hasil analisis di-cache — ekspor nanti tidak menghitung ulang)"
+              }
+              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 py-1.5 text-[11px] font-medium text-sky-300 transition enabled:hover:border-sky-400 enabled:hover:text-sky-200 disabled:opacity-50"
+            >
+              <Eye className="h-3.5 w-3.5" />
+              {pratinjauSibuk
+                ? `Pratinjau subtitle… ${detikJalan} dtk`
+                : "Pratinjau subtitle (15 detik pertama)"}
+            </button>
+            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+              Melihat dulu hasilnya sebelum ekspor: video kecil dengan subtitle terbakar + daftar
+              teksnya. Analisis AI di-cache — ekspor nanti <b>tidak menghitung ulang</b>.
+              {pratinjauSibuk && " Video panjang butuh beberapa menit — biarkan terbuka."}
+            </p>
+
+            {hasil && !hasil.ok && (
+              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
+                {hasil.pesan ||
+                  (hasil.alasan === "audio"
+                    ? "Video ini tidak punya suara."
+                    : hasil.alasan === "model"
+                      ? "Mesin AI tidak ditemukan."
+                      : "Pratinjau gagal — coba lagi.")}
+              </p>
+            )}
+
+            {hasil?.ok && hasil.klip && (
+              <div className="mt-2 space-y-2">
+                <video
+                  key={hasil.klip}
+                  controls
+                  playsInline
+                  className="max-h-96 w-full rounded-lg border border-slate-700 bg-black"
+                  src={`/api/file?p=${encodeURIComponent(hasil.klip)}`}
+                />
+                <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
+                  <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-300">
+                    Subtitle ADA ✓
+                  </span>
+                  <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-slate-300">
+                    {(hasil.bahasa === "en"
+                      ? hasil.diterjemahkan
+                        ? "Suara Inggris → teks Indonesia"
+                        : "Suara Inggris (penerjemah tidak tersedia)"
+                      : "Suara Indonesia")}
+                  </span>
+                  <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-slate-400">
+                    {hasil.jumlahSegmen || 0} baris teks di seluruh video
+                  </span>
+                </div>
+                {segmenTampil.length > 0 && (
+                  <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-slate-700/60 bg-slate-900/60 p-2">
+                    {segmenTampil.map((s, i) => (
+                      <div key={i} className="flex gap-2 text-[11px] leading-snug">
+                        <span className="shrink-0 font-mono text-[10px] text-sky-400/80">
+                          {formatWaktuSub(s.a)}–{formatWaktuSub(s.b)}
+                        </span>
+                        <span className="text-slate-300">{s.t}</span>
+                      </div>
+                    ))}
+                    {sisa > 0 && !lihatSemua && (
+                      <button
+                        type="button"
+                        onClick={() => setLihatSemua(true)}
+                        className="text-[10px] font-medium text-sky-400 hover:text-sky-300"
+                      >
+                        +{sisa} baris lainnya — tampilkan semua
+                      </button>
+                    )}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-500">
+                  Keping pratinjau = gaya persis hasil ekspor (ukuran {pengaturan.subtitleUkuran},
+                  posisi {pengaturan.subtitleY}%). Di ekspor, teks ini terbakar ke SEMUA part
+                  mengikuti suara di setiap bagian video.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </Kartu>
