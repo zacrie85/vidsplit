@@ -14,7 +14,7 @@ export interface BingkaiBawaan {
   label: string;
 }
 
-/** 12 frame bawaan v0.47.0 — 10 reguler tipis + 2 spesial bertema */
+/** 14 frame bawaan v0.49.0 — 10 reguler tipis + 4 spesial bertema */
 export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "garis-emas", label: "Garis Emas" },
   { slug: "perak-minimal", label: "Perak Minimalis" },
@@ -28,6 +28,8 @@ export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "emerald-alam", label: "Emerald Alam" },
   { slug: "dangdut-idola-desa", label: "★ Dangdut Idola Desa" },
   { slug: "horor-alam-gaib", label: "★ Horor Alam Gaib" },
+  { slug: "dangdut-idola-desa-2", label: "★ Dangdut Idola Desa 2 — Panggung Emas" },
+  { slug: "horor-alam-gaib-2", label: "★ Horor Alam Gaib 2 — Bulan Sabit" },
 ];
 
 export function adalahSlugBawaan(slug: string): boolean {

@@ -5,7 +5,7 @@
 // teks (DANGDUT IDOLA DESA / HOROR ALAM GAIB) tampil PENUH tanpa ter-crop.
 // Untuk ffmpeg (pathAman membatasi di work/), varian terpilih DICOPY sekali
 // ke work/upload/bawaan-<slug>-<rasio>.png — cache permanen per instalasi.
-import { copyFileSync, existsSync } from "node:fs";
+import { copyFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { dirWork } from "./ffmpeg";
 import { adalahSlugBawaan } from "./bingkaiBawaan";
@@ -43,7 +43,17 @@ export function siapkanBingkai(frameId: string, lanskap = false): string | null 
       if (!asal || !existsSync(asal)) return null;
       const nama = path.basename(asal);
       const tujuan = path.join(dirWork("upload"), `bawaan-${nama}`);
-      if (!existsSync(tujuan)) copyFileSync(asal, tujuan);
+      // v0.49.0 — salin ulang bila ukuran sumber berubah (PNG frame diperbarui
+      // oleh rilis baru tidak lagi terjebak cache lama).
+      let perluSalin = true;
+      if (existsSync(tujuan)) {
+        try {
+          perluSalin = statSync(tujuan).size !== statSync(asal).size;
+        } catch {
+          perluSalin = true;
+        }
+      }
+      if (perluSalin) copyFileSync(asal, tujuan);
       return tujuan;
     }
     if (id.startsWith("upload/")) {
