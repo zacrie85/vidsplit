@@ -9,6 +9,7 @@ import {
   DAFTAR_WARNA_NEON,
   PALET_NEON,
   buatPathBulat,
+  kunciCacheNeon,
   lapDetik,
   rapikanNeon,
   rencanaSequence,
@@ -119,6 +120,36 @@ ok(kacau.kecepatan === 3, "kecepatan clamp 3", String(kacau.kecepatan));
 ok(kacau.aktif === true && kacau.duaGaris === true, "truthy → true");
 const kosong = rapikanNeon(undefined);
 ok(JSON.stringify(kosong) === JSON.stringify(NEON_BAWAAN), "undefined → bawaan");
+
+/* (f) v0.48.0 — CINCIN PENUH TERANG: keluhan user "garis hanya ada di sisi
+ * sebelah saja, bawah & kiri tidak ada" — cincin dasar WAJIB terang penuh
+ * (bukan samar 0.26) di KEEMPAT sisi, semua rasio & semua warna. */
+for (const rasio of [
+  { nama: "9:16", W: 1080, H: 1920 },
+  { nama: "16:9", W: 1920, H: 1080 },
+]) {
+  for (const warna of ["cyan", "amber", "rainbow"] as const) {
+    for (const progres of [0, 0.13, 0.5, 0.79]) {
+      const svg = svgFrameNeon({ W: rasio.W, H: rasio.H, setelan: { ...NEON_BAWAAN, aktif: true, warna }, progres });
+      const m = NEON_BAWAAN.tebal * (Math.min(rasio.W, rasio.H) / 1080) * 3.6 + 12;
+      // cincin badan: lebar = tebal, blur g2; opasitas ~1 (rainbow 0.98, solid 1)
+      const tebalPx = NEON_BAWAAN.tebal * (Math.min(rasio.W, rasio.H) / 1080);
+      const badan =
+        warna === "rainbow"
+          ? `stroke-width="${tebalPx.toFixed(2)}" opacity="0.98" filter="url(#g2)"`
+          : `stroke-width="${tebalPx.toFixed(2)}" opacity="1" filter="url(#g2)"`;
+      ok(svg.includes(badan), `cincin badan penuh ${rasio.nama} ${warna} p${progres}`);
+      // 3 lapis cincin ada (glow + badan + inti) = 3 path dPathBulat
+      const hitung = (svg.match(/<path d="M \d/g) || []).length; // path bulat utama
+      ok(hitung >= 3, `3 lapis cincin ${rasio.nama} ${warna} p${progres}`, String(hitung));
+      ok(svg.includes(`translate(${m.toFixed(2)}`), `margin translate ${rasio.nama} p${progres}`);
+      ok(!svg.includes("NaN"), `SVG tanpa NaN ${rasio.nama} ${warna} p${progres}`);
+    }
+  }
+}
+// kunci cache naik ke v48 (cache lama bingkai samar tak boleh terpakai)
+ok(kunciCacheNeon(540, 960, NEON_BAWAAN).endsWith("v48"), "kunciCacheNeon v48");
+ok(svgFrameNeon({ W: 1080, H: 1920, setelan: { ...NEON_BAWAAN, aktif: true }, progres: 0 }).includes('opacity="1" filter="url(#g2)"'), "cincin badan opasitas penuh (terang)");
 
 console.log(`\n=== uji-neon: ${lolos} LOLOS, ${gagal} GAGAL ===`);
 if (gagal > 0) process.exit(1);

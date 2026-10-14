@@ -11,8 +11,15 @@
 // MENEMPEL tepi kiri-atas (garis terpotong setengah di tepi video 9:16 & 16:9).
 // Kini seluruh lapisan dibungkus <g transform="translate(m m)"> + margin glow
 // diperbesar sehingga bingkai simetris & glow tak terpotong di SEMUA rasio.
-// v0.47.0 — UPGRADE: garis dasar samar (base ring) mengelilingi penuh — bingkai
-// SELALU terlihat utuh di semua sisi, komet terang berputar di atasnya.
+//
+// v0.48.0 — PERBAIKAN BUG FINAL (laporan user + 2 gambar referensi: "garis hanya
+// ada di sisi sebelah saja, sisi bawah dan kiri tidak ada"): cincin dasar v0.47
+// (opasitas 0.26) TERLALU SAMAR — lenyap ditelan video terang, sehingga yang
+// terlihat hanya segmen komet (30% keliling) → user menyangka bingkai patah.
+// Terukur piksel: sisi komet alpha 255, sisi lain alpha 66/255. SOLUSI:
+// CINCIN PENUH TERANG 3 lapis (glow + badan + inti, opasitas ±1) SELALU tampil
+// utuh di keempat sisi pada SEMUA rasio & warna; komet tetap berputar di atasnya
+// sbg sorotan (kepala putih + ekor memudar). Rainbow = gradien berputar.
 //
 // Modul ini dipakai DUA sisi sekaligus agar pratinjau = hasil ekspor:
 //   • browser (Preview.tsx)  — SVG digambar ulang per frame via requestAnimationFrame
@@ -327,16 +334,23 @@ export function svgFrameNeon(opsi: OpsiSvgNeon): string {
       )
       .join("");
 
-  // v0.47.0 — GARIS DASAR samar: bingkai selalu tampil PENUH di semua sisi
-  // (keluhan: komet hanya 30% keliling sehingga frame "tidak tampil semua").
-  const dasarTebal = Math.max(1.5, tebalPx * 0.55);
-  const dasarOpasitas = 0.26;
-  const lapisanDasar =
+  // v0.48.0 — CINCIN PENUH TERANG (3 lapis, tampil UTUH di keempat sisi):
+  //   1. glow  — blur lebar warna glow, menyalakan tepi bingkai
+  //   2. badan — warna dasar setebal tebal (garis neon utama)
+  //   3. inti  — garis hampir-putih tipis di tengah badan (kesan tabung neon)
+  // Keluhan user terjawab: bingkai TIDAK AKAN pernah "hanya satu sisi" lagi.
+  const cincinGlow =
     setelan.warna === "rainbow"
-      ? `<path d="${dPathBulat(p)}" fill="none" stroke="url(#rb)" stroke-width="${dasarTebal.toFixed(2)}" opacity="${dasarOpasitas}"/>`
-      : `<path d="${dPathBulat(p)}" fill="none" stroke="${palet.dasar}" stroke-width="${dasarTebal.toFixed(2)}" opacity="${dasarOpasitas}"/>`;
+      ? `<path d="${dPathBulat(p)}" fill="none" stroke="url(#rb)" stroke-width="${(tebalPx * 2.6).toFixed(2)}" opacity="0.55" filter="url(#g1)"/>`
+      : `<path d="${dPathBulat(p)}" fill="none" stroke="${palet.glow}" stroke-width="${(tebalPx * 2.6).toFixed(2)}" opacity="0.62" filter="url(#g1)"/>`;
+  const cincinBadan =
+    setelan.warna === "rainbow"
+      ? `<path d="${dPathBulat(p)}" fill="none" stroke="url(#rb)" stroke-width="${tebalPx.toFixed(2)}" opacity="0.98" filter="url(#g2)"/>`
+      : `<path d="${dPathBulat(p)}" fill="none" stroke="${palet.dasar}" stroke-width="${tebalPx.toFixed(2)}" opacity="1" filter="url(#g2)"/>`;
+  const cincinInti = `<path d="${dPathBulat(p)}" fill="none" stroke="${setelan.warna === "rainbow" ? "#ffffff" : palet.inti}" stroke-width="${(tebalPx * 0.42).toFixed(2)}" opacity="0.85"/>`;
 
-  // 3 lapis: cahaya luar (blur lebar), tubuh (blur tipis), inti tajam
+  // 3 lapis komet di atas cincin: cahaya luar (blur lebar), tubuh (blur tipis),
+  // inti tajam — kepala putih-terang + ekor memudar sebagai SOROTAN berputar.
   // v0.47.0 — SEMUA digambar dalam <g translate(m m)>: koordinat path mulai
   // (0,0) → tanpa offset dulu bingkai menempel tepi kiri-atas (BUG TERPOTONG).
   const svg =
@@ -344,14 +358,16 @@ export function svgFrameNeon(opsi: OpsiSvgNeon): string {
     `<defs>` +
     `<filter id="g1" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="${(tebalPx * 1.1).toFixed(2)}"/></filter>` +
     `<filter id="g2" x="-15%" y="-15%" width="130%" height="130%"><feGaussianBlur stdDeviation="${(tebalPx * 0.28).toFixed(2)}"/></filter>` +
-    `<linearGradient id="rb" x1="0" y1="0" x2="1" y2="1">` +
+    `<linearGradient id="rb" x1="0" y1="0" x2="1" y2="1" gradientTransform="rotate(${(progres * 360).toFixed(1)} 0.5 0.5)">` +
     [0, 60, 120, 180, 240, 300]
       .map((h) => `<stop offset="${((h / 360) * 100).toFixed(0)}%" stop-color="${hslKeHex(h, 0.95, 0.6)}"/>`)
       .join("") +
     `</linearGradient>` +
     `</defs>` +
     `<g transform="translate(${m.toFixed(2)} ${m.toFixed(2)})">` +
-    lapisanDasar +
+    cincinGlow +
+    cincinBadan +
+    cincinInti +
     // glow memakai warna glow solid; rainbow glow = potongan dgn blur besar
     (setelan.warna === "rainbow"
       ? `<g filter="url(#g1)">${renderLapisan(komet1, 2.5, 0.5)}${renderLapisan(komet2, 2.5, 0.5)}</g>`
@@ -365,5 +381,5 @@ export function svgFrameNeon(opsi: OpsiSvgNeon): string {
 
 /** Kunci cache sequence neon — semua parameter yang mengubah gambar */
 export function kunciCacheNeon(W: number, H: number, setelan: SetelanNeon): string {
-  return [W, H, setelan.warna, setelan.tebal, setelan.kecepatan, setelan.duaGaris ? 1 : 0, "v47"].join("-");
+  return [W, H, setelan.warna, setelan.tebal, setelan.kecepatan, setelan.duaGaris ? 1 : 0, "v48"].join("-");
 }

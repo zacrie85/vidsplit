@@ -38,7 +38,7 @@ export async function siapkanSequenceNeon(
   const wKecil = Math.max(2, Math.round(W / 2 / 2) * 2);
   const hKecil = Math.max(2, Math.round(H / 2 / 2) * 2);
   const kunci = createHash("sha1")
-    .update(`${kunciCacheNeon(wKecil, hKecil, setelan)}|v2`)
+    .update(`${kunciCacheNeon(wKecil, hKecil, setelan)}|v3`)
     .digest("hex")
     .slice(0, 16);
   const dir = path.join(dirWork("neon"), kunci);
