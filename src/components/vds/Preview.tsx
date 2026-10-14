@@ -3,8 +3,10 @@
 // VidSplit — pratinjau live: video 9:16 + overlay judul & Part berganti otomatis
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
-import { formatDurasi, FONT_CSS, type Pengaturan } from "@/lib/vidsplit/types";
+import { formatDurasi, FONT_CSS, neonDari, urlBingkai, type Pengaturan } from "@/lib/vidsplit/types";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
+import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
+import { LapisanNeon } from "@/components/vds/Neon";
 
 export function Preview({
   srcUrl,
@@ -57,10 +59,13 @@ export function Preview({
   const ukuranPart = `${(pengaturan.gayaPart.ukuran / 1080) * 100}cqw`;
   const ukuranDeskripsi = `${(pengaturan.gayaDeskripsi.ukuran / 1080) * 100}cqw`;
   const posisi = pengaturan.posisiTeks;
+  // v0.46.0 — mode template + setelan neon & frame
+  const modeTemplate = pengaturan.mode === "template";
+  const neon = neonDari(pengaturan);
   // mode "asli": bingkai pratinjau mengikuti rasio sumber, bukan 9:16
   // v0.8.0 — pratinjau 3× lebih lebar (280→840) + tinggi proporsional ke bawah;
   // landscape/square ikut lebih lega
-  const modeAsli = pengaturan.mode === "asli" && lebar > 0 && tinggi > 0;
+  const modeAsli = !modeTemplate && pengaturan.mode === "asli" && lebar > 0 && tinggi > 0;
   const rasioBingkai = modeAsli ? `${lebar} / ${tinggi}` : "9 / 16";
   // v0.9.0 — pratinjau tinggal di KOLOM TENGAH layout 3 kolom (50%):
   // · potret (9:16 / sumber vertikal) dibatasi TINGGI layar (76vh) agar dashboard
@@ -73,8 +78,21 @@ export function Preview({
   // dulu pratinjau melipat via CSS (teks bergeser ke bawah) tapi hasil ekspor tetap
   // 1 baris lurus → terpotong kiri-kanan. Kini kedua sisi memakai baris yang identik
   // (whitespace-pre = CSS tidak melipat ulang), jadi pratinjau = hasil ekspor.
-  const wWrap = modeAsli ? lebar : 1080;
+  const wWrap = modeAsli ? lebar : modeTemplate ? Math.round((1080 * TATA_TEMPLATE.judul.w) / 100) : 1080;
   const hWrap = modeAsli ? tinggi : 1920;
+  // px viewBox neon: kanvas penuh / kotak video (template) / rasio asli
+  const neonKotak = kotakKePx(TATA_TEMPLATE.video, 1080, 1920);
+  const neonW = modeTemplate ? neonKotak.w : modeAsli ? lebar : 1080;
+  const neonH = modeTemplate ? neonKotak.h : modeAsli ? tinggi : 1920;
+  const gayaNeon: React.CSSProperties = modeTemplate
+    ? {
+        left: `${TATA_TEMPLATE.video.x}%`,
+        top: `${TATA_TEMPLATE.video.y}%`,
+        width: `${TATA_TEMPLATE.video.w}%`,
+        height: `${TATA_TEMPLATE.video.h}%`,
+        zIndex: 15,
+      }
+    : { inset: 0, zIndex: 15 };
   const judulB = bungkusTeksRender(pengaturan.judul, pengaturan.gayaJudul, wWrap, hWrap, 12);
   const partB = bungkusTeksRender(
     `${pengaturan.kataPart} ${partKini}`.trim(),
@@ -147,7 +165,121 @@ export function Preview({
               : { containerType: "inline-size", aspectRatio: rasioBingkai }
           }
         >
-          {pengaturan.mode === "asli" ? (
+          {modeTemplate ? (
+            <>
+              <div
+                aria-hidden
+                className="absolute inset-0"
+                style={{ background: `linear-gradient(135deg, ${pengaturan.templateGrad1}, ${pengaturan.templateGrad2})` }}
+              />
+              {/* kotak judul — teks judul di dalamnya */}
+              <div
+                className="absolute flex items-center justify-center overflow-hidden bg-white/95 px-[3cqw] text-center"
+                style={{
+                  left: `${TATA_TEMPLATE.judul.x}%`,
+                  top: `${TATA_TEMPLATE.judul.y}%`,
+                  width: `${TATA_TEMPLATE.judul.w}%`,
+                  height: `${TATA_TEMPLATE.judul.h}%`,
+                  borderRadius: `${(TATA_TEMPLATE.judul.radius / 1080) * 100}cqw`,
+                }}
+              >
+                {pengaturan.judul.trim() && (
+                  <p
+                    className="teks-stroke whitespace-pre font-bold leading-tight"
+                    style={
+                      {
+                        fontSize: ukuranJudul,
+                        fontFamily: FONT_CSS[pengaturan.gayaJudul.font],
+                        color: pengaturan.gayaJudul.warna,
+                        "--stroke-w": `${(pengaturan.gayaJudul.outlineLebar / 1080) * 100}cqw`,
+                        "--stroke-color": pengaturan.gayaJudul.outlineWarna,
+                      } as React.CSSProperties
+                    }
+                  >
+                    {judulB}
+                  </p>
+                )}
+              </div>
+              {/* jendela video — video tampil DI DALAM kotak tengah */}
+              <div
+                className="absolute overflow-hidden bg-white/95"
+                style={{
+                  left: `${TATA_TEMPLATE.video.x}%`,
+                  top: `${TATA_TEMPLATE.video.y}%`,
+                  width: `${TATA_TEMPLATE.video.w}%`,
+                  height: `${TATA_TEMPLATE.video.h}%`,
+                  borderRadius: `${(TATA_TEMPLATE.video.radius / 1080) * 100}cqw`,
+                }}
+              >
+                <video
+                  ref={refV}
+                  src={srcUrl}
+                  className="h-full w-full object-contain"
+                  muted={bisu}
+                  onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
+                  onPlay={() => setJeda(false)}
+                  onPause={() => setJeda(true)}
+                  playsInline
+                />
+              </div>
+              {/* kotak deskripsi */}
+              <div
+                className="absolute flex items-center justify-center overflow-hidden bg-white/95 px-[3cqw] text-center"
+                style={{
+                  left: `${TATA_TEMPLATE.deskripsi.x}%`,
+                  top: `${TATA_TEMPLATE.deskripsi.y}%`,
+                  width: `${TATA_TEMPLATE.deskripsi.w}%`,
+                  height: `${TATA_TEMPLATE.deskripsi.h}%`,
+                  borderRadius: `${(TATA_TEMPLATE.deskripsi.radius / 1080) * 100}cqw`,
+                }}
+              >
+                {pengaturan.deskripsi.trim() && (
+                  <p
+                    className="teks-stroke whitespace-pre font-bold leading-snug"
+                    style={
+                      {
+                        fontSize: ukuranDeskripsi,
+                        fontFamily: FONT_CSS[pengaturan.gayaDeskripsi.font],
+                        color: pengaturan.gayaDeskripsi.warna,
+                        "--stroke-w": `${(pengaturan.gayaDeskripsi.outlineLebar / 1080) * 100}cqw`,
+                        "--stroke-color": pengaturan.gayaDeskripsi.outlineWarna,
+                      } as React.CSSProperties
+                    }
+                  >
+                    {deskripsiB}
+                  </p>
+                )}
+              </div>
+              {/* kotak Part — kecil kiri bawah (sketsa user) */}
+              <div
+                className="absolute flex items-center justify-center overflow-hidden bg-white/95 text-center"
+                style={{
+                  left: `${TATA_TEMPLATE.part.x}%`,
+                  top: `${TATA_TEMPLATE.part.y}%`,
+                  width: `${TATA_TEMPLATE.part.w}%`,
+                  height: `${TATA_TEMPLATE.part.h}%`,
+                  borderRadius: `${(TATA_TEMPLATE.part.radius / 1080) * 100}cqw`,
+                }}
+              >
+                {pengaturan.kataPart.trim() && (
+                  <p
+                    className="teks-stroke whitespace-pre font-bold leading-tight"
+                    style={
+                      {
+                        fontSize: ukuranPart,
+                        fontFamily: FONT_CSS[pengaturan.gayaPart.font],
+                        color: pengaturan.gayaPart.warna,
+                        "--stroke-w": `${(pengaturan.gayaPart.outlineLebar / 1080) * 100}cqw`,
+                        "--stroke-color": pengaturan.gayaPart.outlineWarna,
+                      } as React.CSSProperties
+                    }
+                  >
+                    {partB}
+                  </p>
+                )}
+              </div>
+            </>
+          ) : pengaturan.mode === "asli" ? (
             <video
               ref={refV}
               src={srcUrl}
@@ -203,12 +335,26 @@ export function Preview({
               />
             </>
           )}
-          {susunTeks}
+          {/* v0.46.0 — frame hiasan: video terlihat lewat jendela transparan
+              (mode template memakai halaman desainnya sendiri — frame dilewati) */}
+          {pengaturan.frameId && !modeTemplate && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={urlBingkai(pengaturan.frameId)}
+              alt=""
+              aria-hidden
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+              style={{ zIndex: 14 }}
+            />
+          )}
+          {/* v0.46.0 — frame neon berputar (komet bercahaya) */}
+          <LapisanNeon setelan={neon} W={neonW} H={neonH} gayaPosisi={gayaNeon} />
+          {!modeTemplate && susunTeks}
           {/* v0.39.0 — deskripsi posisi bebas di pratinjau live (non-interaktif;
               seret lewat kartu 4. Tulis Deskripsi). Titik jangkar sama dgn render:
               X = tengah blok teks, Y = atas blok teks. v0.42.0 — teks terbungkus
               sama dgn render (whitespace-pre, tanpa lipat CSS ulang). */}
-          {pengaturan.deskripsi.trim() && (
+          {!modeTemplate && pengaturan.deskripsi.trim() && (
             <p
               className="teks-stroke pointer-events-none absolute z-10 whitespace-pre leading-snug"
               style={

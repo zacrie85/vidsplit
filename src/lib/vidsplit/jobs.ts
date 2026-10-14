@@ -13,6 +13,7 @@ import {
   type InfoVideo,
   type PilihanEncoder,
 } from "./ffmpeg";
+import { siapkanBingkai } from "./bingkai";
 import { catatRiwayat } from "./riwayat";
 import {
   bangunAssSubtitle,
@@ -20,7 +21,20 @@ import {
   type SegmenSub,
 } from "./subtitle";
 import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tujuan";
-import { durasiEfektif, hitungPart, rentangPart, slugify, type CodecVideo, type Pengaturan } from "./types";
+import { siapkanSequenceNeon } from "./neonRender";
+import { siapkanLatarTemplate } from "./templatRender";
+import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
+import type { SeqNeon } from "./ffmpeg";
+import {
+  durasiEfektif,
+  hitungPart,
+  neonDari,
+  rentangPart,
+  slugify,
+  templatDari,
+  type CodecVideo,
+  type Pengaturan,
+} from "./types";
 
 export interface KeluaranJob {
   /** nama video asal (nama file sumber) */
@@ -104,6 +118,8 @@ export interface ItemEkspor {
   bgAbs: string | null;
   /** logo watermark (path absolut) atau null */
   logoAbs: string | null;
+  /** v0.46.0 — frame hiasan (path absolut) atau null */
+  frameAbs?: string | null;
   pengaturan: Pengaturan;
   info: InfoVideo;
 }
@@ -209,6 +225,7 @@ export function mulaiEksporAntrean(
       it: ItemEkspor,
       n: number,
       segmenSub: SegmenSub[] | null,
+      aset46: { neon: SeqNeon | null; templatBg: string | null },
     ) => {
       if (apakahBatal(id)) throw new Error("DIBATALKAN");
       const p = it.pengaturan;
@@ -271,6 +288,9 @@ export function mulaiEksporAntrean(
         src: it.srcAbs,
         bg: it.bgAbs,
         logo: it.logoAbs,
+        frameAbs: it.frameAbs ?? null,
+        neon: aset46.neon,
+        templatBg: aset46.templatBg,
         pengaturan: p,
         n,
         mulai,
@@ -318,7 +338,12 @@ export function mulaiEksporAntrean(
 
     /** render semua part satu video — pool paralel; antrean video BERURUTAN.
      *  Bila video ini gagal, tandai gagal lalu antrean LANJUT ke video berikutnya. */
-    const renderVideo = async (vi: number, it: ItemEkspor, segmenSub: SegmenSub[] | null) => {
+    const renderVideo = async (
+      vi: number,
+      it: ItemEkspor,
+      segmenSub: SegmenSub[] | null,
+      aset46: { neon: SeqNeon | null; templatBg: string | null },
+    ) => {
       job.videoAktif = vi;
       job.antrean[vi].status = "proses";
       const nTotal = nTotalPerVideo[vi];
@@ -331,7 +356,7 @@ export function mulaiEksporAntrean(
           berikut += 1;
           if (n > nTotal || gagal) return;
           try {
-            await renderSatu(vi, it, n, segmenSub);
+            await renderSatu(vi, it, n, segmenSub, aset46);
           } catch (e) {
             // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
             if (apakahBatal(id)) return;
@@ -402,7 +427,39 @@ export function mulaiEksporAntrean(
           job.peringatanSubtitle = `${it.nama}: tanpa track audio — subtitle AI dilewati`;
         }
       }
-      await renderVideo(vi, it, segmenSub);
+      // v0.46.0 — FRAME & BINGKAI: siapkan aset SEKALI per video (cache param).
+      // Gagal siapkan TIDAK menggagalkan ekspor — lanjut tanpa frame/neon/templat.
+      const aset46: { neon: SeqNeon | null; templatBg: string | null } = { neon: null, templatBg: null };
+      try {
+        const pgh = it.pengaturan;
+        // frame hiasan (resolve path bawaan/unggahan)
+        if (!it.frameAbs && pgh.frameId) it.frameAbs = siapkanBingkai(pgh.frameId);
+        // neon berputar — rect: mode template = kotak video, lainnya kanvas penuh
+        const neon = neonDari(pgh);
+        if (neon.aktif) {
+          const Wr = pgh.mode === "asli" ? Math.max(2, it.info.lebar - (it.info.lebar % 2)) : pgh.resolusi === "720" ? 720 : 1080;
+          const Hr = pgh.mode === "asli" ? Math.max(2, it.info.tinggi - (it.info.tinggi % 2)) : pgh.resolusi === "720" ? 1280 : 1920;
+          const rect =
+            pgh.mode === "template"
+              ? kotakKePx(TATA_TEMPLATE.video, Wr, Hr)
+              : { x: 0, y: 0, w: Wr, h: Hr };
+          const seq = await siapkanSequenceNeon(rect.w, rect.h, neon);
+          aset46.neon = { ...seq, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+        }
+        // latar template halaman
+        if (pgh.mode === "template") {
+          const Wt = pgh.resolusi === "720" ? 720 : 1080;
+          const Ht = pgh.resolusi === "720" ? 1280 : 1920;
+          aset46.templatBg = await siapkanLatarTemplate(Wt, Ht, templatDari(pgh));
+        }
+      } catch (e) {
+        job.peringatanSubtitle =
+          (job.peringatanSubtitle ? `${job.peringatanSubtitle} · ` : "") +
+          `Frame/bingkai dilewati: ${e instanceof Error ? e.message : String(e)}`;
+        aset46.neon = null;
+        aset46.templatBg = null;
+      }
+      await renderVideo(vi, it, segmenSub, aset46);
     }
 
     // rapikan urutan akhir — slot menjaga posisi meski ada video yang gagal di tengah

@@ -1,7 +1,11 @@
 // VidSplit — tipe data & pengaturan aplikasi
+import { rapikanNeon, type SetelanNeon } from "./neonLayar";
+import { rapikanTemplat, type SetelanTemplat } from "./templatLayar";
 
-/** "asli" = video original — tanpa konversi, rasio/ukuran tetap seperti sumber */
-export type ModeKonversi = "blur" | "crop" | "warna" | "asli";
+/** "asli" = video original — tanpa konversi, rasio/ukuran tetap seperti sumber.
+ *  v0.46.0 "template" = halaman desain 9:16: judul di kotak atas, video DI DALAM
+ *  kotak tengah, deskripsi & Part di kotak bawah, latar gradasi (sketsa user). */
+export type ModeKonversi = "blur" | "crop" | "warna" | "asli" | "template";
 export type Resolusi = "1080" | "720";
 export type CodecVideo = "h264" | "h265";
 export type PosisiLogo = "kiri-atas" | "kanan-atas" | "kiri-bawah" | "kanan-bawah";
@@ -86,6 +90,22 @@ export interface Pengaturan {
   /** v0.44.0 — posisi vertikal subtitle: persen tinggi frame titik BAWAH teks
    *  (88 = 12% dari bawah) */
   subtitleY: number;
+  /** v0.46.0 — frame hiasan: "" = tanpa, "bawaan:<slug>" = bawaan aplikasi
+   *  (public/bingkai), "upload/<berkas>" = unggahan user (work/upload).
+   *  Video tampil di balik frame, terlihat lewat jendela transparan frame. */
+  frameId: string;
+  /** v0.46.0 — frame neon berputar (komet bercahaya di bingkai membulat) */
+  neonAktif: boolean;
+  neonWarna: string;
+  /** 2–16 px pada sisi terpendek 1080 */
+  neonTebal: number;
+  /** 0.2–3 × (1 = satu putaran 6 detik) */
+  neonKecepatan: number;
+  /** garis kedua berlawanan arah */
+  neonDuaGaris: boolean;
+  /** v0.46.0 — warna gradasi latar mode template (#rrggbb) */
+  templateGrad1: string;
+  templateGrad2: string;
   /** sudut penempatan logo — preset cepat (v0.8.0: posisi sebenarnya di logoX/logoY) */
   posisiLogo: PosisiLogo;
   /** v0.8.0 posisi BEBAS logo — persen dari frame, titik KIRI-ATAS logo (0–100) */
@@ -129,6 +149,15 @@ export const pengaturanDefault: Pengaturan = {
   deskripsiX: 50,
   deskripsiY: 80,
   logoId: "",
+  // v0.46.0 — frame & bingkai: bawaan MATI (tanpa frame, tanpa neon)
+  frameId: "",
+  neonAktif: false,
+  neonWarna: "cyan",
+  neonTebal: 6,
+  neonKecepatan: 1,
+  neonDuaGaris: false,
+  templateGrad1: "#f59e0b",
+  templateGrad2: "#ec4899",
   // v0.44.0 — subtitle AI otomatis: MATI bawaan (ekspor dgn AI menambah waktu
   // analisis suara), ukuran 26 & posisi 12% dari bawah agar tidak menimpa teks lain
   subtitleAktif: false,
@@ -316,8 +345,65 @@ export function labelMode(m: ModeKonversi): string {
     crop: "Potong penuh",
     warna: "Warna solid",
     asli: "Video original",
+    template: "Template halaman",
   };
   return map[m];
+}
+
+/** v0.46.0 — URL pratinjau frame hiasan: bawaan = statis /bingkai/<slug>.png,
+ *  unggahan = API file kerja. "" → "". */
+export function urlBingkai(frameId: string): string {
+  const id = (frameId || "").trim();
+  if (!id) return "";
+  if (id.startsWith("bawaan:")) return `/bingkai/${encodeURIComponent(id.slice(7))}.png`;
+  if (id.startsWith("upload/")) return `/api/file?p=${encodeURIComponent(id)}`;
+  return "";
+}
+
+/** v0.46.0 — setelan neon terstruktur dari pengaturan flat (clamp aman) */
+export function neonDari(p: {
+  neonAktif?: boolean;
+  neonWarna?: string;
+  neonTebal?: number;
+  neonKecepatan?: number;
+  neonDuaGaris?: boolean;
+}): SetelanNeon {
+  return rapikanNeon({
+    aktif: p.neonAktif,
+    warna: p.neonWarna as SetelanNeon["warna"],
+    tebal: p.neonTebal,
+    kecepatan: p.neonKecepatan,
+    duaGaris: p.neonDuaGaris,
+  });
+}
+
+/** v0.46.0 — setelan template terstruktur dari pengaturan flat (clamp aman) */
+export function templatDari(p: {
+  templateGrad1?: string;
+  templateGrad2?: string;
+}): SetelanTemplat {
+  return rapikanTemplat({ grad1: p.templateGrad1, grad2: p.templateGrad2 });
+}
+
+/**
+ * v0.46.0 — salin setelan FRAME & BINGKAI dari video sumber ke target.
+ * Permintaan user: "Frame berlaku ke semua video dalam antrean sekaligus" —
+ * panel Frame & Bingkai punya tombol terapkan-ke-semua yang memakai fungsi ini.
+ * Mencakup: frame hiasan, seluruh setelan neon, warna gradasi template.
+ * Fungsi murni — input tidak diubah.
+ */
+export function terapkanFrame(sumber: Pengaturan, target: Pengaturan): Pengaturan {
+  return {
+    ...target,
+    frameId: sumber.frameId,
+    neonAktif: sumber.neonAktif,
+    neonWarna: sumber.neonWarna,
+    neonTebal: sumber.neonTebal,
+    neonKecepatan: sumber.neonKecepatan,
+    neonDuaGaris: sumber.neonDuaGaris,
+    templateGrad1: sumber.templateGrad1,
+    templateGrad2: sumber.templateGrad2,
+  };
 }
 
 /** Uraikan teks waktu jadi detik — terima "90", "1:30", "1:02:03" — -1 bila tak valid */

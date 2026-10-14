@@ -4,13 +4,16 @@
 // (satu video) tetap didukung: otomatis dibungkus jadi daftar 1 item.
 import { existsSync } from "node:fs";
 import { NextRequest, NextResponse } from "next/server";
+import { siapkanBingkai } from "@/lib/vidsplit/bingkai";
 import { pathAman, probe } from "@/lib/vidsplit/ffmpeg";
 import { mulaiEksporAntrean, type ItemEkspor } from "@/lib/vidsplit/jobs";
 import {
   BATAS_VIDEO,
   durasiEfektif,
   INFO_FONT,
+  neonDari,
   pengaturanDefault,
+  templatDari,
   type NamaFont,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
@@ -25,7 +28,7 @@ function clamp(n: number, min: number, max: number, fallback: number): number {
 
 function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   const p: Pengaturan = { ...pengaturanDefault, ...(raw || {}) };
-  p.mode = ["blur", "crop", "warna", "asli"].includes(p.mode) ? p.mode : "blur";
+  p.mode = ["blur", "crop", "warna", "asli", "template"].includes(p.mode) ? p.mode : "blur";
   p.resolusi = p.resolusi === "720" ? "720" : "1080";
   p.posisiTeks = ["atas", "tengah", "bawah"].includes(p.posisiTeks) ? p.posisiTeks : "atas";
   p.durasiPart = clamp(p.durasiPart, 5, 3600, 20);
@@ -55,6 +58,17 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   if (!daftarFont.includes(p.gayaPart?.font)) p.gayaPart = { ...p.gayaPart, font: "tebal" };
   p.prosesParalel = clamp(p.prosesParalel, 1, 4, 2);
   p.pakaiGpu = p.pakaiGpu !== false;
+  // v0.46.0 — frame hiasan + neon + template (clamp aman dgn modul murni)
+  p.frameId = typeof p.frameId === "string" ? p.frameId.slice(0, 300) : "";
+  const neon = neonDari(p);
+  p.neonAktif = neon.aktif;
+  p.neonWarna = neon.warna;
+  p.neonTebal = neon.tebal;
+  p.neonKecepatan = neon.kecepatan;
+  p.neonDuaGaris = neon.duaGaris;
+  const templat = templatDari(p);
+  p.templateGrad1 = templat.grad1;
+  p.templateGrad2 = templat.grad2;
   // v0.44.0 — subtitle AI otomatis
   p.subtitleAktif = p.subtitleAktif === true;
   p.subtitleUkuran = clamp(p.subtitleUkuran, 10, 80, 26);
@@ -158,6 +172,9 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // v0.46.0 — frame hiasan: "bawaan:<slug>" / "upload/<berkas>" → path absolut
+      const frameAbs = siapkanBingkai(pgh.frameId);
+
       items.push({
         // nama tampilan bersih (tanpa folder upload & UUID) — dipakai daftar antrean + folder ZIP
         nama:
@@ -169,6 +186,7 @@ export async function POST(req: NextRequest) {
         srcAbs,
         bgAbs,
         logoAbs,
+        frameAbs,
         pengaturan: pgh,
         info,
       });

@@ -2,7 +2,9 @@
 
 // VidSplit — halaman utama: gerbang password → antrean multi-video (maks 100, v0.43.0) →
 // atur tiap video → ekspor & split BERURUTAN dari video teratas sampai terbawah
-// v0.45.0 — pratinjau subtitle AI: keping 15 dtk + transkrip tampil SEBELUM ekspor
+// v0.46.0 — frame & bingkai: 7 frame hiasan bawaan + unggah PNG sendiri +
+// frame neon berputar (7 warna, tebal 2-16, kecepatan 0.2-3x, dua garis) +
+// mode Template halaman (judul/video/deskripsi/Part dalam kotak di atas gradasi)
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -21,6 +23,7 @@ import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import {
   PanelBackground,
   PanelDeskripsi,
+  PanelFrame,
   PanelJudul,
   PanelMode,
   PanelPart,
@@ -39,6 +42,7 @@ import {
   judulDariNama,
   migrasiSimpanan,
   pengaturanDefault,
+  terapkanFrame,
   terapkanSebagian,
   terapkanUkuranHuruf,
   type BagianUkuran,
@@ -79,6 +83,8 @@ export default function Halaman() {
   const [aktif, setAktif] = useState(0);
   const [sibukVideo, setSibukVideo] = useState(false);
   const [sibukBg, setSibukBg] = useState(false);
+  // v0.46.0 — unggah frame hiasan
+  const [sibukFrame, setSibukFrame] = useState(false);
   const [sibukLogo, setSibukLogo] = useState(false);
   const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({ paralel: 2, pakaiGpu: true });
   // v0.10.0 — sakelar Mode Video / Mode Musik (Studio Musik)
@@ -482,6 +488,36 @@ export default function Halaman() {
   };
 
   // v0.44.0 — TERAPKAN SUBTITLE AI (aktif/ukuran/posisi) video aktif ke SEMUA video.
+  // v0.46.0 — unggah frame hiasan PNG (jendela transparan) — jalur kind=bg
+  // (gambar 25 MB ke work/upload, validasi sama dgn background)
+  const unggahFrame = async (f: File) => {
+    if (!videoAktif) return;
+    setSibukFrame(true);
+    try {
+      const r = await fetch(`/api/upload?kind=bg&nama=${encodeURIComponent(f.name)}`, {
+        method: "POST",
+        body: f,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; ukuran?: number; error?: string };
+      if (!j.ok || !j.file) throw new Error(j.error || "Unggah frame gagal");
+      perbaruiAktif((p) => ({ ...p, frameId: j.file as string }));
+      toast.success(`Frame "${f.name}" dipasang ke video #${aktif + 1} — video tampil lewat jendela transparannya`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unggah frame gagal");
+    } finally {
+      setSibukFrame(false);
+    }
+  };
+
+  // v0.46.0 — terapkan seluruh setelan frame & bingkai video aktif ke SEMUA video
+  const terapkanFrameKeSemua = () => {
+    if (!videoAktif) return;
+    const s = videoAktif.pengaturan;
+    setDaftar((d) => d.map((v) => ({ ...v, pengaturan: terapkanFrame(s, v.pengaturan) })));
+    toast.success("Frame & bingkai diterapkan ke semua video dalam antrean");
+  };
+
   const terapkanSubtitleSemua = () => {
     if (!videoAktif) return;
     const s = videoAktif.pengaturan;
@@ -533,7 +569,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.45.0
+            v0.46.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -803,6 +839,14 @@ export default function Halaman() {
                 lebarVideo={videoAktif.info.lebar}
                 tinggiVideo={videoAktif.info.tinggi}
                 onTerapkanUkuran={() => terapkanUkuranSemua("deskripsi")}
+              />
+              <PanelFrame
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                onFrameFile={unggahFrame}
+                frameSibuk={sibukFrame}
+                onTerapkanSemua={terapkanFrameKeSemua}
+                nomorVideo={aktif + 1}
               />
               <PanelSubtitle
                 pengaturan={videoAktif.pengaturan}

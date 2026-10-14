@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { teksSiapGambar } from "./bungkus";
+import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import type { CodecVideo, GayaTeks, ModeKonversi, Pengaturan } from "./types";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
@@ -362,6 +363,65 @@ function rantaiTeks(
   return `[cc]${bagian.join(",")}[vout]`;
 }
 
+/** v0.46.0 — drawtext MODE TEMPLATE: teks ditempatkan DI DALAM kotak desain
+ *  (judul di kotak atas, deskripsi di kotak bawah, Part di kotak kecil kiri-bawah)
+ *  — geometri dari TATA_TEMPLATE (satu sumber kebenaran dgn pratinjau CSS).
+ *  Posisi memakai ekspresi text_h/text_w agar blok multi-baris tetap di tengah kotak. */
+function rantaiTeksTemplate(
+  p: Pengaturan,
+  W: number,
+  H: number,
+  teksJ: string,
+  teksP: string,
+  teksD: string,
+  fileJudul: string,
+  filePart: string,
+  fileDeskripsi: string,
+): string {
+  const skala = Math.min(W, H) / 1080;
+  const uJ = Math.max(12, p.gayaJudul.ukuran * skala);
+  const uP = Math.max(10, p.gayaPart.ukuran * skala);
+  const uD = Math.max(10, p.gayaDeskripsi.ukuran * skala);
+  const jb = kotakKePx(TATA_TEMPLATE.judul, W, H);
+  const pb = kotakKePx(TATA_TEMPLATE.part, W, H);
+  const db = kotakKePx(TATA_TEMPLATE.deskripsi, W, H);
+
+  const gaya = (fontsize: number, gayaTeks: GayaTeks) => {
+    let s = `fontsize=${fontsize.toFixed(1)}:fontcolor=${warnaFf(gayaTeks.warna)}`;
+    if (gayaTeks.outlineLebar > 0) {
+      s += `:borderw=${Math.max(1, Math.round(gayaTeks.outlineLebar * skala))}:bordercolor=${warnaFf(gayaTeks.outlineWarna)}`;
+    }
+    return s;
+  };
+  const bagian: string[] = [];
+  if (teksJ.trim()) {
+    const ffJ = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
+    bagian.push(
+      `drawtext=textfile=${kutipFilter(fileJudul)}:${gaya(uJ, p.gayaJudul)}` +
+        `:x='(w-text_w)/2':y='${jb.y + Math.round(jb.h / 2)}-text_h/2'` +
+        `:line_spacing=${(uJ * 0.3).toFixed(1)}${ffJ ? `:fontfile=${kutipFilter(ffJ)}` : ""}`,
+    );
+  }
+  if (teksP.trim()) {
+    const ffP = fontfile(p.gayaPart) || fontfile(p.gayaJudul);
+    bagian.push(
+      `drawtext=textfile=${kutipFilter(filePart)}:${gaya(uP, p.gayaPart)}` +
+        `:x='${pb.x + Math.round(pb.w / 2)}-text_w/2':y='${pb.y + Math.round(pb.h / 2)}-text_h/2'` +
+        `:line_spacing=${(uP * 0.3).toFixed(1)}${ffP ? `:fontfile=${kutipFilter(ffP)}` : ""}`,
+    );
+  }
+  if (teksD.trim()) {
+    const ffD = fontfile(p.gayaDeskripsi) || fontfile(p.gayaJudul) || fontfile(p.gayaPart);
+    bagian.push(
+      `drawtext=textfile=${kutipFilter(fileDeskripsi)}:${gaya(uD, p.gayaDeskripsi)}` +
+        `:x='(w-text_w)/2':y='${db.y + Math.round(db.h / 2)}-text_h/2'` +
+        `:line_spacing=${(uD * 0.3).toFixed(1)}${ffD ? `:fontfile=${kutipFilter(ffD)}` : ""}`,
+    );
+  }
+  if (!bagian.length) return `[cc]null[vout]`;
+  return `[cc]${bagian.join(",")}[vout]`;
+}
+
 export interface ArgPart {
   src: string;
   bg: string | null;
@@ -383,6 +443,12 @@ export interface ArgPart {
   deskripsiTxt: string;
   /** v0.44.0 — berkas .ass subtitle AI utk part ini (absen/kosong = tanpa subtitle) */
   fileSub?: string | null;
+  /** v0.46.0 — PNG frame hiasan (path absolut) atau null — video tampil di baliknya */
+  frameAbs?: string | null;
+  /** v0.46.0 — sequence PNG frame neon berputar (cache work/neon) atau null */
+  neon?: SeqNeon | null;
+  /** v0.46.0 — PNG latar template halaman (path absolut) atau null */
+  templatBg?: string | null;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -390,11 +456,30 @@ export interface ArgPart {
   keluar: string;
 }
 
+/** v0.46.0 — sequence neon: file f%04d.png di dir, putar berulang dgn -stream_loop.
+ *  x/y/w/h = rect overlay pada kanvas (mode template = rect kotak video). */
+export interface SeqNeon {
+  dir: string;
+  fps: number;
+  jumlah: number;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** Susun argumen ffmpeg lengkap untuk satu part hasil split */
 export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number } {
   const p = a.pengaturan;
   const pakaiBg = !!a.bg && existsSync(a.bg);
   const pakaiLogo = !!a.logo && existsSync(a.logo);
+  // v0.46.0 — frame hiasan / neon / template
+  const pakaiTemplat = p.mode === "template" && !!a.templatBg && existsSync(a.templatBg);
+  // frame hiasan TIDAK dipakai di mode template (template sendiri sudah halaman
+  // desain penuh — frame 9:16 akan menutupi kotak-kotaknya)
+  const pakaiFrame = !!a.frameAbs && existsSync(a.frameAbs) && p.mode !== "template";
+  const pakaiNeon =
+    !!a.neon && existsSync(path.join((a.neon as SeqNeon).dir, "f0001.png"));
   // TANPA bg: total = durasi video saja (bukan + durasiIntro — kalau tidak,
   // track audio/hening ikut memanjang dan hasil split punya ekor diam ±3 dtk)
   const total = pakaiBg ? p.durasiIntro + a.durasi : a.durasi;
@@ -405,7 +490,12 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // v0.42.0 — bungkus teks ke beberapa baris SEBELUM digambar (bug teks besar
   // terpotong kiri-kanan): aturan lipat SAMA dgn pratinjau (bungkus.ts), jadi
   // pratinjau = hasil ekspor.
-  const siap = teksSiapGambar(a.judulTxt, a.partTxt, a.deskripsiTxt, p, W, H);
+  // v0.46.0 — mode template: pembungusan memakai LEBAR KOTAK video (bukan kanvas)
+  // agar blok teks muat di dalam kotak desainnya.
+  const vTemplat = pakaiTemplat ? kotakKePx(TATA_TEMPLATE.video, W, H) : null;
+  const siap = vTemplat
+    ? teksSiapGambar(a.judulTxt, a.partTxt, a.deskripsiTxt, p, vTemplat.w, vTemplat.h)
+    : teksSiapGambar(a.judulTxt, a.partTxt, a.deskripsiTxt, p, W, H);
 
   writeFileSync(path.join(a.dirTmp, `${a.tag}-judul.txt`), siap.judul, "utf8");
   writeFileSync(path.join(a.dirTmp, `${a.tag}-part.txt`), siap.part, "utf8");
@@ -421,6 +511,21 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   if (pakaiBg) inputs.push("-loop", "1", "-t", p.durasiIntro.toFixed(3), "-i", a.bg as string);
   const idxLogo = pakaiLogo ? (pakaiBg ? 3 : 2) : -1;
   const inputLogo: string[] = pakaiLogo ? ["-loop", "1", "-i", a.logo as string] : [];
+  // v0.46.0 — input tambahan SELALU di akhir (setelah logo) sehingga indeks
+  // anullsrc ([2:a]/[1:a]) dan idxLogo tidak pernah bergeser:
+  //   tanpa bg: 0=src 1=audio 2=logo 3=templat 4=frame 5=neon
+  //   dgn bg:   0=src 1=bg 2=audio 3=logo 4=templat 5=frame 6=neon
+  const dasarBerikut = pakaiLogo ? (pakaiBg ? 4 : 3) : pakaiBg ? 3 : 2;
+  const idxTemplat = pakaiTemplat ? dasarBerikut : -1;
+  let idxBerikut = pakaiTemplat ? dasarBerikut + 1 : dasarBerikut;
+  const idxFrame = pakaiFrame ? idxBerikut++ : -1;
+  const idxNeon = pakaiNeon ? idxBerikut++ : -1;
+  const inputTemplat: string[] = pakaiTemplat ? ["-loop", "1", "-i", a.templatBg as string] : [];
+  const inputFrame: string[] = pakaiFrame ? ["-loop", "1", "-i", a.frameAbs as string] : [];
+  const neonS = a.neon as SeqNeon | null;
+  const inputNeon: string[] = pakaiNeon
+    ? ["-framerate", String(neonS?.fps ?? 25), "-stream_loop", "-1", "-i", path.join(neonS?.dir ?? "", "f%04d.png")]
+    : [];
 
   // audio: hening selama intro + audio sumber ter-trim
   const inputAudio: string[] = [];
@@ -448,9 +553,26 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     mapAudio = ["-map", "1:a"];
   }
 
-  // video: intro bg (opsional) + video utama → concat → teks
+  // video: intro bg (opsional) + video utama → concat → frame hiasan → neon → teks
   const filterVideo: string[] = [];
-  if (pakaiBg) {
+  if (pakaiTemplat) {
+    // v0.46.0 MODE TEMPLATE — video pas DI DALAM jendela kotak tengah:
+    // (1) video contain di kotak + pad putih, (2) diletakkan di posisi kotak pada
+    // kanvas penuh, (3) latar PNG (gradasi + kotak putih, jendela transparan)
+    // diletakkan DI ATAS video sehingga video hanya terlihat lewat jendela.
+    const v = vTemplat as { x: number; y: number; w: number; h: number; r: number };
+    filterVideo.push(`[${idxTemplat}:v]scale=${W}:${H}[tbgx]`);
+    filterVideo.push(
+      `[0:v]scale=${v.w}:${v.h}:force_original_aspect_ratio=decrease,pad=${v.w}:${v.h}:(ow-iw)/2:(oh-ih)/2:color=white,pad=${W}:${H}:${v.x}:${v.y}:color=black,fps=${fps},trim=duration=${a.durasi.toFixed(3)},setpts=PTS-STARTPTS,setsar=1[vidbox]`,
+    );
+    filterVideo.push(`[vidbox][tbgx]overlay=0:0${pakaiBg ? "[tv1]" : "[cc]"}`);
+    if (pakaiBg) {
+      filterVideo.push(
+        `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
+      );
+      filterVideo.push(`[bgv][tv1]concat=n=2:v=1:a=0[cc]`);
+    }
+  } else if (pakaiBg) {
     filterVideo.push(
       `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
     );
@@ -461,7 +583,27 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
       rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong).replace("[mv]", "[cc]"),
     );
   }
-  const rantaiTeksStr = rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi);
+  // v0.46.0 — FRAME HIASAN & NEON di atas komposisi video, DI BAWAH teks:
+  // urutan lapisan = video (+intro) → frame → neon → judul/Part/deskripsi →
+  // subtitle → logo. Frame di-scale "cover" (9:16 pas penuh; mode asli
+  // landscape ikut terisi, sisi frame terpotong sedikit).
+  let labelKini = "cc";
+  if (pakaiFrame) {
+    filterVideo.push(
+      `[${idxFrame}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}[fm]`,
+    );
+    filterVideo.push(`[${labelKini}][fm]overlay=0:0[vfr]`);
+    labelKini = "vfr";
+  }
+  if (pakaiNeon) {
+    filterVideo.push(`[${idxNeon}:v]scale=${neonS?.w ?? W}:${neonS?.h ?? H}[nfs]`);
+    filterVideo.push(`[${labelKini}][nfs]overlay=${neonS?.x ?? 0}:${neonS?.y ?? 0}[vne]`);
+    labelKini = "vne";
+  }
+  const rantaiTeksStr = (pakaiTemplat
+    ? rantaiTeksTemplate(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
+    : rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
+  ).replace(/^\[cc\]/, `[${labelKini}]`);
   // v0.44.0 — subtitle AI (libass) diselipkan SETELAH drawtext judul/Part/deskripsi
   // dan SEBELUM overlay logo — memakai pola filter `subtitles=` yang sudah terbukti
   // di Studio Musik (bundle ffmpeg memiliki libass + fontsdir font bundel).
@@ -503,6 +645,9 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ...inputs,
     ...inputAudio,
     ...inputLogo,
+    ...inputTemplat,
+    ...inputFrame,
+    ...inputNeon,
     "-filter_complex",
     filter,
     "-map",

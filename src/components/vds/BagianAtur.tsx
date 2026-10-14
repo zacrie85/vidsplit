@@ -20,7 +20,14 @@ import {
   Scissors,
   Stamp,
   Type,
+  Ban,
+  Sparkles,
+  Frame as IkonFrame,
+  Wand2,
 } from "lucide-react";
+import { BINGKAI_BAWAAN } from "@/lib/vidsplit/bingkaiBawaan";
+import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
+import { PRESET_GRADASI } from "@/lib/vidsplit/templatLayar";
 import {
   durasiEfektif,
   hitungPart,
@@ -40,6 +47,7 @@ import {
   type PosisiTeks,
   type Pengaturan,
   type Resolusi,
+  urlBingkai,
 } from "@/lib/vidsplit/types";
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
@@ -206,10 +214,44 @@ export function PanelMode({
           { v: "crop", label: "Potong penuh", hint: "zoom sampai penuh" },
           { v: "warna", label: "Warna solid", hint: "pilih warna samping" },
           { v: "asli", label: "Video original", hint: "tanpa ubah rasio" },
+          { v: "template", label: "Template halaman", hint: "judul di atas, video di kotak tengah, deskripsi & Part di bawah" },
         ]}
         nilai={pengaturan.mode}
         onChange={(v) => set("mode", v)}
       />
+      {pengaturan.mode === "template" && (
+        <div className="mt-3 rounded-xl border border-fuchsia-400/30 bg-fuchsia-400/5 p-3">
+          <p className="text-xs font-medium text-fuchsia-200">Warna gradasi latar halaman</p>
+          <p className="mb-2 text-[11px] text-slate-400">
+            Judul, video, deskripsi, dan Part tampil dalam kotak putih membulat di atas latar gradasi (persis sketsa kamu).
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {PRESET_GRADASI.map((g) => {
+              const dipilih = pengaturan.templateGrad1 === g.a && pengaturan.templateGrad2 === g.b;
+              return (
+                <button
+                  key={g.label}
+                  type="button"
+                  title={g.label}
+                  onClick={() => {
+                    set("templateGrad1", g.a);
+                    set("templateGrad2", g.b);
+                  }}
+                  className={`h-8 w-14 rounded-lg border-2 transition ${dipilih ? "border-amber-400" : "border-slate-600 hover:border-slate-400"}`}
+                  style={{ background: `linear-gradient(135deg, ${g.a}, ${g.b})` }}
+                />
+              );
+            })}
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <PilihWarna label="Warna atas" nilai={pengaturan.templateGrad1} onChange={(v) => set("templateGrad1", v)} />
+            <PilihWarna label="Warna bawah" nilai={pengaturan.templateGrad2} onChange={(v) => set("templateGrad2", v)} />
+          </div>
+          <p className="mt-2 text-[11px] text-slate-500">
+            Tip: pakai warna huruf tebal (kartu tulisan) agar terbaca di kotak putih.
+          </p>
+        </div>
+      )}
       {pengaturan.mode === "asli" && (
         <p className="mt-3 rounded-lg border border-emerald-400/30 bg-emerald-400/5 px-3 py-2 text-xs text-emerald-200">
           Video original aktif — video TIDAK diubah sama sekali: rasio &amp; resolusi tetap
@@ -648,7 +690,7 @@ export function PanelSubtitle({
 
   return (
     <Kartu
-      judul="7. Subtitle AI otomatis"
+      judul="8. Subtitle AI otomatis"
       deskripsi={`Suara di video #${nomorVideo} dikenali AI lokal — teks Indonesia otomatis tampil di video hasil ekspor & split`}
       ikon={<Captions className="h-4 w-4" />}
     >
@@ -793,6 +835,211 @@ export function PanelSubtitle({
   );
 }
 
+/* ============ 5 — FRAME & BINGKAI (v0.46.0) ============ */
+
+export function PanelFrame({
+  pengaturan,
+  onChange,
+  onFrameFile,
+  frameSibuk,
+  onTerapkanSemua,
+  nomorVideo,
+  bukaDialog,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  onFrameFile: (f: File) => void;
+  frameSibuk: boolean;
+  onTerapkanSemua: () => void;
+  nomorVideo: number;
+  /** mode desktop: klik zona membuka dialog natif Electron */
+  bukaDialog?: () => void;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  const pakaiFrameBawaan = pengaturan.frameId.startsWith("bawaan:");
+  const slugBawaan = pakaiFrameBawaan ? pengaturan.frameId.slice(7) : "";
+
+  return (
+    <Kartu
+      judul="5. Frame & bingkai (opsional)"
+      deskripsi="Frame hiasan + frame neon berputar — berlaku ke semua video lewat satu tombol"
+      ikon={<IkonFrame className="h-4 w-4" />}
+    >
+      {/* ---- frame hiasan ---- */}
+      <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-300">
+        <ImageIcon className="h-3.5 w-3.5" /> Frame hiasan
+      </p>
+      <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/40 p-2 sm:grid-cols-4">
+        <button
+          type="button"
+          onClick={() => set("frameId", "")}
+          className={`flex flex-col items-center justify-center rounded-lg border p-2 text-[10px] transition ${
+            !pengaturan.frameId
+              ? "border-amber-400/80 bg-amber-400/15 text-amber-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+          }`}
+        >
+          <Ban className="mb-1 h-5 w-5" />
+          Tanpa frame
+        </button>
+        {BINGKAI_BAWAAN.map((b) => (
+          <button
+            key={b.slug}
+            type="button"
+            title={b.label}
+            onClick={() => set("frameId", `bawaan:${b.slug}`)}
+            className={`overflow-hidden rounded-lg border transition ${
+              slugBawaan === b.slug
+                ? "border-amber-400/80 ring-2 ring-amber-400/40"
+                : "border-slate-700 hover:border-slate-500"
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={`/bingkai/${b.slug}.png`} alt={b.label} className="h-24 w-full object-cover" />
+            <span className="block truncate bg-slate-900/80 px-1 py-0.5 text-[9px] text-slate-300">
+              {b.label}
+            </span>
+          </button>
+        ))}
+      </div>
+      {/* frame unggahan aktif */}
+      {pengaturan.frameId.startsWith("upload/") && (
+        <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-2.5">
+          <div className="flex items-center gap-2 overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={urlBingkai(pengaturan.frameId)}
+              alt="frame unggahan"
+              className="h-10 w-10 rounded-lg border border-slate-600 object-cover"
+            />
+            <p className="truncate text-xs text-emerald-200">Frame unggahan kamu terpasang ✓</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => set("frameId", "")}
+            className="rounded-lg border border-red-500/40 px-2 py-1 text-xs text-red-300 hover:bg-red-500/10"
+          >
+            Hapus
+          </button>
+        </div>
+      )}
+      <div className="mt-2">
+        <JatuhBerkas
+          terima="image/png,image/webp"
+          onFile={onFrameFile}
+          hint="Unggah frame PNG SENDIRI (bagian jendela harus transparan) — maks 25 MB"
+          sibuk={frameSibuk}
+          bukaDialog={bukaDialog}
+        />
+      </div>
+
+      {pengaturan.mode === "template" && pengaturan.frameId && (
+        <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-200">
+          Frame hiasan diistirahatkan sementara — mode Template sudah punya halaman desain sendiri
+          (kotak putih di atas gradasi). Pilih mode lain bila ingin memakai frame hiasan.
+        </p>
+      )}
+
+      {/* ---- frame neon berputar ---- */}
+      <p className="mb-2 mt-5 flex items-center gap-1.5 text-xs font-medium text-slate-300">
+        <Sparkles className="h-3.5 w-3.5" /> Frame neon berputar
+      </p>
+      <ChipPilihan<"mati" | "aktif">
+        pilihan={[
+          { v: "mati", label: "Mati" },
+          { v: "aktif", label: "Aktif — komet bercahaya mengelilingi tepi video" },
+        ]}
+        nilai={pengaturan.neonAktif ? "aktif" : "mati"}
+        onChange={(v) => set("neonAktif", v === "aktif")}
+      />
+      {pengaturan.neonAktif && (
+        <div className="mt-3 space-y-3 rounded-xl border border-cyan-400/30 bg-cyan-400/5 p-3">
+          <div>
+            <p className="mb-1.5 text-[11px] text-slate-400">7 pilihan warna</p>
+            <div className="flex flex-wrap gap-1.5">
+              {DAFTAR_WARNA_NEON.map((w) => {
+                const palet = PALET_NEON[w as WarnaNeon];
+                const dipilih = pengaturan.neonWarna === w;
+                return (
+                  <button
+                    key={w}
+                    type="button"
+                    title={palet.label}
+                    onClick={() => set("neonWarna", w)}
+                    className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px] transition ${
+                      dipilih
+                        ? "border-amber-400/80 bg-amber-400/15 text-amber-200"
+                        : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    <span
+                      className="h-3.5 w-3.5 rounded-full"
+                      style={
+                        w === "rainbow"
+                          ? {
+                              background:
+                                "linear-gradient(90deg,#ff004c,#ff8a00,#ffe600,#4dff00,#00e5ff,#2b6bff,#b400ff)",
+                            }
+                          : { background: palet.dasar || palet.inti, boxShadow: `0 0 6px ${palet.glow || palet.inti}` }
+                      }
+                    />
+                    {palet.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <BarisSlider
+            label="Ketebalan garis"
+            nilai={pengaturan.neonTebal}
+            min={2}
+            max={16}
+            onChange={(n) => set("neonTebal", n)}
+            fmt={(n) => `${n} px`}
+          />
+          <BarisSlider
+            label="Kecepatan putar"
+            nilai={pengaturan.neonKecepatan}
+            min={0.2}
+            max={3}
+            step={0.1}
+            onChange={(n) => set("neonKecepatan", Math.round(n * 10) / 10)}
+            fmt={(n) => `${n.toFixed(1)}× (${(6 / Math.max(0.2, n)).toFixed(1)} dtk/putaran)`}
+          />
+          <ChipPilihan<"satu" | "dua">
+            pilihan={[
+              { v: "satu", label: "Satu garis" },
+              { v: "dua", label: "Dua garis berlawanan" },
+            ]}
+            nilai={pengaturan.neonDuaGaris ? "dua" : "satu"}
+            onChange={(v) => set("neonDuaGaris", v === "dua")}
+          />
+          <p className="text-[11px] text-slate-500">
+            Komet: kepala paling terang + ekor memudar, melintasi keempat sudut bingkai membulat.
+            Berlaku untuk 9:16 &amp; 16:9, ikut terbakar ke video saat ekspor.
+          </p>
+        </div>
+      )}
+
+      {/* ---- terapkan ke semua ---- */}
+      <button
+        type="button"
+        onClick={onTerapkanSemua}
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-xs font-medium text-amber-200 transition hover:bg-amber-400/20"
+      >
+        <Wand2 className="h-4 w-4" />
+        Terapkan frame &amp; bingkai ini ke SEMUA video (dari setelan video #{nomorVideo})
+      </button>
+      <p className="mt-1.5 text-center text-[11px] text-slate-500">
+        Menyalin pilihan frame, seluruh setelan neon, dan warna gradasi template ke semua video dalam antrean.
+      </p>
+    </Kartu>
+  );
+}
+
+/* ============ 6 — BACKGROUND INTRO ============ */
+
 /* ============ 5 — BACKGROUND INTRO ============ */
 export function PanelBackground({
   pengaturan,
@@ -818,7 +1065,7 @@ export function PanelBackground({
     onChange({ ...pengaturan, [k]: v });
   return (
     <Kartu
-      judul="5. Background intro (opsional)"
+      judul="6. Background intro (opsional)"
       deskripsi={`Gambar PNG/JPG muncul di awal SETIAP hasil split video #${nomorVideo}`}
       ikon={<ImageIcon className="h-4 w-4" />}
     >
@@ -901,7 +1148,7 @@ export function PanelWatermark({
     onChange({ ...pengaturan, [k]: v });
   return (
     <Kartu
-      judul="6. Watermark / logo (opsional)"
+      judul="7. Watermark / logo (opsional)"
       deskripsi={`Gambar logo menempel di SETIAP potongan video #${nomorVideo} — pilih posisi & ukuran`}
       ikon={<Stamp className="h-4 w-4" />}
     >
@@ -1036,7 +1283,23 @@ export function PanelRingkasan({
               ? `Potong penuh · ${labelPosisiPotong(pengaturan.posisiPotong)}`
               : pengaturan.mode === "warna"
                 ? "Warna solid"
-                : `Video original · ${lebarVideo > 0 ? `${lebarVideo}×${tinggiVideo}` : "rasio asli"}`}
+                : pengaturan.mode === "template"
+                  ? "Template halaman"
+                  : `Video original · ${lebarVideo > 0 ? `${lebarVideo}×${tinggiVideo}` : "rasio asli"}`}
+        </dd>
+        {/* v0.46.0 — status frame & bingkai */}
+        <dt className="text-slate-500">Frame &amp; bingkai</dt>
+        <dd className="text-right text-slate-200">
+          {[
+            pengaturan.frameId
+              ? `frame ${pengaturan.frameId.startsWith("bawaan:") ? pengaturan.frameId.slice(7) : "unggahan"}`
+              : null,
+            pengaturan.neonAktif
+              ? `neon ${pengaturan.neonWarna} · ${pengaturan.neonTebal}px · ${pengaturan.neonKecepatan.toFixed(1)}×${pengaturan.neonDuaGaris ? " · 2 garis" : ""}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" + ") || "tanpa frame"}
         </dd>
         <dt className="text-slate-500">Format hasil</dt>
         <dd className="text-right text-slate-200">
