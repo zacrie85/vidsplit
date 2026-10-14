@@ -399,13 +399,21 @@ export function mulaiEksporAntrean(
             it.pengaturan.akhirDetik,
             it.info.durasi,
             ff.bin,
-            { onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; } },
+            {
+              onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; },
+              // v0.47.0 — fokus Indonesia bawaan (cepat); deteksi ID/EN opt-in
+              modeBahasa: it.pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+            },
           );
           if (hasil) {
             segmenSub = hasil.segmen;
             if (hasil.bahasa === "en" && !hasil.diterjemahkan && !job.peringatanSubtitle) {
               job.peringatanSubtitle =
                 "Penerjemah EN→ID tidak tersedia — subtitle dipakai dalam bahasa Inggris asli";
+            }
+            // v0.47.0 — sebagian blok gagal dianalisis (jarang): teks bisa kurang
+            if (hasil.peringatan && !job.peringatanSubtitle) {
+              job.peringatanSubtitle = `${it.nama}: ${hasil.peringatan}`;
             }
           } else if (!job.peringatanSubtitle) {
             job.peringatanSubtitle =
@@ -432,24 +440,25 @@ export function mulaiEksporAntrean(
       const aset46: { neon: SeqNeon | null; templatBg: string | null } = { neon: null, templatBg: null };
       try {
         const pgh = it.pengaturan;
-        // frame hiasan (resolve path bawaan/unggahan)
-        if (!it.frameAbs && pgh.frameId) it.frameAbs = siapkanBingkai(pgh.frameId);
+        // v0.47.0 — dimensi target ekspor video ini (rumus sama dgn renderSatu)
+        // → menentukan varian rasio frame bawaan (916 potret / 169 lanskap)
+        const Wt = pgh.mode === "asli" ? Math.max(2, it.info.lebar - (it.info.lebar % 2)) : pgh.resolusi === "720" ? 720 : 1080;
+        const Ht = pgh.mode === "asli" ? Math.max(2, it.info.tinggi - (it.info.tinggi % 2)) : pgh.resolusi === "720" ? 1280 : 1920;
+        const lanskap = Wt > Ht;
+        // frame hiasan (resolve path bawaan/unggahan — varian rasio yang pas)
+        if (!it.frameAbs && pgh.frameId) it.frameAbs = siapkanBingkai(pgh.frameId, lanskap);
         // neon berputar — rect: mode template = kotak video, lainnya kanvas penuh
         const neon = neonDari(pgh);
         if (neon.aktif) {
-          const Wr = pgh.mode === "asli" ? Math.max(2, it.info.lebar - (it.info.lebar % 2)) : pgh.resolusi === "720" ? 720 : 1080;
-          const Hr = pgh.mode === "asli" ? Math.max(2, it.info.tinggi - (it.info.tinggi % 2)) : pgh.resolusi === "720" ? 1280 : 1920;
           const rect =
             pgh.mode === "template"
-              ? kotakKePx(TATA_TEMPLATE.video, Wr, Hr)
-              : { x: 0, y: 0, w: Wr, h: Hr };
+              ? kotakKePx(TATA_TEMPLATE.video, Wt, Ht)
+              : { x: 0, y: 0, w: Wt, h: Ht };
           const seq = await siapkanSequenceNeon(rect.w, rect.h, neon);
           aset46.neon = { ...seq, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
         }
         // latar template halaman
         if (pgh.mode === "template") {
-          const Wt = pgh.resolusi === "720" ? 720 : 1080;
-          const Ht = pgh.resolusi === "720" ? 1280 : 1920;
           aset46.templatBg = await siapkanLatarTemplate(Wt, Ht, templatDari(pgh));
         }
       } catch (e) {

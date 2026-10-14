@@ -90,6 +90,10 @@ export interface Pengaturan {
   /** v0.44.0 — posisi vertikal subtitle: persen tinggi frame titik BAWAH teks
    *  (88 = 12% dari bawah) */
   subtitleY: number;
+  /** v0.47.0 — false (bawaan) = FOKUS INDONESIA: transkrip sekali jalan tanpa
+   *  deteksi ganda — paling cepat. true = mode lama: deteksi ID/EN + terjemah
+   *  Inggris→Indonesia (untuk video bersuara Inggris, lebih lambat). */
+  subtitleDeteksiBahasa: boolean;
   /** v0.46.0 — frame hiasan: "" = tanpa, "bawaan:<slug>" = bawaan aplikasi
    *  (public/bingkai), "upload/<berkas>" = unggahan user (work/upload).
    *  Video tampil di balik frame, terlihat lewat jendela transparan frame. */
@@ -163,6 +167,8 @@ export const pengaturanDefault: Pengaturan = {
   subtitleAktif: false,
   subtitleUkuran: 26,
   subtitleY: 88,
+  // v0.47.0 — bawaan FOKUS INDONESIA (paling cepat); deteksi ID/EN opt-in
+  subtitleDeteksiBahasa: false,
   posisiLogo: "kanan-bawah",
   // v0.8.0 posisi bebas logo — default ≈ kanan-bawah lama (kiri-atas logo)
   logoX: 81.5,
@@ -350,12 +356,16 @@ export function labelMode(m: ModeKonversi): string {
   return map[m];
 }
 
-/** v0.46.0 — URL pratinjau frame hiasan: bawaan = statis /bingkai/<slug>.png,
+/** v0.47.0 — URL pratinjau frame hiasan: bawaan = varian rasio
+ *  /bingkai/<slug>-916.png (potret, bawaan) atau -169.png (lanskap),
  *  unggahan = API file kerja. "" → "". */
-export function urlBingkai(frameId: string): string {
+export function urlBingkai(frameId: string, lanskap = false): string {
   const id = (frameId || "").trim();
   if (!id) return "";
-  if (id.startsWith("bawaan:")) return `/bingkai/${encodeURIComponent(id.slice(7))}.png`;
+  if (id.startsWith("bawaan:")) {
+    const slug = id.slice(7);
+    return `/bingkai/${encodeURIComponent(slug)}-${lanskap ? "169" : "916"}.png`;
+  }
   if (id.startsWith("upload/")) return `/api/file?p=${encodeURIComponent(id)}`;
   return "";
 }

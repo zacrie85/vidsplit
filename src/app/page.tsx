@@ -529,6 +529,7 @@ export default function Halaman() {
           subtitleAktif: s.subtitleAktif,
           subtitleUkuran: s.subtitleUkuran,
           subtitleY: s.subtitleY,
+          subtitleDeteksiBahasa: s.subtitleDeteksiBahasa,
         },
       })),
     );
@@ -537,9 +538,12 @@ export default function Halaman() {
       subtitleAktif: s.subtitleAktif,
       subtitleUkuran: s.subtitleUkuran,
       subtitleY: s.subtitleY,
+      subtitleDeteksiBahasa: s.subtitleDeteksiBahasa,
     }));
     toast.success(
-      `Subtitle AI ${s.subtitleAktif ? "AKTIF" : "MATI"} (ukuran ${s.subtitleUkuran}, posisi ${s.subtitleY}%) diterapkan ke SEMUA video (${daftar.length})`,
+      `Subtitle AI ${s.subtitleAktif ? "AKTIF" : "MATI"} (${
+        s.subtitleDeteksiBahasa ? "deteksi ID/EN" : "fokus Indonesia"
+      }, ukuran ${s.subtitleUkuran}, posisi ${s.subtitleY}%) diterapkan ke SEMUA video (${daftar.length})`,
     );
   };
 

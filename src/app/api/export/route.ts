@@ -73,6 +73,8 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.subtitleAktif = p.subtitleAktif === true;
   p.subtitleUkuran = clamp(p.subtitleUkuran, 10, 80, 26);
   p.subtitleY = clamp(p.subtitleY, 30, 100, 88);
+  // v0.47.0 — mode bahasa: bawaan fokus Indonesia (paling cepat)
+  p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
   return p;
 }
 
@@ -173,7 +175,10 @@ export async function POST(req: NextRequest) {
       }
 
       // v0.46.0 — frame hiasan: "bawaan:<slug>" / "upload/<berkas>" → path absolut
-      const frameAbs = siapkanBingkai(pgh.frameId);
+      // v0.47.0 — frame BAWAAN sengaja tidak di-resolve di sini: varian rasio
+      // (916 potret / 169 lanskap) dipilih jobs.ts sesuai dimensi target video.
+      // Hanya unggahan user yang di-resolve dini (rasio-independent).
+      const frameAbs = pgh.frameId.startsWith("bawaan:") ? null : siapkanBingkai(pgh.frameId);
 
       items.push({
         // nama tampilan bersih (tanpa folder upload & UUID) — dipakai daftar antrean + folder ZIP

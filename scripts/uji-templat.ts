@@ -79,7 +79,7 @@ ok(rapikanTemplat({ grad1: "merah" as never }).grad1 === "#f59e0b", "grad1 tak v
 ok(rapikanTemplat({ grad1: "#123ABC" }).grad1 === "#123abc", "grad1 valid → lowercase");
 const sumber: Pengaturan = {
   ...pengaturanDefault,
-  frameId: "bawaan:pemilu-raya",
+  frameId: "bawaan:garis-emas",
   neonAktif: true,
   neonWarna: "amber",
   neonTebal: 9,
@@ -89,11 +89,12 @@ const sumber: Pengaturan = {
   templateGrad2: "#654321",
 };
 const target = terapkanFrame(sumber, { ...pengaturanDefault });
-ok(target.frameId === "bawaan:pemilu-raya" && target.neonAktif === true, "terapkanFrame menyalin frame+neon");
+ok(target.frameId === "bawaan:garis-emas" && target.neonAktif === true, "terapkanFrame menyalin frame+neon");
 ok(target.neonTebal === 9 && target.neonKecepatan === 1.5 && target.neonDuaGaris, "terapkanFrame menyalin angka neon");
 ok(target.templateGrad1 === "#123456" && target.templateGrad2 === "#654321", "terapkanFrame menyalin gradasi");
 ok(target.judul === pengaturanDefault.judul, "terapkanFrame TIDAK menyentuh judul");
-ok(urlBingkai("bawaan:metamorfosis") === "/bingkai/metamorfosis.png", "urlBingkai bawaan");
+ok(urlBingkai("bawaan:garis-emas") === "/bingkai/garis-emas-916.png", "urlBingkai bawaan potret (varian 916)");
+ok(urlBingkai("bawaan:garis-emas", true) === "/bingkai/garis-emas-169.png", "urlBingkai bawaan lanskap (varian 169)");
 ok(urlBingkai("upload/abc-frame.png").includes("/api/file?p=upload%2Fabc-frame.png"), "urlBingkai unggahan");
 ok(urlBingkai("") === "" && urlBingkai("aneh") === "", "urlBingkai id aneh → kosong");
 
@@ -172,14 +173,17 @@ ok(/\[\d+:v\]scale=1080:1920\[tbgx\]/.test(teksFilter2), "template: input templa
 ok(!/\[\d+:v\]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920\[fm\]/.test(teksFilter2), "TIDAK ada overlay frame di rantai template (saling menutupi)");
 ok(teksFilter1.includes("force_original_aspect_ratio=increase,crop=1080:1920[fm]"), "frame cover tetap ada di mode non-template");
 
-/* (g) siapkanBingkai */
+/* (g) siapkanBingkai — v0.47.0 varian rasio */
 const { siapkanBingkai } = await import("../src/lib/vidsplit/bingkai");
 ok(siapkanBingkai("") === null, "frameId kosong → null");
 ok(siapkanBingkai("aneh") === null, "frameId tak dikenal → null");
 ok(siapkanBingkai("upload/tidak-ada-xyz.png") === null, "unggahan tak ada → null");
-const bawaanPath = siapkanBingkai("bawaan:metamorfosis");
-ok(!!bawaanPath && existsSync(bawaanPath), "bawaan:metamorfosis → file ada", String(bawaanPath));
-ok(!!bawaanPath && bawaanPath.includes("bawaan-metamorfosis.png"), "bawaan dicopy ke work/upload");
+ok(siapkanBingkai("bawaan:pemilu-raya") === null, "slug lama yang dihapus → null (ekspor tetap jalan)");
+const bawaanPath = siapkanBingkai("bawaan:garis-emas");
+ok(!!bawaanPath && existsSync(bawaanPath), "bawaan:garis-emas (potret) → varian -916 ada", String(bawaanPath));
+ok(!!bawaanPath && bawaanPath.includes("bawaan-garis-emas-916.png"), "bawaan potret dicopy ke work/upload");
+const bawaanLanskap = siapkanBingkai("bawaan:garis-emas", true);
+ok(!!bawaanLanskap && bawaanLanskap.includes("bawaan-garis-emas-169.png") && existsSync(bawaanLanskap), "bawaan lanskap → varian -169 dicopy");
 ok(dirWork("upload").length > 0, "dirWork jalan");
 
 /* (h) render latar template nyata (sharp) — server-side */

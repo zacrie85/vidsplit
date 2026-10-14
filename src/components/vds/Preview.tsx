@@ -335,14 +335,23 @@ export function Preview({
               />
             </>
           )}
-          {/* v0.46.0 — frame hiasan: video terlihat lewat jendela transparan
+          {/* v0.47.0 — frame hiasan: varian rasio mengikuti bingkai pratinjau
+              (potret 916 / lanskap 169) agar tampil penuh; frame lama yang sudah
+              dihapus dari setelan tersimpan cukup disembunyikan tanpa ikon rusak
               (mode template memakai halaman desainnya sendiri — frame dilewati) */}
           {pengaturan.frameId && !modeTemplate && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={urlBingkai(pengaturan.frameId)}
+              key={pengaturan.frameId}
+              src={urlBingkai(pengaturan.frameId, modeAsli && lebar > tinggi)}
               alt=""
               aria-hidden
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "none";
+              }}
+              onLoad={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = "";
+              }}
               className="pointer-events-none absolute inset-0 h-full w-full object-cover"
               style={{ zIndex: 14 }}
             />

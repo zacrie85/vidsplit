@@ -55,6 +55,8 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.akhirDetik = clamp(p.akhirDetik, 0, 86400, 0);
   p.subtitleUkuran = clamp(p.subtitleUkuran, 10, 80, 26);
   p.subtitleY = clamp(p.subtitleY, 30, 100, 88);
+  // v0.47.0 — mode bahasa pratinjau = mode ekspor (cache hasil analisis sama)
+  p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
   return p;
 }
 
@@ -87,9 +89,12 @@ async function kerjakan(
   const mulaiTrim = pengaturan.mulaiDetik;
   const akhirTrim = pengaturan.akhirDetik;
 
-  // 1) Analisis suara PENUH — CACHE SAMA dengan ekspor (kunci = file|ukuran|mtime|trim),
+  // 1) Analisis suara PENUH — CACHE SAMA dengan ekspor (kunci = file|ukuran|mtime|trim|mode),
   //    jadi pratinjau sekali → ekspor nanti tidak menghitung ulang AI.
-  const hasil = await siapkanSegmenSubtitle(srcAbs, mulaiTrim, akhirTrim, info.durasi, ff.bin);
+  //    v0.47.0 — mode bahasa ikut dipakai (fokus Indonesia bawaan / deteksi).
+  const hasil = await siapkanSegmenSubtitle(srcAbs, mulaiTrim, akhirTrim, info.durasi, ff.bin, {
+    modeBahasa: pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+  });
   if (!hasil) return { ok: false, alasan: "model", pesan: "Mesin subtitle AI tidak bisa dimuat." };
   if (!hasil.segmen.length) {
     return {
@@ -135,7 +140,7 @@ async function kerjakan(
   } catch {
     /* sudah dicek exists di atas */
   }
-  const kunci = `${kunciCache(srcAbs, stat.size, stat.mtimeMs, mulaiTrim, akhirTrim)}-u${pengaturan.subtitleUkuran}-y${pengaturan.subtitleY}`;
+  const kunci = `${kunciCache(srcAbs, stat.size, stat.mtimeMs, mulaiTrim, akhirTrim, pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus")}-u${pengaturan.subtitleUkuran}-y${pengaturan.subtitleY}`;
   const namaKlip = `${kunci}.mp4`;
   const keluar = path.join(dirWork("pratinjau-sub"), namaKlip);
   if (!existsSync(keluar)) {

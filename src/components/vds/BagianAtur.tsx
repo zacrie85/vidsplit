@@ -24,6 +24,8 @@ import {
   Sparkles,
   Frame as IkonFrame,
   Wand2,
+  Zap,
+  Globe,
 } from "lucide-react";
 import { BINGKAI_BAWAAN } from "@/lib/vidsplit/bingkaiBawaan";
 import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
@@ -710,12 +712,55 @@ export function PanelSubtitle({
         <span className="font-medium">{pengaturan.subtitleAktif ? "Aktif" : "Mati"}</span>
       </button>
       <p className="mt-1.5 text-[11px] text-slate-500">
-        Suara <b>Indonesia</b> &amp; <b>Inggris</b> didukung — Inggris diterjemahkan otomatis ke
-        Indonesia. 100% offline (AI di dalam aplikasi), tapi ekspor akan menganalisis suara dulu
-        (kurang lebih <b>1–2 menit per 10 menit video</b>) — video yang sama tak dianalisis ulang.
+        100% offline (AI di dalam aplikasi). <b>Mode Fokus Indonesia</b> dianalisis sekali jalan —
+        jauh lebih cepat dari dulu, kurang lebih <b>±1 menit per 10 menit video</b> (tergantung
+        kekuatan komputer). Video yang sama tak dianalisis ulang.
       </p>
       {pengaturan.subtitleAktif && (
         <div className="mt-3 space-y-3">
+          {/* ---- v0.47.0 MODE BAHASA: fokus Indonesia (cepat) vs deteksi ID/EN ---- */}
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Mode bahasa</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => set("subtitleDeteksiBahasa", false)}
+                title="Langsung transkrip bahasa Indonesia sekali jalan — paling cepat"
+                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
+                  !pengaturan.subtitleDeteksiBahasa
+                    ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Zap className="h-3.5 w-3.5" />
+                  Fokus Indonesia
+                </span>
+                <span className="mt-0.5 block text-[10px] opacity-70">Paling cepat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => set("subtitleDeteksiBahasa", true)}
+                title="Uji bahasa dulu (Indonesia vs Inggris) + terjemah EN→ID — untuk video bersuara Inggris"
+                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
+                  pengaturan.subtitleDeteksiBahasa
+                    ? "border-sky-400/50 bg-sky-400/10 text-sky-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Globe className="h-3.5 w-3.5" />
+                  Deteksi ID/EN
+                </span>
+                <span className="mt-0.5 block text-[10px] opacity-70">Lama + terjemahan</span>
+              </button>
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-slate-500">
+              {pengaturan.subtitleDeteksiBahasa
+                ? "Mode deteksi: bahasa diuji dulu (suara di-transkrip 2x) lalu Inggris diterjemahkan ke Indonesia — hasil paling lengkap tapi lebih lambat. Pakai bila video ada suara Inggris."
+                : "Mode fokus: suara langsung dibaca sebagai bahasa Indonesia sekali jalan — tanpa deteksi & tanpa terjemahan, jadi paling cepat."}
+            </p>
+          </div>
           <BarisSlider
             label="Ukuran huruf subtitle"
             nilai={pengaturan.subtitleUkuran}
@@ -896,7 +941,14 @@ export function PanelFrame({
             }`}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={`/bingkai/${b.slug}.png`} alt={b.label} className="h-24 w-full object-cover" />
+            <img
+              src={`/bingkai/${b.slug}-916.png`}
+              alt={b.label}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+              }}
+              className="h-24 w-full object-cover"
+            />
             <span className="block truncate bg-slate-900/80 px-1 py-0.5 text-[9px] text-slate-300">
               {b.label}
             </span>

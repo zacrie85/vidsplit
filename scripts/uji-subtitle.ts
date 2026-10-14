@@ -9,6 +9,13 @@ import {
   tebakBahasa,
   KATA_EN,
   KATA_ID,
+  // v0.47.0 — blok paralel + mode bahasa
+  bagiBlokAudio,
+  gabungSegmenBlok,
+  jumlahPipaParalel,
+  DURASI_BLOK,
+  OVERLAP_BLOK,
+  type ModeBahasa,
 } from "../src/lib/vidsplit/subtitle";
 
 let lulus = 0;
@@ -55,6 +62,97 @@ cek("kunciCache: mtime berbeda → kunci beda", k1 !== k3);
 cek("kunciCache: trim mulai berbeda → beda", k1 !== k4);
 cek("kunciCache: trim akhir berbeda → beda", k1 !== k5);
 cek("kunciCache: panjang 24 hex", /^[0-9a-f]{24}$/.test(k1));
+// v0.47.0 — mode ikut kunci: fokus ≠ deteksi
+cek("kunciCache: mode bawaan = fokus", k1 === kunciCache("/a/v.mp4", 100, 1000, 0, 0, "fokus"));
+cek("kunciCache: mode deteksi ≠ fokus", k1 !== kunciCache("/a/v.mp4", 100, 1000, 0, 0, "deteksi"));
+
+// ============ v0.47.0 — bagiBlokAudio ============
+const sr = 16000;
+function audioBuatan(detik: number): Float32Array {
+  return new Float32Array(Math.round(detik * sr));
+}
+{
+  const satu = bagiBlokAudio(audioBuatan(60));
+  cek("bagiBlok: 60 dtk → 1 blok", satu.length === 1, satu.length);
+  cek("bagiBlok: blok tunggal mulai 0", satu[0].mulai === 0);
+  cek("bagiBlok: blok tunggal = audio penuh", Math.abs(satu[0].data.length / sr - 60) < 0.01);
+
+  const dua = bagiBlokAudio(audioBuatan(150));
+  cek("bagiBlok: 150 dtk → 2 blok", dua.length === 2, dua.length);
+  cek("bagiBlok: blok-1 mulai 0", dua[0].mulai === 0);
+  cek("bagiBlok: blok-2 mulai = langkah", dua[1].mulai > 0 && dua[1].mulai < 90);
+  // tiap blok menjangkau blok berikutnya (overlap) — tanpa celah
+  const akhir0 = dua[0].mulai + dua[0].data.length / sr;
+  cek("bagiBlok: overlap nyata antar blok", akhir0 > dua[1].mulai + 0.5, { akhir0, mulai1: dua[1].mulai });
+  // blok terakhir mencapai akhir audio
+  const blokAkhir = dua[dua.length - 1];
+  cek("bagiBlok: blok akhir sampai ujung", Math.abs(blokAkhir.mulai + blokAkhir.data.length / sr - 150) < 0.01);
+
+  const banyak = bagiBlokAudio(audioBuatan(601));
+  cek("bagiBlok: 601 dtk → 7 blok", banyak.length === 7, banyak.length);
+  cek("bagiBlok: semua blok ≤ durasi+overlap", banyak.every((b) => b.data.length / sr <= DURASI_BLOK + OVERLAP_BLOK + 0.01));
+  cek("bagiBlok: mulai terurut", banyak.every((b, i) => i === 0 || b.mulai > banyak[i - 1].mulai));
+  // kosong aman
+  cek("bagiBlok: audio kosong → 1 blok", bagiBlokAudio(new Float32Array(0)).length === 1);
+}
+
+// ============ v0.47.0 — gabungSegmenBlok ============
+{
+  const gab = gabungSegmenBlok([
+    { mulai: 0, segmen: [
+      { a: 1, b: 4, t: "awal" },
+      { a: 80, b: 88, t: "kalimat lintas batas" },
+    ] },
+    { mulai: 88.5, segmen: [
+      { a: 88.6, b: 89.4, t: "duplikat overlap — dibuang" },
+      { a: 90.2, b: 95, t: "lanjutan" },
+    ] },
+  ]);
+  cek("gabung: zona overlap dibuang", gab.length === 3, gab);
+  cek("gabung: segmen pertama utuh", gab[0]?.t === "awal");
+  cek("gabung: lintas batas dipertahankan", gab.some((s) => s.t === "kalimat lintas batas"));
+  cek("gabung: lanjutan masuk", gab.some((s) => s.t === "lanjutan"));
+  cek("gabung: urut berdasarkan waktu", gab.every((s, i) => i === 0 || gab[i - 1].a <= s.a));
+
+  // segmen yang menimpa (mulai SETELAH zona overlap): yang lebih panjang menang
+  const timpa = gabungSegmenBlok([
+    { mulai: 0, segmen: [{ a: 10, b: 12, t: "pendek" }] },
+    { mulai: 10, segmen: [{ a: 11.6, b: 15, t: "lebih panjang" }] },
+  ]);
+  cek("gabung: menimpa → yang panjang menang", timpa.length === 1 && timpa[0].t === "lebih panjang", timpa);
+  // segmen yang MULAI di zona overlap selalu milik blok sebelumnya — dibuang
+  const zona = gabungSegmenBlok([
+    { mulai: 0, segmen: [{ a: 10, b: 12, t: "asli" }] },
+    { mulai: 10, segmen: [{ a: 10.5, b: 15, t: "duplikat zona" }] },
+  ]);
+  cek("gabung: mulai di zona overlap dibuang", zona.length === 1 && zona[0].t === "asli", zona);
+
+  cek("gabung: kosong → kosong", gabungSegmenBlok([]).length === 0);
+}
+
+// ============ v0.47.0 — jumlahPipaParalel ============
+{
+  const lama: string | undefined = process.env.VIDSPLIT_AI_PARALEL;
+  delete process.env.VIDSPLIT_AI_PARALEL;
+  cek("pipa: 2 core / RAM kecil → 1", jumlahPipaParalel(2, 3) === 1);
+  cek("pipa: 2 core / RAM cukup → 1", jumlahPipaParalel(2, 8) === 1);
+  cek("pipa: 4 core / RAM 4GB → 2", jumlahPipaParalel(4, 4) === 2);
+  cek("pipa: 4 core / RAM 8GB → 2", jumlahPipaParalel(4, 8) === 2);
+  cek("pipa: 8 core / RAM 8GB → 3", jumlahPipaParalel(8, 8) === 3);
+  cek("pipa: RAM < 3.5GB selalu 1", jumlahPipaParalel(16, 3) === 1);
+  process.env.VIDSPLIT_AI_PARALEL = "5";
+  cek("pipa: env override = 5", jumlahPipaParalel(2, 3) === 5);
+  process.env.VIDSPLIT_AI_PARALEL = "99";
+  cek("pipa: env dibatasi 6", jumlahPipaParalel(2, 3) === 6);
+  if (lama === undefined) delete process.env.VIDSPLIT_AI_PARALEL;
+  else process.env.VIDSPLIT_AI_PARALEL = lama;
+}
+
+cekTipeMode();
+function cekTipeMode() {
+  const m: ModeBahasa = "fokus";
+  cek("ModeBahasa: tipe tersedia", m === "fokus" || m === "deteksi");
+}
 
 // ============ kebabAssSub ============
 cek("kebab: 0 → 0:00:00.00", kebabAssSub(0) === "0:00:00.00");

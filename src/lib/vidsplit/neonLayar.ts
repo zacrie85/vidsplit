@@ -1,4 +1,4 @@
-// VidSplit v0.46.0 — FRAME NEON BERPUTAR (murni, aman-browser & server)
+// VidSplit v0.47.0 — FRAME NEON BERPUTAR (murni, aman-browser & server)
 // Permintaan user: "FRAME NEON BERPUTAR — garis neon bercahaya di sekitar tepi
 // video dalam bingkai membulat, terus berputar otomatis sepanjang video — efek
 // komet: kepala paling terang + ekor memudar, lintasan mulus menembus keempat
@@ -6,6 +6,13 @@
 // Ketebalan (2–16) & kecepatan putar (0.2–3×) bisa diatur + opsi dua garis
 // berlawanan. Berlaku 9:16 DAN 16:9 — tampil di pratinjau dan terbakar saat
 // ekspor (termasuk batch)."
+//
+// v0.47.0 — PERBAIKAN BUG: bingkai digambar tanpa offset margin sehingga
+// MENEMPEL tepi kiri-atas (garis terpotong setengah di tepi video 9:16 & 16:9).
+// Kini seluruh lapisan dibungkus <g transform="translate(m m)"> + margin glow
+// diperbesar sehingga bingkai simetris & glow tak terpotong di SEMUA rasio.
+// v0.47.0 — UPGRADE: garis dasar samar (base ring) mengelilingi penuh — bingkai
+// SELALU terlihat utuh di semua sisi, komet terang berputar di atasnya.
 //
 // Modul ini dipakai DUA sisi sekaligus agar pratinjau = hasil ekspor:
 //   • browser (Preview.tsx)  — SVG digambar ulang per frame via requestAnimationFrame
@@ -279,12 +286,29 @@ function potonganKomet(
   return hasil;
 }
 
+/** Path SVG bingkai membulat penuh (M/L/A … Z) pada koordinat lokal path */
+export function dPathBulat(p: PathBulat): string {
+  const { w, h, r } = p;
+  return (
+    `M ${(w / 2).toFixed(2)} 0 L ${(w - r).toFixed(2)} 0 ` +
+    `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${w.toFixed(2)} ${r.toFixed(2)} ` +
+    `L ${w.toFixed(2)} ${(h - r).toFixed(2)} ` +
+    `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(w - r).toFixed(2)} ${h.toFixed(2)} ` +
+    `L ${r.toFixed(2)} ${h.toFixed(2)} ` +
+    `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 0 ${(h - r).toFixed(2)} ` +
+    `L 0 ${r.toFixed(2)} ` +
+    `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${r.toFixed(2)} 0 Z`
+  );
+}
+
 /** SVG string satu frame neon — dipakai browser (pratinjau) & server (ekspor) */
 export function svgFrameNeon(opsi: OpsiSvgNeon): string {
   const { W, H, setelan } = opsi;
   const progres = ((opsi.progres % 1) + 1) % 1;
   const skalaTebal = Math.min(W, H) / 1080;
-  const m = setelan.tebal * skalaTebal * 2.6 + 8; // margin utk glow tak terpotong
+  // v0.47.0 — margin cukup utk glow (setengah lebar komet × 2.5 + sebaran blur
+  // 2σ) sehingga TIDAK ADA bagian bingkai/glow yang terpotong tepi kanvas.
+  const m = setelan.tebal * skalaTebal * 3.6 + 12;
   const p = buatPathBulat(W - m * 2, H - m * 2);
   const palet = PALET_NEON[setelan.warna] || PALET_NEON.cyan;
   const tebalPx = setelan.tebal * skalaTebal;
@@ -303,24 +327,43 @@ export function svgFrameNeon(opsi: OpsiSvgNeon): string {
       )
       .join("");
 
+  // v0.47.0 — GARIS DASAR samar: bingkai selalu tampil PENUH di semua sisi
+  // (keluhan: komet hanya 30% keliling sehingga frame "tidak tampil semua").
+  const dasarTebal = Math.max(1.5, tebalPx * 0.55);
+  const dasarOpasitas = 0.26;
+  const lapisanDasar =
+    setelan.warna === "rainbow"
+      ? `<path d="${dPathBulat(p)}" fill="none" stroke="url(#rb)" stroke-width="${dasarTebal.toFixed(2)}" opacity="${dasarOpasitas}"/>`
+      : `<path d="${dPathBulat(p)}" fill="none" stroke="${palet.dasar}" stroke-width="${dasarTebal.toFixed(2)}" opacity="${dasarOpasitas}"/>`;
+
   // 3 lapis: cahaya luar (blur lebar), tubuh (blur tipis), inti tajam
+  // v0.47.0 — SEMUA digambar dalam <g translate(m m)>: koordinat path mulai
+  // (0,0) → tanpa offset dulu bingkai menempel tepi kiri-atas (BUG TERPOTONG).
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
     `<defs>` +
     `<filter id="g1" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="${(tebalPx * 1.1).toFixed(2)}"/></filter>` +
     `<filter id="g2" x="-15%" y="-15%" width="130%" height="130%"><feGaussianBlur stdDeviation="${(tebalPx * 0.28).toFixed(2)}"/></filter>` +
+    `<linearGradient id="rb" x1="0" y1="0" x2="1" y2="1">` +
+    [0, 60, 120, 180, 240, 300]
+      .map((h) => `<stop offset="${((h / 360) * 100).toFixed(0)}%" stop-color="${hslKeHex(h, 0.95, 0.6)}"/>`)
+      .join("") +
+    `</linearGradient>` +
     `</defs>` +
+    `<g transform="translate(${m.toFixed(2)} ${m.toFixed(2)})">` +
+    lapisanDasar +
     // glow memakai warna glow solid; rainbow glow = potongan dgn blur besar
     (setelan.warna === "rainbow"
       ? `<g filter="url(#g1)">${renderLapisan(komet1, 2.5, 0.5)}${renderLapisan(komet2, 2.5, 0.5)}</g>`
       : `<g filter="url(#g1)" stroke="${palet.glow}">${renderLapisan(komet1, 2.5, 0.55)}${renderLapisan(komet2, 2.5, 0.55)}</g>`) +
     `<g filter="url(#g2)">${renderLapisan(komet1, 1.35, 0.85)}${renderLapisan(komet2, 1.35, 0.85)}</g>` +
     `${renderLapisan(komet1, 1, 1)}${renderLapisan(komet2, 1, 1)}` +
+    `</g>` +
     `</svg>`;
   return svg;
 }
 
 /** Kunci cache sequence neon — semua parameter yang mengubah gambar */
 export function kunciCacheNeon(W: number, H: number, setelan: SetelanNeon): string {
-  return [W, H, setelan.warna, setelan.tebal, setelan.kecepatan, setelan.duaGaris ? 1 : 0].join("-");
+  return [W, H, setelan.warna, setelan.tebal, setelan.kecepatan, setelan.duaGaris ? 1 : 0, "v47"].join("-");
 }
