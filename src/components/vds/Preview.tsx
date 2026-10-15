@@ -324,6 +324,11 @@ export function Preview({
                         height: `${blurZoom.hPct}%`,
                         left: `${((100 - blurZoom.wPct) * blurZoom.pp) / 100}%`,
                         top: `${(100 - blurZoom.hPct) / 2}%`,
+                        // v0.51.1 — WAJIB: Tailwind Preflight pasang `video { max-width:100% }`
+                        // yang meng-clamp width>100% → video tidak pernah membesar, hanya
+                        // bergeser mengikuti left (bug laporan user v0.51.0). max-width:none
+                        // membebaskan ukuran zoom persis rumus filter ffmpeg.
+                        maxWidth: "none",
                       }
                     : undefined
                 }

@@ -122,6 +122,10 @@ export function PratinjauBlurZoom({
             height: `${hFrac * 100}%`,
             left: `${kiriPersen}%`,
             top: `${atasPersen}%`,
+            // v0.51.1 — Tailwind Preflight `video { max-width:100% }` meng-clamp
+            // zoom >100% → video tak pernah membesar (bug v0.51.0). none = ukuran
+            // zoom bebas, persis rumus filter ffmpeg.
+            maxWidth: "none",
           }}
           preload="auto"
           muted
