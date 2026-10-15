@@ -1,10 +1,13 @@
-// VidSplit v0.47.0 — daftar frame bawaan (MURNI, aman-browser & server)
+// VidSplit v0.50.0 — daftar frame bawaan (MURNI, aman-browser & server)
 // Dipakai UI (grid pilihan frame) & resolver server — tanpa import node.
 //
 // v0.47.0 — permintaan user: hapus 7 frame lama, ganti 10 frame baru berbingkai
 // TIPIS (agar video tetap terlihat jelas) + 2 frame spesial bertema:
 //   • dangdut-idola-desa — teks "DANGDUT IDOLA DESA", tema panggung dangdut
 //   • horor-alam-gaib   — teks "HOROR ALAM GAIB", tema cerita horor
+// v0.49.0 — teks spesial naik menyentuh garis atas + 2 varian baru
+// v0.50.0 — permintaan user: +6 frame spesial IDOLA DESA bertema dangdut
+//   (Gong Emas, Kendang Ria, Tirai Merah, Payet Disco, Batik Mega, Bunga Rampak)
 // Tiap frame punya DUA varian rasio: <slug>-916.png (1080×1920) dan
 // <slug>-169.png (1920×1080) sehingga tampil PENUH di kedua rasio (bug lama:
 // frame 9:16 saja ter-crop di video 16:9).
@@ -14,7 +17,8 @@ export interface BingkaiBawaan {
   label: string;
 }
 
-/** 14 frame bawaan v0.49.0 — 10 reguler tipis + 4 spesial bertema */
+/** 20 frame bawaan v0.50.0 — 10 reguler tipis + 10 spesial bertema
+ *  (v0.50.0: +6 frame IDOLA DESA bertema dangdut atas permintaan user) */
 export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "garis-emas", label: "Garis Emas" },
   { slug: "perak-minimal", label: "Perak Minimalis" },
@@ -30,6 +34,12 @@ export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "horor-alam-gaib", label: "★ Horor Alam Gaib" },
   { slug: "dangdut-idola-desa-2", label: "★ Dangdut Idola Desa 2 — Panggung Emas" },
   { slug: "horor-alam-gaib-2", label: "★ Horor Alam Gaib 2 — Bulan Sabit" },
+  { slug: "dangdut-idola-desa-3", label: "★ Idola Desa 3 — Gong Emas" },
+  { slug: "dangdut-idola-desa-4", label: "★ Idola Desa 4 — Kendang Ria" },
+  { slug: "dangdut-idola-desa-5", label: "★ Idola Desa 5 — Tirai Merah" },
+  { slug: "dangdut-idola-desa-6", label: "★ Idola Desa 6 — Payet Disco" },
+  { slug: "dangdut-idola-desa-7", label: "★ Idola Desa 7 — Batik Mega" },
+  { slug: "dangdut-idola-desa-8", label: "★ Idola Desa 8 — Bunga Rampak" },
 ];
 
 export function adalahSlugBawaan(slug: string): boolean {

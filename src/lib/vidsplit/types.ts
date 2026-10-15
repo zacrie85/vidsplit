@@ -65,6 +65,12 @@ export interface Pengaturan {
   posisiTeks: PosisiTeks;
   /** posisi area potong horizontal utk mode "crop" — 0=kiri, 50=tengah, 100=kanan */
   posisiPotong: number;
+  /** v0.50.0 — zoom manual utk mode "crop" (50–100, bawaan 100).
+   *  100 = potong penuh seperti semula (video mengisi penuh 9:16, dipotong
+   *  kiri/kanan). Di bawah 100 video diskalakan lebih kecil (zoom × skala-cover)
+   *  di ATAS latar blur — sisa frame terisi blur lembut, posisi geser kiri/kanan
+   *  tetap lewat posisiPotong. 50 = zoom setengah (paling kecil). */
+  zoomPotong: number;
   /** detik mulai rentang video yang diproses (0 = dari awal) */
   mulaiDetik: number;
   /** detik akhir rentang video yang diproses (0 = sampai habis) */
@@ -143,6 +149,8 @@ export const pengaturanDefault: Pengaturan = {
   resolusi: "1080",
   posisiTeks: "atas",
   posisiPotong: 50,
+  // v0.50.0 — zoom manual potong: bawaan 100 = perilaku lama (potong penuh)
+  zoomPotong: 100,
   mulaiDetik: 0,
   akhirDetik: 0,
   codec: "h264",
@@ -257,8 +265,8 @@ export function rentangPart(
 
 /** v0.38.0 — salinan SELEKTIF utk tombol "Terapkan pengaturan video #N ke SEMUA video".
  *  Yang mengikuti video sumber HANYA 3 kartu ini:
- *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, resolusi,
- *     codec, rentang diproses)
+ *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, zoom
+ *     potong (v0.50.0), resolusi, codec, rentang diproses)
  *   • kartu 3 — Tulisan Part otomatis (kata part, durasi, gaya huruf, posisi teks)
  *   • kartu 6 — Watermark / logo (logoId, posisi & ukuran)
  *  Yang TIDAK disentuh (tetap milik masing-masing video):
@@ -279,6 +287,7 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     mode: sumber.mode,
     warnaLatar: sumber.warnaLatar,
     posisiPotong: sumber.posisiPotong,
+    zoomPotong: sumber.zoomPotong,
     resolusi: sumber.resolusi,
     codec: sumber.codec,
     mulaiDetik: sumber.mulaiDetik,
@@ -423,6 +432,16 @@ export function uraiWaktu(teks: string): number {
   let det = 0;
   for (const bagian of t.split(":")) det = det * 60 + Number(bagian);
   return Number.isFinite(det) ? det : -1;
+}
+
+/** v0.50.0 — Label ramah utk zoom potong 50–100 */
+export function labelZoomPotong(n: number): string {
+  const z = Math.round(Math.min(100, Math.max(50, n)));
+  if (z >= 100) return "Potong penuh (100%)";
+  if (z >= 90) return `Sangat dekat (${z}%)`;
+  if (z >= 75) return `Dekat (${z}%)`;
+  if (z >= 60) return `Sedang (${z}%)`;
+  return `Setengah — latar blur (${z}%)`;
 }
 
 /** Label ramah utk posisi potong 0–100 */

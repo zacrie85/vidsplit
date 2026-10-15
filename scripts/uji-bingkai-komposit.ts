@@ -15,6 +15,13 @@ const SLUGS = [
   "horor-alam-gaib",
   "dangdut-idola-desa-2",
   "horor-alam-gaib-2",
+  // v0.50.0 — 6 frame IDOLA DESA baru
+  "dangdut-idola-desa-3",
+  "dangdut-idola-desa-4",
+  "dangdut-idola-desa-5",
+  "dangdut-idola-desa-6",
+  "dangdut-idola-desa-7",
+  "dangdut-idola-desa-8",
 ];
 
 async function utama() {

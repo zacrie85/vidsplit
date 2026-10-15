@@ -33,6 +33,7 @@ const sumber: Pengaturan = {
   mode: "crop",
   warnaLatar: "#0ea5e9",
   posisiPotong: 72,
+  zoomPotong: 80,
   resolusi: "720",
   codec: "h265",
   mulaiDetik: 15,
@@ -107,6 +108,7 @@ const hasil = terapkanSebagian(sumber, target);
 cek("mode mengikuti", hasil.mode === "crop");
 cek("warnaLatar mengikuti", hasil.warnaLatar === "#0ea5e9");
 cek("posisiPotong mengikuti", hasil.posisiPotong === 72);
+cek("zoomPotong mengikuti (v0.50.0)", hasil.zoomPotong === 80);
 cek("resolusi mengikuti", hasil.resolusi === "720");
 cek("codec mengikuti", hasil.codec === "h265");
 cek("mulaiDetik mengikuti", hasil.mulaiDetik === 15);

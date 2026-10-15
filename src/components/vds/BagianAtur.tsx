@@ -39,6 +39,7 @@ import {
   INFO_FONT,
   labelPosisiLogo,
   labelPosisiPotong,
+  labelZoomPotong,
   POSISI_LOGO_PRESET,
   uraiWaktu,
   type CodecVideo,
@@ -213,7 +214,7 @@ export function PanelMode({
       <ChipPilihan<ModeKonversi>
         pilihan={[
           { v: "blur", label: "Blur lembut", hint: "isi di tengah, latar blur" },
-          { v: "crop", label: "Potong penuh", hint: "zoom sampai penuh" },
+          { v: "crop", label: "Potong penuh", hint: "zoom bisa diatur 50–100%" },
           { v: "warna", label: "Warna solid", hint: "pilih warna samping" },
           { v: "asli", label: "Video original", hint: "tanpa ubah rasio" },
           { v: "template", label: "Template halaman", hint: "judul di atas, video di kotak tengah, deskripsi & Part di bawah" },
@@ -264,6 +265,21 @@ export function PanelMode({
       )}
       {pengaturan.mode === "crop" && (
         <div className="mt-3 rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
+          {/* v0.50.0 — zoom manual: 100% = potong penuh (perilaku lama), di bawahnya
+              video mengecil di atas latar blur — user bebas memilih besar zoom */}
+          <BarisSlider
+            label="Zoom video"
+            nilai={pengaturan.zoomPotong}
+            min={50}
+            max={100}
+            onChange={(n) => set("zoomPotong", n)}
+            fmt={(n) => labelZoomPotong(n)}
+          />
+          <p className="mb-2 text-[11px] text-slate-400">
+            100% = potong penuh (video mengisi penuh 9:16). Turunkan untuk memperkecil zoom —
+            sisi atas &amp; bawah otomatis terisi blur lembut, dan kamu tetap bisa menggeser
+            posisi kiri/kanan di bawah ini.
+          </p>
           <BarisSlider
             label="Posisi area yang dipertahankan"
             nilai={pengaturan.posisiPotong}
@@ -277,6 +293,7 @@ export function PanelMode({
             lebar={lebarVideo}
             tinggi={tinggiVideo}
             posisi={pengaturan.posisiPotong}
+            zoom={pengaturan.zoomPotong}
             onChange={(n) => set("posisiPotong", n)}
           />
         </div>

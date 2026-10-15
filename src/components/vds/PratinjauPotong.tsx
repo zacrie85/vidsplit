@@ -3,9 +3,12 @@
 // VidSplit — pratinjau interaktif posisi potong: tampilkan bingkai video penuh
 // dengan jendela 9:16 yang bisa DISERET — matematikanya identik dengan filter
 // ffmpeg (scale force_original_aspect_ratio=increase + crop x=(iw-ow)*pp/100).
+// v0.50.0 — dukungan zoom manual: pada zoom < 100% jendela terlihat MELEBAR
+// (fraksi/z — makin kecil zoom, makin banyak video yang tampil dalam frame);
+// rumus konsisten dgn overlay rantaiUtama: x=(W-w)*pp/100.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MoveHorizontal } from "lucide-react";
-import { labelPosisiPotong } from "@/lib/vidsplit/types";
+import { labelPosisiPotong, labelZoomPotong } from "@/lib/vidsplit/types";
 
 const W_TARGET = 1080;
 const H_TARGET = 1920;
@@ -15,6 +18,7 @@ export function PratinjauPotong({
   lebar,
   tinggi,
   posisi,
+  zoom = 100,
   onChange,
 }: {
   srcUrl: string;
@@ -23,6 +27,8 @@ export function PratinjauPotong({
   tinggi: number;
   /** posisi potong 0–100 (sama dgn slider) */
   posisi: number;
+  /** v0.50.0 — zoom 50–100 (100 = potong penuh) */
+  zoom?: number;
   onChange: (n: number) => void;
 }) {
   const refV = useRef<HTMLVideoElement>(null);
@@ -38,7 +44,15 @@ export function PratinjauPotong({
     return Math.min(1, Math.max(0.05, W_TARGET / lebarTerskala));
   }, [lebar, tinggi]);
 
-  const kiriPersen = (1 - fraksi) * Math.min(100, Math.max(0, posisi));
+  /** v0.50.0 — pada zoom < 100% video diskalakan lebih kecil sehingga jendela
+   *  yang tampil dalam output MELEBAR: fraksi / (zoom/100). Identik dgn filter:
+   *  lebar video terlihat = W/skala dgn skala = cover×zoom. */
+  const fraksiJendela = useMemo(() => {
+    const z = Math.min(100, Math.max(50, Number.isFinite(zoom) ? zoom : 100)) / 100;
+    return Math.min(1, Math.max(0.05, fraksi / z));
+  }, [fraksi, zoom]);
+
+  const kiriPersen = (1 - fraksiJendela) * Math.min(100, Math.max(0, posisi));
 
   // pindah ke frame awal yang terlihat (t=1 dtk) agar tidak menampilkan frame hitam
   useEffect(() => {
@@ -62,8 +76,8 @@ export function PratinjauPotong({
     const r = el.getBoundingClientRect();
     if (!(r.width > 0)) return;
     const fx = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
-    const kiri = fx - fraksi / 2;
-    const rentang = Math.max(0.0001, 1 - fraksi);
+    const kiri = fx - fraksiJendela / 2;
+    const rentang = Math.max(0.0001, 1 - fraksiJendela);
     onChange(Math.round(Math.min(1, Math.max(0, kiri / rentang)) * 100));
   };
 
@@ -100,18 +114,19 @@ export function PratinjauPotong({
           className="pointer-events-none absolute top-0 h-full border-x-2 border-amber-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.62)]"
           style={{
             left: `${kiriPersen}%`,
-            width: `${fraksi * 100}%`,
+            width: `${fraksiJendela * 100}%`,
           }}
         >
           <span className="absolute left-1/2 top-1 flex -translate-x-1/2 items-center gap-1 rounded-md bg-amber-400 px-1.5 py-0.5 text-[9px] font-bold text-slate-900">
-            <MoveHorizontal className="h-2.5 w-2.5" /> 9:16
+            <MoveHorizontal className="h-2.5 w-2.5" /> 9:16{zoom < 100 ? ` · Z${Math.round(zoom)}%` : ""}
           </span>
         </div>
       </div>
       <p className="mx-auto mt-1.5 max-w-[300px] text-center text-[10px] text-slate-500">
         Klik / seret di gambar untuk memilih bagian yang jadi vertikal —{" "}
-        <span className="font-medium text-amber-300">{labelPosisiPotong(posisi)}</span>. Sinkron
-        dengan slider di atas.
+        <span className="font-medium text-amber-300">{labelPosisiPotong(posisi)}</span> ·{" "}
+        <span className="font-medium text-amber-300">{labelZoomPotong(zoom)}</span>. Sinkron dengan
+        slider di atas.
       </p>
     </div>
   );
