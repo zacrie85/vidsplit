@@ -530,6 +530,7 @@ export default function Halaman() {
           subtitleUkuran: s.subtitleUkuran,
           subtitleY: s.subtitleY,
           subtitleDeteksiBahasa: s.subtitleDeteksiBahasa,
+          subtitleCepat: s.subtitleCepat,
         },
       })),
     );
@@ -539,11 +540,12 @@ export default function Halaman() {
       subtitleUkuran: s.subtitleUkuran,
       subtitleY: s.subtitleY,
       subtitleDeteksiBahasa: s.subtitleDeteksiBahasa,
+      subtitleCepat: s.subtitleCepat,
     }));
     toast.success(
       `Subtitle AI ${s.subtitleAktif ? "AKTIF" : "MATI"} (${
         s.subtitleDeteksiBahasa ? "deteksi ID/EN" : "fokus Indonesia"
-      }, ukuran ${s.subtitleUkuran}, posisi ${s.subtitleY}%) diterapkan ke SEMUA video (${daftar.length})`,
+      }${s.subtitleCepat ? ", AI Cepat" : ""}, ukuran ${s.subtitleUkuran}, posisi ${s.subtitleY}%) diterapkan ke SEMUA video (${daftar.length})`,
     );
   };
 
@@ -573,7 +575,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.50.0
+            v0.51.0
           </span>
           <TombolGantiPassword />
         </div>

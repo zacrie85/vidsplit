@@ -67,6 +67,19 @@ export function Preview({
   // landscape/square ikut lebih lega
   const modeAsli = !modeTemplate && pengaturan.mode === "asli" && lebar > 0 && tinggi > 0;
   const rasioBingkai = modeAsli ? `${lebar} / ${tinggi}` : "9 / 16";
+  // v0.51.0 — zoom manual blur: ukuran & posisi video di pratinjau live = persis
+  // rumus overlay rantaiUtama: skala contain × z → width/height/left/top persen.
+  const blurZoom = useMemo(() => {
+    if (modeTemplate || pengaturan.mode !== "blur") return null;
+    const z = Math.min(300, Math.max(100, Number.isFinite(pengaturan.zoomBlur) ? pengaturan.zoomBlur : 100)) / 100;
+    if (!(lebar > 0) || !(tinggi > 0) || z <= 1.005) return null;
+    const skala = Math.min(1080 / lebar, 1920 / tinggi) * z;
+    return {
+      wPct: ((lebar * skala) / 1080) * 100,
+      hPct: ((tinggi * skala) / 1920) * 100,
+      pp: Math.min(100, Math.max(0, pengaturan.posisiPotong)),
+    };
+  }, [modeTemplate, pengaturan.mode, pengaturan.zoomBlur, pengaturan.posisiPotong, lebar, tinggi]);
   // v0.9.0 — pratinjau tinggal di KOLOM TENGAH layout 3 kolom (50%):
   // · potret (9:16 / sumber vertikal) dibatasi TINGGI layar (76vh) agar dashboard
   //   tetap proporsional & Ekspor tak tenggelam — lebar mengikuti rasio;
@@ -297,10 +310,23 @@ export function Preview({
                 className="absolute inset-0 h-full w-full scale-125 object-cover opacity-70 blur-xl"
                 aria-hidden
               />
+              {/* v0.51.0 — zoom >100%: video diperbesar + digeser persis filter ffmpeg
+                  (skala contain × z, overlay x=(W-w)×pp/100, y=(H-h)/2); tanpa zoom
+                  jalur lama: contain penuh di tengah */}
               <video
                 ref={refV}
                 src={srcUrl}
-                className="absolute inset-0 h-full w-full object-contain"
+                className={blurZoom ? "absolute object-contain" : "absolute inset-0 h-full w-full object-contain"}
+                style={
+                  blurZoom
+                    ? {
+                        width: `${blurZoom.wPct}%`,
+                        height: `${blurZoom.hPct}%`,
+                        left: `${((100 - blurZoom.wPct) * blurZoom.pp) / 100}%`,
+                        top: `${(100 - blurZoom.hPct) / 2}%`,
+                      }
+                    : undefined
+                }
                 muted={bisu}
                 onTimeUpdate={(e) => setT(e.currentTarget.currentTime)}
                 onPlay={() => setJeda(false)}

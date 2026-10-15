@@ -71,6 +71,12 @@ export interface Pengaturan {
    *  di ATAS latar blur — sisa frame terisi blur lembut, posisi geser kiri/kanan
    *  tetap lewat posisiPotong. 50 = zoom setengah (paling kecil). */
   zoomPotong: number;
+  /** v0.51.0 — zoom manual utk mode "blur" (100–300, bawaan 100).
+   *  100 = blur lembut seperti semula (video pas/contain di tengah). Di atas
+   *  100 video DIPERBESAR (skala-contain × zoom) di ATAS latar blur — posisi
+   *  geser kiri/kanan lewat posisiPotong (rumus overlay sama dgn zoomPotong).
+   *  300 = paling besar (±3×). */
+  zoomBlur: number;
   /** detik mulai rentang video yang diproses (0 = dari awal) */
   mulaiDetik: number;
   /** detik akhir rentang video yang diproses (0 = sampai habis) */
@@ -100,6 +106,9 @@ export interface Pengaturan {
    *  deteksi ganda — paling cepat. true = mode lama: deteksi ID/EN + terjemah
    *  Inggris→Indonesia (untuk video bersuara Inggris, lebih lambat). */
   subtitleDeteksiBahasa: boolean;
+  /** v0.51.0 — false (bawaan) = Whisper SMALL (paling tepat). true = Whisper
+   *  BASE — ±2–3× lebih cepat di CPU, ketepatan sedikit turun (video panjang). */
+  subtitleCepat: boolean;
   /** v0.46.0 — frame hiasan: "" = tanpa, "bawaan:<slug>" = bawaan aplikasi
    *  (public/bingkai), "upload/<berkas>" = unggahan user (work/upload).
    *  Video tampil di balik frame, terlihat lewat jendela transparan frame. */
@@ -151,6 +160,8 @@ export const pengaturanDefault: Pengaturan = {
   posisiPotong: 50,
   // v0.50.0 — zoom manual potong: bawaan 100 = perilaku lama (potong penuh)
   zoomPotong: 100,
+  // v0.51.0 — zoom manual blur: bawaan 100 = perilaku lama (video pas layar)
+  zoomBlur: 100,
   mulaiDetik: 0,
   akhirDetik: 0,
   codec: "h264",
@@ -177,6 +188,8 @@ export const pengaturanDefault: Pengaturan = {
   subtitleY: 88,
   // v0.47.0 — bawaan FOKUS INDONESIA (paling cepat); deteksi ID/EN opt-in
   subtitleDeteksiBahasa: false,
+  // v0.51.0 — bawaan Whisper Small (paling tepat); Base = pilihan "Cepat"
+  subtitleCepat: false,
   posisiLogo: "kanan-bawah",
   // v0.8.0 posisi bebas logo — default ≈ kanan-bawah lama (kiri-atas logo)
   logoX: 81.5,
@@ -266,7 +279,7 @@ export function rentangPart(
 /** v0.38.0 — salinan SELEKTIF utk tombol "Terapkan pengaturan video #N ke SEMUA video".
  *  Yang mengikuti video sumber HANYA 3 kartu ini:
  *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, zoom
- *     potong (v0.50.0), resolusi, codec, rentang diproses)
+ *     potong (v0.50.0), zoom blur (v0.51.0), resolusi, codec, rentang diproses)
  *   • kartu 3 — Tulisan Part otomatis (kata part, durasi, gaya huruf, posisi teks)
  *   • kartu 6 — Watermark / logo (logoId, posisi & ukuran)
  *  Yang TIDAK disentuh (tetap milik masing-masing video):
@@ -288,6 +301,7 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     warnaLatar: sumber.warnaLatar,
     posisiPotong: sumber.posisiPotong,
     zoomPotong: sumber.zoomPotong,
+    zoomBlur: sumber.zoomBlur,
     resolusi: sumber.resolusi,
     codec: sumber.codec,
     mulaiDetik: sumber.mulaiDetik,
@@ -442,6 +456,15 @@ export function labelZoomPotong(n: number): string {
   if (z >= 75) return `Dekat (${z}%)`;
   if (z >= 60) return `Sedang (${z}%)`;
   return `Setengah — latar blur (${z}%)`;
+}
+
+/** v0.51.0 — Label ramah utk zoom blur 100–300 */
+export function labelZoomBlur(n: number): string {
+  const z = Math.round(Math.min(300, Math.max(100, Number.isFinite(n) ? n : 100)));
+  if (z <= 100) return "Pas layar (100%)";
+  if (z <= 130) return `Agak besar (${z}%)`;
+  if (z <= 200) return `Besar (${z}%)`;
+  return `Sangat besar (${z}%)`;
 }
 
 /** Label ramah utk posisi potong 0–100 */

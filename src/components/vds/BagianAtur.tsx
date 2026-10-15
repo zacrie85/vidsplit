@@ -39,6 +39,7 @@ import {
   INFO_FONT,
   labelPosisiLogo,
   labelPosisiPotong,
+  labelZoomBlur,
   labelZoomPotong,
   POSISI_LOGO_PRESET,
   uraiWaktu,
@@ -55,6 +56,7 @@ import {
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
+import { PratinjauBlurZoom } from "./PratinjauBlurZoom";
 import { PratinjauLogo } from "./PratinjauLogo";
 import { PratinjauDeskripsi } from "./PratinjauDeskripsi";
 
@@ -304,6 +306,41 @@ export function PanelMode({
             label="Warna latar samping"
             nilai={pengaturan.warnaLatar}
             onChange={(v) => set("warnaLatar", v)}
+          />
+        </div>
+      )}
+      {/* v0.51.0 — ZOOM MANUAL BLUR LEMBUT: 100% = perilaku lama (video pas layar);
+          di atasnya video diperbesar di atas latar blur + bisa digeser kiri/kanan */}
+      {pengaturan.mode === "blur" && (
+        <div className="mt-3 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3">
+          <BarisSlider
+            label="Zoom video"
+            nilai={pengaturan.zoomBlur}
+            min={100}
+            max={300}
+            onChange={(n) => set("zoomBlur", n)}
+            fmt={(n) => labelZoomBlur(n)}
+          />
+          <p className="mb-2 text-[11px] text-slate-400">
+            100% = video pas layar (perilaku lama). Naikkan untuk MEMPERBESAR video secara
+            manual — bagian yang melebihi frame terpotong otomatis, latar blur lembut tetap
+            terlihat di tepi atas &amp; bawah.
+          </p>
+          <BarisSlider
+            label="Geser kiri ↔ kanan"
+            nilai={pengaturan.posisiPotong}
+            min={0}
+            max={100}
+            onChange={(n) => set("posisiPotong", n)}
+            fmt={(n) => labelPosisiPotong(n)}
+          />
+          <PratinjauBlurZoom
+            srcUrl={srcUrl}
+            lebar={lebarVideo}
+            tinggi={tinggiVideo}
+            posisi={pengaturan.posisiPotong}
+            zoom={pengaturan.zoomBlur}
+            onChange={(n) => set("posisiPotong", n)}
           />
         </div>
       )}
@@ -776,6 +813,49 @@ export function PanelSubtitle({
               {pengaturan.subtitleDeteksiBahasa
                 ? "Mode deteksi: bahasa diuji dulu (suara di-transkrip 2x) lalu Inggris diterjemahkan ke Indonesia — hasil paling lengkap tapi lebih lambat. Pakai bila video ada suara Inggris."
                 : "Mode fokus: suara langsung dibaca sebagai bahasa Indonesia sekali jalan — tanpa deteksi & tanpa terjemahan, jadi paling cepat."}
+            </p>
+          </div>
+          {/* ---- v0.51.0 MODE KECOPATAN AI: Whisper Small (tepat) vs Base (cepat) ---- */}
+          <div>
+            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Kecepatan AI</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button
+                type="button"
+                onClick={() => set("subtitleCepat", false)}
+                title="Whisper Small — ejaan & kata paling tepat (bawaan)"
+                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
+                  !pengaturan.subtitleCepat
+                    ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Tepat (Small)
+                </span>
+                <span className="mt-0.5 block text-[10px] opacity-70">Hasil paling akurat</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => set("subtitleCepat", true)}
+                title="Whisper Base — ±2–3× lebih cepat, ketepatan sedikit turun (video panjang)"
+                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
+                  pengaturan.subtitleCepat
+                    ? "border-sky-400/50 bg-sky-400/10 text-sky-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-medium">
+                  <Zap className="h-3.5 w-3.5" />
+                  Cepat (Base)
+                </span>
+                <span className="mt-0.5 block text-[10px] opacity-70">±2–3× lebih cepat</span>
+              </button>
+            </div>
+            <p className="mt-1 text-[10px] leading-snug text-slate-500">
+              {pengaturan.subtitleCepat
+                ? "Mode cepat: model Whisper Base — transkrip 1 jam video ±2–3× lebih singkat. Ketepatan sedikit turun (jarang terasa untuk suara jelas), bagian sunyi & musik tetap dilewati otomatis."
+                : "Mode tepat: model Whisper Small — ejaan & istilah paling akurat. Untuk video 1 jam+, pilih Cepat bila ingin hasil lebih dulu."}
             </p>
           </div>
           <BarisSlider
@@ -1347,7 +1427,9 @@ export function PanelRingkasan({
         <dt className="text-slate-500">Mode konversi</dt>
         <dd className="text-right text-slate-200">
           {pengaturan.mode === "blur"
-            ? "Blur lembut"
+            ? `Blur lembut · ${labelZoomBlur(pengaturan.zoomBlur)}${
+                pengaturan.zoomBlur > 100 ? ` · ${labelPosisiPotong(pengaturan.posisiPotong)}` : ""
+              }`
             : pengaturan.mode === "crop"
               ? `Potong penuh · ${labelPosisiPotong(pengaturan.posisiPotong)}`
               : pengaturan.mode === "warna"

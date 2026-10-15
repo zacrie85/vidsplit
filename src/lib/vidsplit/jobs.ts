@@ -403,6 +403,8 @@ export function mulaiEksporAntrean(
               onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; },
               // v0.47.0 — fokus Indonesia bawaan (cepat); deteksi ID/EN opt-in
               modeBahasa: it.pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+              // v0.51.0 — pilihan model: Whisper Base (cepat) vs Small (bawaan, tepat)
+              modelCepat: it.pengaturan.subtitleCepat === true,
             },
           );
           if (hasil) {

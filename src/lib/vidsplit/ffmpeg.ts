@@ -213,7 +213,11 @@ function fontfile(gaya: GayaTeks): string {
  *  v0.50.0 — zoomPotong 50–100 utk mode "crop": 100 = potong penuh seperti
  *  semula; di bawahnya video diskalakan (zoom × skala-cover) di ATAS latar
  *  blur lembut (sama dgn mode blur) sehingga user bebas memilih seberapa
- *  besar zoom — dan posisiPotong tetap menggeser kiri/kanan. */
+ *  besar zoom — dan posisiPotong tetap menggeser kiri/kanan.
+ *  v0.51.0 — zoomBlur 100–300 utk mode "blur": 100 = blur lembut seperti
+ *  semula (video pas layar); di atasnya video DIPERBESAR (zoom × skala-contain,
+ *  dimensi genap) di atas latar blur yang sama, posisiPotong menggeser
+ *  kiri/kanan dgn rumus overlay yang SAMA dgn zoomPotong — x=(W-w)*pp/100. */
 function rantaiUtama(
   mode: ModeKonversi,
   W: number,
@@ -223,6 +227,7 @@ function rantaiUtama(
   durasi: number,
   posisiPotong = 50,
   zoomPotong = 100,
+  zoomBlur = 100,
 ): string {
   const ekor = `fps=${fps},trim=duration=${durasi.toFixed(3)},setpts=PTS-STARTPTS,setsar=1`;
   if (mode === "asli") {
@@ -261,11 +266,26 @@ function rantaiUtama(
     return `[0:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=${warnaFf(warna)},${ekor}[mv]`;
   }
   // blur: latar = video di-blur memenuhi layar, isi = video contain di tengah
+  // v0.51.0 — zoomBlur > 100: isi DIPERBESAR (contain × zoom) — rumus overlay
+  // identik dgn zoomPotong: x=(W-w)*pp/100 (pp=0 kiri … 100 kanan; berlaku
+  // juga saat video lebih lebar dr frame → x negatif = potong sisi). Saat
+  // zoomBlur ≤ 100 jalur lama PERSIS dipakai (nol regresi).
+  const ppBlur = Math.min(100, Math.max(0, posisiPotong));
+  const zBlur = Math.min(300, Math.max(100, Number.isFinite(zoomBlur) ? zoomBlur : 100)) / 100;
+  if (zBlur <= 1.005) {
+    return [
+      `[0:v]split=2[isi][blur]`,
+      `[blur]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:2,eq=brightness=-0.12:saturation=0.9[blurf]`,
+      `[isi]scale=${W}:${H}:force_original_aspect_ratio=decrease[isif]`,
+      `[blurf][isif]overlay=(W-w)/2:(H-h)/2,${ekor}[mv]`,
+    ].join(";");
+  }
+  const skalaBlur = `min(${W}/iw,${H}/ih)*${zBlur.toFixed(3)}`;
   return [
     `[0:v]split=2[isi][blur]`,
     `[blur]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:2,eq=brightness=-0.12:saturation=0.9[blurf]`,
-    `[isi]scale=${W}:${H}:force_original_aspect_ratio=decrease[isif]`,
-    `[blurf][isif]overlay=(W-w)/2:(H-h)/2,${ekor}[mv]`,
+    `[isi]scale='trunc(iw*${skalaBlur}/2)*2':'trunc(ih*${skalaBlur}/2)*2'[isif]`,
+    `[blurf][isif]overlay=x='(W-w)*${ppBlur}/100':y='(H-h)/2',${ekor}[mv]`,
   ].join(";");
 }
 
@@ -601,11 +621,11 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     filterVideo.push(
       `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
     );
-    filterVideo.push(rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong, p.zoomPotong));
+    filterVideo.push(rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong, p.zoomPotong, p.zoomBlur));
     filterVideo.push(`[bgv][mv]concat=n=2:v=1:a=0[cc]`);
   } else {
     filterVideo.push(
-      rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong, p.zoomPotong).replace("[mv]", "[cc]"),
+      rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong, p.zoomPotong, p.zoomBlur).replace("[mv]", "[cc]"),
     );
   }
   // v0.46.0 — FRAME HIASAN & NEON di atas komposisi video, DI BAWAH teks:

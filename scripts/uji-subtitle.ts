@@ -15,6 +15,12 @@ import {
   jumlahPipaParalel,
   DURASI_BLOK,
   OVERLAP_BLOK,
+  // v0.51.0 — percepatan + bersih halusinasi
+  rmsBlok,
+  apakahBlokSunyi,
+  bersihSegmenHalusinasi,
+  perkiraanSisaDtk,
+  AMBATANG_SUNYI,
   type ModeBahasa,
 } from "../src/lib/vidsplit/subtitle";
 
@@ -138,7 +144,7 @@ function audioBuatan(detik: number): Float32Array {
   cek("pipa: 2 core / RAM cukup → 1", jumlahPipaParalel(2, 8) === 1);
   cek("pipa: 4 core / RAM 4GB → 2", jumlahPipaParalel(4, 4) === 2);
   cek("pipa: 4 core / RAM 8GB → 2", jumlahPipaParalel(4, 8) === 2);
-  cek("pipa: 8 core / RAM 8GB → 3", jumlahPipaParalel(8, 8) === 3);
+  cek("pipa: 8 core / RAM 8GB → 4 (v0.51.0 naik dari 3)", jumlahPipaParalel(8, 8) === 4);
   cek("pipa: RAM < 3.5GB selalu 1", jumlahPipaParalel(16, 3) === 1);
   process.env.VIDSPLIT_AI_PARALEL = "5";
   cek("pipa: env override = 5", jumlahPipaParalel(2, 3) === 5);
@@ -257,6 +263,64 @@ cek("aman: {} dan \\ dibersihkan", aman.includes("teks berbahaya satu"), aman.sp
 // header wajib
 cek("header: WrapStyle 0 + ScaledBorderAndShadow", ass1.includes("WrapStyle: 0") && ass1.includes("ScaledBorderAndShadow: yes"));
 cek("header: Style pakai DejaVu Sans (font bundel)", ass1.includes("Sub,DejaVu Sans,"));
+
+// ================= v0.51.0 — PERCEPATAN & BERSIH HALUSINASI =================
+
+// --- rmsBlok: RMS sinyal ---
+cek("rms: array kosong → 0", rmsBlok(new Float32Array(0)) === 0);
+cek("rms: nol semua → 0", rmsBlok(new Float32Array(1000)) === 0);
+const sinus = new Float32Array(4800);
+for (let i = 0; i < sinus.length; i++) sinus[i] = Math.sin((2 * Math.PI * 440 * i) / 48000) * 0.5;
+// RMS sinus penuh amplitudo A = A/√2 ≈ 0.354
+cek("rms: sinus 0.5 → ±0.354", Math.abs(rmsBlok(sinus) - 0.5 / Math.SQRT2) < 0.01, rmsBlok(sinus));
+
+// --- apakahBlokSunyi: ambang -50 dBFS ---
+cek("sunyi: blok nol → true", apakahBlokSunyi(new Float32Array(4800)));
+cek("sunyi: RMS 0.001 < ambang → true", apakahBlokSunyi(new Float32Array(4800).fill(0.001)));
+cek("tidak sunyi: sinus 0.35 → false", !apakahBlokSunyi(sinus));
+cek("ambang konsisten dgn ekspor", AMBATANG_SUNYI === 0.003);
+
+// --- bersihSegmenHalusinasi ---
+const S = (a: number, b: number, t: string) => ({ a, b, t });
+// teks tanpa huruf/angka dibuang
+cek("halusinasi: '…' tanpa huruf dibuang", bersihSegmenHalusinasi([S(0, 2, "…"), S(2, 4, "halo")]).length === 1);
+// satu kata diulang ≥4× dibuang
+cek("halusinasi: 'hah hah hah hah' dibuang", bersihSegmenHalusinasi([S(0, 2, "hah hah hah hah")]).length === 0);
+// pengulangan 2–3× TETAP disimpan (konservatif)
+cek("halusinasi: 'ya ya' 2× tetap disimpan", bersihSegmenHalusinasi([S(0, 2, "ya ya")]).length === 1);
+// ≥3 identik berurutan → dilipat jadi 2
+const loop = bersihSegmenHalusinasi([
+  S(0, 2, "musik"), S(2, 4, "Musik"), S(4, 6, "MUSIK"), S(6, 8, "musik"), S(8, 10, "musik"),
+]);
+cek("halusinasi: 5× 'musik' berurutan → 2", loop.length === 2, loop.map((s) => s.t));
+// teks berbeda berseling TIDAK dibuang
+const seling = bersihSegmenHalusinasi([S(0, 2, "satu"), S(2, 4, "dua"), S(4, 6, "satu"), S(6, 8, "dua")]);
+cek("halusinasi: teks berseling tetap utuh", seling.length === 4);
+// waktu segmen tersimpan
+cek("halusinasi: waktu a/b utuh", loop[0].a === 0 && loop[0].b === 2 && loop[1].a === 2 && loop[1].b === 4);
+
+// --- perkiraanSisaDtk ---
+cek("sisa: belum mulai → 0", perkiraanSisaDtk(0, 0, 10, 2) === 0);
+cek("sisa: selesai ≥ total → 0", perkiraanSisaDtk(1000, 10, 10, 2) === 0);
+// (1000ms/2)×8 = 4000ms÷2 jalur = 2000ms → dibulatkan 2 dtk
+cek("sisa: 1 dtk per blok, 8 sisa, 2 jalur → 4 dtk", perkiraanSisaDtk(2000, 2, 10, 2) === 4, perkiraanSisaDtk(2000, 2, 10, 2));
+cek("sisa: jalur NaN → dibulatkan ke 1", perkiraanSisaDtk(2000, 2, 10, Number.NaN) === 8);
+
+// --- kunciCache: model cepat dgn akhiran "|cepat", bawaan tak berubah ---
+const kTepat = kunciCache("v.mp4", 123, 456.7, 0, 60, "fokus");
+const kCepat = kunciCache("v.mp4", 123, 456.7, 0, 60, "fokus", true);
+cek("cache: bawaan 24 hex", kTepat.length === 24);
+cek("cache: cepat ≠ tepat", kTepat !== kCepat);
+cek("cache: mode ikut kunci", kTepat !== kunciCache("v.mp4", 123, 456.7, 0, 60, "deteksi"));
+cek("cache: dipanggil tanpa arg opsi = tepat", kTepat === kunciCache("v.mp4", 123, 456.7, 0, 60));
+
+// --- jumlahPipaParalel: mesin besar dapat 4 jalur (v0.51.0) ---
+cek("jalur: 2 core → 1", jumlahPipaParalel(2, 16) === 1);
+cek("jalur: 4 core RAM 4GB → 2", jumlahPipaParalel(4, 4) === 2);
+cek("jalur: 5 core RAM 8GB → 2", jumlahPipaParalel(5, 8) === 2);
+cek("jalur: 6 core RAM 7GB → 3", jumlahPipaParalel(6, 7) === 3);
+cek("jalur: 8 core RAM 8GB → 4 (naik dari 3)", jumlahPipaParalel(8, 8) === 4);
+cek("jalur: 16 core RAM 6GB → 3 (RAM kurang)", jumlahPipaParalel(16, 6) === 3);
 
 console.log(`\n=== uji-subtitle: ${lulus} LULUS, ${gagal} GAGAL ===`);
 if (gagal > 0) process.exit(1);

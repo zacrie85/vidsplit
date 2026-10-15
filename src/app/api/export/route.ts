@@ -41,6 +41,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.gayaPart.ukuran = clamp(p.gayaPart?.ukuran, 16, 120, 48);
   p.gayaPart.outlineLebar = clamp(p.gayaPart?.outlineLebar, 0, 12, 3);
   p.posisiPotong = clamp(p.posisiPotong, 0, 100, 50);
+  // v0.50.0 — zoom manual potong (50–100) · v0.51.0 — zoom manual blur (100–300)
+  p.zoomPotong = clamp(p.zoomPotong, 50, 100, 100);
+  p.zoomBlur = clamp(p.zoomBlur, 100, 300, 100);
   p.mulaiDetik = clamp(p.mulaiDetik, 0, 86400, 0);
   p.akhirDetik = clamp(p.akhirDetik, 0, 86400, 0);
   p.codec = p.codec === "h265" ? "h265" : "h264";
@@ -75,6 +78,8 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.subtitleY = clamp(p.subtitleY, 30, 100, 88);
   // v0.47.0 — mode bahasa: bawaan fokus Indonesia (paling cepat)
   p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
+  // v0.51.0 — pilihan model cepat (Whisper Base); bawaan Small (paling tepat)
+  p.subtitleCepat = p.subtitleCepat === true;
   return p;
 }
 

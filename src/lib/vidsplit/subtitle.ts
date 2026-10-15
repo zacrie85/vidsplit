@@ -36,6 +36,9 @@ export interface SegmenSub {
 }
 
 export const ID_MODEL_WHISPER = "onnx-community/whisper-small";
+/** v0.51.0 — model CEPAT (±2–3× lebih cepat dari small di CPU, ketepatan sedikit
+ *  turun) — pilihan user di PanelSubtitle: "Cepat — Whisper Base". */
+export const ID_MODEL_WHISPER_CEPAT = "onnx-community/whisper-base";
 export const ID_MODEL_TERJEMAH = "Xenova/opus-mt-en-id";
 /** batas aman durasi audio yang dianalisis (4 jam) — cegah memori membengkak */
 export const MAKS_DURASI_ANALISIS = 4 * 3600;
@@ -51,6 +54,13 @@ export const BATCH_TERJEMAH = 8;
  */
 export const DURASI_BLOK = 90;
 export const OVERLAP_BLOK = 1.5;
+/**
+ * v0.51.0 — PERCEPATAN 2: blok yang RMS-nya di bawah AMBATANG_SUNYI (±-50 dBFS)
+ * dianggap SUNYI dan DILEWATI tanpa transkrip — intro/instrumen/keheningan
+ * tidak lagi memakan waktu decode Whisper (plus menghilangkan sumber
+ * halusinasi teks pada bagian tanpa suara).
+ */
+export const AMBATANG_SUNYI = 0.003;
 
 /**
  * v0.47.0 — mode bahasa:
@@ -65,6 +75,9 @@ export type ModeBahasa = "fokus" | "deteksi";
 export interface OpsiTranskrip {
   onTahap?: (tahap: string) => void;
   modeBahasa?: ModeBahasa;
+  /** v0.51.0 — true = pakai Whisper Base (cepat, ketepatan sedikit turun);
+   *  false (bawaan) = Whisper Small (paling tepat). Hasil cache dipisah. */
+  modelCepat?: boolean;
 }
 
 export interface HasilTranskrip {
@@ -135,6 +148,65 @@ export function bersihTeksSub(teks: string): string {
     .trim();
 }
 
+/**
+ * v0.51.0 — RMS (akar rata-rata kuadrat) sinyal audio — murni & dites unit.
+ * Dipakai utk melewatkan blok sunyi tanpa memanggil Whisper.
+ */
+export function rmsBlok(data: Float32Array): number {
+  if (!data || !data.length) return 0;
+  let jumlah = 0;
+  for (let i = 0; i < data.length; i += 1) jumlah += data[i] * data[i];
+  return Math.sqrt(jumlah / data.length);
+}
+
+/** v0.51.0 — blok dianggap sunyi bila RMS di bawah ambang (bawaan AMBATANG_SUNYI). */
+export function apakahBlokSunyi(data: Float32Array, ambang = AMBATANG_SUNYI): boolean {
+  return rmsBlok(data) < ambang;
+}
+
+/**
+ * v0.51.0 — bersihkan halusinasi khas Whisper (murni — dites unit):
+ *  · teks tanpa huruf/angka sama sekali dibuang;
+ *  · satu kata diulang ≥4× ("hah hah hah hah") dibuang;
+ *  · rangkaian ≥3 segmen berurutan berteks sama (loop halusinasi pada musik/
+ *    keheningan) dilipat — 2 pertama dipertahankan, sisanya dibuang.
+ * Konservatif: pengulangan 2× bisa jadi ucapan sungguhan, jadi tetap disimpan.
+ */
+export function bersihSegmenHalusinasi(segmen: SegmenSub[]): SegmenSub[] {
+  const normal = (t: string) => (t || "").toLowerCase().replace(/\s+/g, " ").trim();
+  const keluar: SegmenSub[] = [];
+  for (const s of segmen) {
+    const kunci = normal(s.t);
+    if (!/[a-z0-9à-ÿ]/i.test(kunci)) continue; // tanpa huruf/angka
+    const kata = kunci.split(" ").filter(Boolean);
+    if (kata.length >= 4 && new Set(kata).size === 1) continue; // 1 kata ≥4×
+    if (keluar.length >= 2) {
+      const d1 = normal(keluar[keluar.length - 1].t);
+      const d2 = normal(keluar[keluar.length - 2].t);
+      if (d1 === kunci && d2 === kunci) continue; // ≥3 identik berurutan
+    }
+    keluar.push({ ...s });
+  }
+  return keluar;
+}
+
+/**
+ * v0.51.0 — perkiraan sisa waktu transkrip (detik) dari kecepatan rata-rata
+ * (murni — dites unit): (berjalan/selesai) × sisa ÷ jumlah jalur paralel.
+ */
+export function perkiraanSisaDtk(
+  berjalanMs: number,
+  selesai: number,
+  total: number,
+  jalur: number,
+): number {
+  if (!Number.isFinite(berjalanMs) || berjalanMs <= 0) return 0;
+  if (selesai <= 0 || total <= selesai) return 0;
+  const jalurEf = Number.isFinite(jalur) ? Math.max(1, Math.floor(jalur)) : 1;
+  // berjalanMs/selesai = ms per blok → × sisa blok ÷ jalur = ms sisa → /1000 = detik
+  return Math.max(0, Math.round((berjalanMs / selesai) * (total - selesai) / jalurEf / 1000));
+}
+
 // ================= resolusi model + runtime =================
 
 /** Folder kandidat berisi struktur model HF (dipakai env.localModelPath). */
@@ -163,7 +235,7 @@ export function modelTersedia(): boolean {
 type ModulTransformers = any;
 
 let modTf: ModulTransformers | null | undefined;
-let pipaAsr: ModulTransformers | null | undefined;
+
 let pipaTerjemah: ModulTransformers | null | undefined;
 
 /** Muat modul transformers.js sekali; env lokal (tanpa internet). */
@@ -185,12 +257,13 @@ async function muatTransformers(): Promise<ModulTransformers | null> {
   return modTf;
 }
 
-/** Pabrik sesi ASR Whisper (q8, CPU) — dipanggil beberapa kali utk pool paralel. */
-async function buatPipaAsr(): Promise<ModulTransformers | null> {
+/** Pabrik sesi ASR Whisper (q8, CPU) — dipanggil beberapa kali utk pool paralel.
+ *  v0.51.0 — `cepat` memilih Whisper Base (±2–3× lebih cepat, sedikit kurang tepat). */
+async function buatPipaAsr(cepat = false): Promise<ModulTransformers | null> {
   const m = await muatTransformers();
   if (!m) return null;
   try {
-    return await m.pipeline("automatic-speech-recognition", ID_MODEL_WHISPER, {
+    return await m.pipeline("automatic-speech-recognition", cepat ? ID_MODEL_WHISPER_CEPAT : ID_MODEL_WHISPER, {
       dtype: "q8",
       device: "cpu",
     });
@@ -199,31 +272,39 @@ async function buatPipaAsr(): Promise<ModulTransformers | null> {
   }
 }
 
-/** Sesi utama (selalu ada) — dimuat sekali lalu dipakai ulang. */
-async function ambilPipaAsr(): Promise<ModulTransformers | null> {
-  if (pipaAsr !== undefined) return pipaAsr;
-  pipaAsr = await buatPipaAsr();
-  return pipaAsr;
+/** Sesi utama (selalu ada) — dimuat sekali lalu dipakai ulang (dipisah per model). */
+const pipaUtama: Record<"tepat" | "cepat", ModulTransformers | null | undefined> = {
+  tepat: undefined,
+  cepat: undefined,
+};
+async function ambilPipaAsr(cepat = false): Promise<ModulTransformers | null> {
+  const kunci = cepat ? "cepat" : "tepat";
+  if (pipaUtama[kunci] !== undefined) return pipaUtama[kunci];
+  pipaUtama[kunci] = await buatPipaAsr(cepat);
+  return pipaUtama[kunci];
 }
 
 /** Sesi tambahan utk pool paralel — dibuat sekali, dipakai ulang antar video. */
-const pipaTambahan: ModulTransformers[] = [];
-async function ambilPoolAsr(n: number): Promise<ModulTransformers[]> {
-  const utama = await ambilPipaAsr();
+const pipaTambahan: Record<"tepat" | "cepat", ModulTransformers[]> = { tepat: [], cepat: [] };
+async function ambilPoolAsr(n: number, cepat = false): Promise<ModulTransformers[]> {
+  const kunci = cepat ? "cepat" : "tepat";
+  const utama = await ambilPipaAsr(cepat);
   if (!utama) return [];
   if (n <= 1) return [utama];
-  while (pipaTambahan.length < n - 1) {
-    const p = await buatPipaAsr();
+  const tambahan = pipaTambahan[kunci];
+  while (tambahan.length < n - 1) {
+    const p = await buatPipaAsr(cepat);
     if (!p) break; // memori/lingkungan tak sanggup — turunkan jumlah jalur
-    pipaTambahan.push(p);
+    tambahan.push(p);
   }
-  return [utama, ...pipaTambahan];
+  return [utama, ...tambahan];
 }
 
 /**
  * Jumlah jalur paralel dari kemampuan mesin (murni — dites unit).
  * Bukan sekadar jumlah core: tiap sesi onnxruntime sudah multi-thread, dan RAM
  * harus cukup utk beberapa salinan model. env VIDSPLIT_AI_PARALEL memaksa nilai.
+ * v0.51.0 — mesin besar (≥8 core DAN ≥8 GB RAM) dapat 4 jalur (sebelumnya maks 3).
  */
 export function jumlahPipaParalel(cores: number, ramGb: number): number {
   const env = Number(process.env.VIDSPLIT_AI_PARALEL || "");
@@ -232,7 +313,8 @@ export function jumlahPipaParalel(cores: number, ramGb: number): number {
   if (cores <= 2) return 1;
   if (ramGb < 6) return Math.min(2, cores);
   if (cores <= 5) return 2;
-  return 3;
+  if (cores <= 7 || ramGb < 8) return 3;
+  return 4;
 }
 
 /** Pipeline terjemahan EN→ID — dimuat hanya saat dibutuhkan. */
@@ -363,12 +445,16 @@ export function gabungSegmenBlok(
  * Return null bila mesin AI tidak tersedia (model/modul hilang).
  * v0.47.0: mode "fokus" = tanpa deteksi ganda; transkrip penuh berjalan
  * PARALEL per blok dgn beberapa sesi Whisper (lihat bagiBlokAudio).
+ * v0.51.0: blok SUNYI dilewati (rmsBlok), progres dgn perkiraan sisa waktu,
+ * hasil dibersihkan dr halusinasi loop (bersihSegmenHalusinasi), dan opsi
+ * modelCepat memilih Whisper Base (±2–3× lebih cepat, ketepatan sedikit turun).
  */
 export async function transkripDiterjemahkan(
   audio: Float32Array,
   opsi?: OpsiTranskrip,
 ): Promise<HasilTranskrip | null> {
-  const asrUtama = await ambilPipaAsr();
+  const cepat = opsi?.modelCepat === true;
+  const asrUtama = await ambilPipaAsr(cepat);
   if (!asrUtama) return null;
   const tahap = opsi?.onTahap ?? (() => {});
   const mode: ModeBahasa = opsi?.modeBahasa === "deteksi" ? "deteksi" : "fokus";
@@ -399,18 +485,29 @@ export async function transkripDiterjemahkan(
 
   // ---- 2. transkrip PENUH — blok paralel dgn pool sesi Whisper ----
   const bahasaLabel = bahasa === "id" ? "(Indonesia)" : "(Inggris)";
-  const blok = bagiBlokAudio(audio);
+  // v0.51.0 — blok SUNYI (RMS < AMBATANG_SUNYI) dilewati tanpa transkrip:
+  // intro/keheningan/instrumen tak memakan waktu decode + tak memicu halusinasi
+  const semuaBlok = bagiBlokAudio(audio);
+  const blok: BlokAudio[] = [];
+  let sunyi = 0;
+  for (const b of semuaBlok) {
+    if (apakahBlokSunyi(b.data)) sunyi += 1;
+    else blok.push(b);
+  }
   const { cpus, totalmem } = await import("node:os");
   const jalurMax = jumlahPipaParalel(cpus().length, totalmem() / 1073741824);
-  const pool = blok.length > 1 ? await ambilPoolAsr(jalurMax) : [asrUtama];
+  const pool = blok.length > 1 ? await ambilPoolAsr(jalurMax, cepat) : [asrUtama];
   const jalur = Math.max(1, pool.length);
   tahap(
-    `transkrip suara ${bahasaLabel}${jalur > 1 ? ` — ${jalur} jalur paralel` : ""}…`,
+    `transkrip suara ${bahasaLabel}${cepat ? " — mode cepat" : ""}${
+      jalur > 1 ? ` — ${jalur} jalur paralel` : ""
+    }${sunyi > 0 ? ` — ${sunyi} bagian sunyi dilewati` : ""}…`,
   );
 
   const hasilBlok: Array<{ mulai: number; segmen: SegmenSub[] } | null> = blok.map(() => null);
   let gagal = 0;
   let selesai = 0;
+  const mulaiTranskrip = Date.now();
   const opsiAsr = {
     chunk_length_s: 30,
     stride_length_s: 5,
@@ -444,15 +541,22 @@ export async function transkripDiterjemahkan(
       else gagal += 1;
       selesai += 1;
       if (blok.length > 1) {
+        // v0.51.0 — progres + perkiraan sisa waktu (rata-rata kecepatan ÷ jalur)
+        const pct = Math.round((selesai / blok.length) * 100);
+        const sisa = perkiraanSisaDtk(Date.now() - mulaiTranskrip, selesai, blok.length, jalur);
+        const sisaTeks = sisa >= 90 ? `±${Math.max(1, Math.round(sisa / 60))} mnt` : `±${sisa} dtk`;
         tahap(
-          `transkrip suara ${bahasaLabel}… ${Math.round((selesai / blok.length) * 100)}% (${selesai}/${blok.length} bagian)`,
+          `transkrip suara ${bahasaLabel}… ${pct}% (${selesai}/${blok.length} bagian) — sisa ${sisaTeks}`,
         );
       }
     }
   });
   await Promise.all(pekerja);
 
-  const segmenGabung = gabungSegmenBlok(hasilBlok.filter((h): h is { mulai: number; segmen: SegmenSub[] } => h !== null));
+  // v0.51.0 — halusinasi loop Whisper (teks berulang pada musik/keheningan) dibersihkan
+  const segmenGabung = bersihSegmenHalusinasi(
+    gabungSegmenBlok(hasilBlok.filter((h): h is { mulai: number; segmen: SegmenSub[] } => h !== null)),
+  );
   let segmen = segmenGabung;
   if (!segmen.length) {
     return { segmen: [], bahasa, diterjemahkan: false };
@@ -494,6 +598,8 @@ export async function transkripDiterjemahkan(
  * Kunci cache stabil dari identitas berkas + rentang trim + mode bahasa.
  * v0.47.0: mode ikut kunci — hasil "fokus" vs "deteksi" bisa beda, dan cache
  * lama (sebelum v0.47) otomatis tak terpakai (analisis ulang sekali, kini lebih cepat).
+ * v0.51.0: pilihan model CEPAT (Whisper Base) ikut kunci dgn akhiran "|cepat" —
+ * KUNCI BAWAAN (Whisper Small) TIDAK BERUBAH agar cache v0.47–v0.50 tetap valid.
  * Fungsi murni.
  */
 export function kunciCache(
@@ -503,9 +609,12 @@ export function kunciCache(
   mulaiDetik: number,
   akhirDetik: number,
   mode: ModeBahasa = "fokus",
+  cepat = false,
 ): string {
   return createHash("sha1")
-    .update(`${file}|${ukuran}|${mtimeMs}|${mulaiDetik.toFixed(3)}|${akhirDetik.toFixed(3)}|${mode}`)
+    .update(
+      `${file}|${ukuran}|${mtimeMs}|${mulaiDetik.toFixed(3)}|${akhirDetik.toFixed(3)}|${mode}${cepat ? "|cepat" : ""}`,
+    )
     .digest("hex")
     .slice(0, 24);
 }
@@ -573,6 +682,7 @@ export async function siapkanSegmenSubtitle(
 ): Promise<HasilTranskrip | null> {
   if (!modelTersedia()) return null;
   const mode: ModeBahasa = opsi?.modeBahasa === "deteksi" ? "deteksi" : "fokus";
+  const cepat = opsi?.modelCepat === true;
   let stat: { size: number; mtimeMs: number } | null = null;
   try {
     const { statSync } = await import("node:fs");
@@ -580,7 +690,7 @@ export async function siapkanSegmenSubtitle(
   } catch {
     return null;
   }
-  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode);
+  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode, cepat);
   const tersimpan = ambilCache(kunci);
   if (tersimpan) return tersimpan;
 
