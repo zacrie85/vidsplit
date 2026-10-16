@@ -55,6 +55,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.akhirDetik = clamp(p.akhirDetik, 0, 86400, 0);
   p.subtitleUkuran = clamp(p.subtitleUkuran, 10, 80, 26);
   p.subtitleY = clamp(p.subtitleY, 30, 100, 88);
+  // v0.54.0 — warna subtitle pratinjau = warna ekspor (WYSIWYG); tak valid → bawaan
+  if (!/^#[0-9a-fA-F]{6}$/.test(p.subtitleWarna || "")) p.subtitleWarna = "#ffffff";
+  if (!/^#[0-9a-fA-F]{6}$/.test(p.subtitleOutlineWarna || "")) p.subtitleOutlineWarna = "#000000";
   // v0.47.0 — mode bahasa pratinjau = mode ekspor (cache hasil analisis sama)
   p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
   return p;
@@ -123,6 +126,9 @@ async function kerjakan(
     H,
     ukuran: pengaturan.subtitleUkuran,
     yPersen: pengaturan.subtitleY,
+    // v0.54.0 — warna teks & outline ikut setelan (pratinjau = hasil ekspor)
+    warna: pengaturan.subtitleWarna,
+    warnaOutline: pengaturan.subtitleOutlineWarna,
   });
   if (!ass) {
     return {
@@ -140,7 +146,7 @@ async function kerjakan(
   } catch {
     /* sudah dicek exists di atas */
   }
-  const kunci = `${kunciCache(srcAbs, stat.size, stat.mtimeMs, mulaiTrim, akhirTrim, pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus")}-u${pengaturan.subtitleUkuran}-y${pengaturan.subtitleY}`;
+  const kunci = `${kunciCache(srcAbs, stat.size, stat.mtimeMs, mulaiTrim, akhirTrim, pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus")}-u${pengaturan.subtitleUkuran}-y${pengaturan.subtitleY}-w${(pengaturan.subtitleWarna || "").replace(/[^#0-9a-f]/gi, "")}-o${(pengaturan.subtitleOutlineWarna || "").replace(/[^#0-9a-f]/gi, "")}`;
   const namaKlip = `${kunci}.mp4`;
   const keluar = path.join(dirWork("pratinjau-sub"), namaKlip);
   if (!existsSync(keluar)) {
@@ -193,7 +199,7 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as { file?: string; pengaturan?: Partial<Pengaturan> };
     if (!body.file) throw new Error("Parameter 'file' wajib");
     const pengaturan = rapikanPengaturan(body.pengaturan);
-    const kunci = `${body.file}|${pengaturan.subtitleUkuran}|${pengaturan.subtitleY}|${pengaturan.mulaiDetik}|${pengaturan.akhirDetik}|${pengaturan.mode}`;
+    const kunci = `${body.file}|${pengaturan.subtitleUkuran}|${pengaturan.subtitleY}|${pengaturan.mulaiDetik}|${pengaturan.akhirDetik}|${pengaturan.mode}|${pengaturan.subtitleWarna}|${pengaturan.subtitleOutlineWarna}`;
     let janji = berjalan.get(kunci);
     if (!janji) {
       janji = kerjakan(body.file, pengaturan).finally(() => berjalan.delete(kunci));

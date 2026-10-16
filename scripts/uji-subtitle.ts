@@ -28,8 +28,19 @@ import {
   indeksBlokTerakhirSebelum,
   BLOK_PERTAMA_DTK,
   MAKS_DTK_BLOK,
+  // v0.54.0 — warna subtitle + percepatan AI + perapian ejaan
+  warnaAss,
+  perbaikiEjaan,
+  benangPerSesi,
+  opsiAsrWhisper,
   type ModeBahasa,
 } from "../src/lib/vidsplit/subtitle";
+import {
+  pengaturanDefault,
+  rapikanHex,
+  hexValid,
+  urlBingkaiWarna,
+} from "../src/lib/vidsplit/types";
 
 let lulus = 0;
 let gagal = 0;
@@ -432,6 +443,91 @@ rmSync(dirModelUji, { recursive: true, force: true });
 // --- konstanta v0.53.0 ---
 cek("kickstart: BLOK_PERTAMA_DTK = 30", BLOK_PERTAMA_DTK === 30);
 cek("anti-hang: MAKS_DTK_BLOK = 900", MAKS_DTK_BLOK === 900);
+
+// ===================== v0.54.0 — WARNA SUBTITLE =====================
+// ASS memakai urutan BGR + alpha di depan: &H00BBGGRR
+cek("warnaAss: #ff8800 → &H000088FF", warnaAss("#ff8800") === "&H000088FF");
+cek("warnaAss: kapital #FF8800 → &H000088FF", warnaAss("#FF8800") === "&H000088FF");
+cek("warnaAss: tak valid → cadangan putih", warnaAss("merah") === "&H00FFFFFF");
+cek("warnaAss: undefined → cadangan putih", warnaAss(undefined) === "&H00FFFFFF");
+cek("warnaAss: tak valid + cadangan #123456", warnaAss("x", "#123456") === "&H00563412");
+cek("warnaAss: outline hitam", warnaAss("#000000") === "&H00000000");
+
+const assWarna = bangunAssSubtitle({
+  segmen: [{ a: 0.5, b: 2.5, t: "tes warna" }],
+  mulaiPartRel: 0,
+  durasiPart: 20,
+  offsetIntro: 0,
+  W: 1080,
+  H: 1920,
+  ukuran: 26,
+  yPersen: 88,
+  warna: "#ff8800",
+  warnaOutline: "#112233",
+});
+cek("ass warna: gaya Sub memakai warna teks pilihan", assWarna.includes("&H000088FF"));
+cek("ass warna: gaya Sub memakai warna outline pilihan", assWarna.includes("&H00332211"));
+const assBawaan = bangunAssSubtitle({
+  segmen: [{ a: 0.5, b: 2.5, t: "tes" }],
+  mulaiPartRel: 0,
+  durasiPart: 20,
+  offsetIntro: 0,
+  W: 1080,
+  H: 1920,
+  ukuran: 26,
+  yPersen: 88,
+});
+cek("ass tanpa warna = gaya lama (putih/hitam)", assBawaan.includes("&H00FFFFFF,&H000000FF,&H00000000"));
+
+// ===================== v0.54.0 — PERBAIKAN EJAAN =====================
+cek("ejaan: 'rumah nya' digabung", perbaikiEjaan("rumah nya besar") === "rumahnya besar");
+cek("ejaan: 'bagus lah' digabung", perbaikiEjaan("bagus lah") === "baguslah");
+cek("ejaan: 'apa kah' digabung", perbaikiEjaan("apa kah") === "apakah");
+cek("ejaan: spasi ganda dirapikan", perbaikiEjaan("halo   dunia") === "halo dunia");
+cek("ejaan: artefak kutip dibuang", perbaikiEjaan("`halo`") === "halo");
+cek("ejaan: kosong aman", perbaikiEjaan("") === "");
+cek("ejaan: kata biasa tak tersentuh", perbaikiEjaan("saya makan nasi") === "saya makan nasi");
+cek("ejaan: '-nya' di akhir kalimat digabung", perbaikiEjaan("warnanya keren banget") === "warnanya keren banget");
+
+// ===================== v0.54.0 — BENANG PER SESI =====================
+const envLama = process.env.VIDSPLIT_AI_BENANG;
+delete process.env.VIDSPLIT_AI_BENANG;
+cek("benang: 8 core/16GB (4 jalur) → 2", benangPerSesi(8, 16) === 2);
+cek("benang: 4 core/8GB (3 jalur) → 2 (min)", benangPerSesi(4, 8) === 2);
+cek("benang: 2 core (1 jalur) → 0 = default", benangPerSesi(2, 8) === 0);
+cek("benang: 16 core (4 jalur) → 4", benangPerSesi(16, 16) === 4);
+process.env.VIDSPLIT_AI_BENANG = "6";
+cek("benang: env override 6", benangPerSesi(8, 16) === 6);
+process.env.VIDSPLIT_AI_BENANG = "99";
+cek("benang: env dibatasi 16", benangPerSesi(8, 16) === 16);
+if (envLama === undefined) delete process.env.VIDSPLIT_AI_BENANG;
+else process.env.VIDSPLIT_AI_BENANG = envLama;
+
+// ===================== v0.54.0 — OPSI DECODE WHISPER =====================
+const opsTepat = opsiAsrWhisper("id", false);
+cek("opsi tepat: bahasa indonesia", opsTepat.language === "indonesian");
+cek("opsi tepat: greedy deterministik", opsTepat.do_sample === false);
+cek("opsi tepat: TANPA pembatas ngram (perilaku lama utuh)", !("no_repeat_ngram_size" in opsTepat));
+cek("opsi tepat: timestamp nyala", opsTepat.return_timestamps === true);
+const opsCepat = opsiAsrWhisper("id", true);
+cek("opsi cepat: pembatas ngram 3 anti loop", opsCepat.no_repeat_ngram_size === 3);
+cek("opsi cepat: bahasa indonesia", opsCepat.language === "indonesian");
+cek("opsi cepat en: english", opsiAsrWhisper("en", true).language === "english");
+
+// ===================== v0.54.0 — WARNA FRAME (types) =====================
+cek("hexValid: #a1b2c3 ya", hexValid("#a1B2C3") === true);
+cek("hexValid: #12345 salah", hexValid("#12345") === false);
+cek("hexValid: kosong salah", hexValid("") === false);
+cek("rapikanHex: spasi + kapital → kecil", rapikanHex(" #AABBCC ") === "#aabbcc");
+cek("rapikanHex: salah → null", rapikanHex("merah") === null);
+cek("bawaan: subtitleWarna putih", pengaturanDefault.subtitleWarna === "#ffffff");
+cek("bawaan: subtitleOutline hitam", pengaturanDefault.subtitleOutlineWarna === "#000000");
+cek("bawaan: frameWarna kosong (asli)", pengaturanDefault.frameWarna === "");
+cek("urlBingkaiWarna: tanpa warna → PNG asli", urlBingkaiWarna({ frameId: "bawaan:horor-alam-gaib-3", frameWarna: "" }) === "/bingkai/horor-alam-gaib-3-916.png");
+const uWarna = urlBingkaiWarna({ frameId: "bawaan:horor-alam-gaib-3", frameWarna: "#FFAA00" });
+cek("urlBingkaiWarna: solid → api bingkai-warna", uWarna.startsWith("/api/bingkai-warna?") && uWarna.includes("c1=%23ffaa00"));
+const uGrad = urlBingkaiWarna({ frameId: "upload/xyz.png", frameWarna: "#ff0000", frameWarna2: "#00ff00" });
+cek("urlBingkaiWarna: gradasi membawa c1+c2", uGrad.includes("c1=%23ff0000") && uGrad.includes("c2=%2300ff00"));
 
 console.log(`\n=== uji-subtitle: ${lulus} LULUS, ${gagal} GAGAL ===`);
 if (gagal > 0) process.exit(1);

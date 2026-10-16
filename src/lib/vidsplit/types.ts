@@ -109,6 +109,16 @@ export interface Pengaturan {
   /** v0.51.0 — false (bawaan) = Whisper SMALL (paling tepat). true = Whisper
    *  BASE — ±2–3× lebih cepat di CPU, ketepatan sedikit turun (video panjang). */
   subtitleCepat: boolean;
+  /** v0.54.0 — warna teks subtitle (#rrggbb) — dibakar lewat gaya ASS */
+  subtitleWarna: string;
+  /** v0.54.0 — warna outline/bingkai huruf subtitle (#rrggbb) */
+  subtitleOutlineWarna: string;
+  /** v0.54.0 — warna frame hiasan ("" = warna asli frame; #rrggbb = diwarnai
+   *  ulang TANPA mengubah bentuk — bentuk/alpha diambil dari luminance asli) */
+  frameWarna: string;
+  /** v0.54.0 — warna kedua gradasi frame ("" = solid 1 warna; #rrggbb =
+   *  gradasi vertikal atas→bawah). Aktif hanya bila frameWarna juga diisi. */
+  frameWarna2: string;
   /** v0.46.0 — frame hiasan: "" = tanpa, "bawaan:<slug>" = bawaan aplikasi
    *  (public/bingkai), "upload/<berkas>" = unggahan user (work/upload).
    *  Video tampil di balik frame, terlihat lewat jendela transparan frame. */
@@ -190,6 +200,12 @@ export const pengaturanDefault: Pengaturan = {
   subtitleDeteksiBahasa: false,
   // v0.51.0 — bawaan Whisper Small (paling tepat); Base = pilihan "Cepat"
   subtitleCepat: false,
+  // v0.54.0 — subtitle: putih + outline hitam (persis gaya lama yang hardcoded)
+  subtitleWarna: "#ffffff",
+  subtitleOutlineWarna: "#000000",
+  // v0.54.0 — frame: warna asli (recolor mati) bawaan
+  frameWarna: "",
+  frameWarna2: "",
   posisiLogo: "kanan-bawah",
   // v0.8.0 posisi bebas logo — default ≈ kanan-bawah lama (kiri-atas logo)
   logoX: 81.5,
@@ -379,6 +395,36 @@ export function labelMode(m: ModeKonversi): string {
   return map[m];
 }
 
+/** Hex #rrggbb valid? (murni — dipakai warna subtitle & frame v0.54.0) */
+export function hexValid(h: string | undefined | null): boolean {
+  return typeof h === "string" && /^#[0-9a-fA-F]{6}$/.test(h.trim());
+}
+
+/** Rapikan warna hex → "#rrggbb" huruf kecil; null bila tidak valid / kosong.
+ *  Fungsi murni — dites di scripts/uji-subtitle.ts. */
+export function rapikanHex(h: string | undefined | null): string | null {
+  if (!hexValid(h)) return null;
+  return (h as string).trim().toLowerCase();
+}
+
+/**
+ * v0.54.0 — URL pratinjau frame DENGAN warna pilihan user.
+ * frameWarna kosong → URL PNG asli (perilaku lama); diisi → lewat API
+ * /api/bingkai-warna yang mewarnai ulang frame di server (cache) — dipakai
+ * pratinjau live & kartu pilihan frame agar WYSIWYG dgn hasil ekspor.
+ */
+export function urlBingkaiWarna(
+  p: { frameId: string; frameWarna?: string; frameWarna2?: string },
+  lanskap = false,
+): string {
+  const c1 = rapikanHex(p.frameWarna);
+  if (!c1) return urlBingkai(p.frameId, lanskap);
+  const c2 = rapikanHex(p.frameWarna2);
+  const q = new URLSearchParams({ frame: p.frameId, c1, l: lanskap ? "1" : "0" });
+  if (c2) q.set("c2", c2);
+  return `/api/bingkai-warna?${q.toString()}`;
+}
+
 /** v0.47.0 — URL pratinjau frame hiasan: bawaan = varian rasio
  *  /bingkai/<slug>-916.png (potret, bawaan) atau -169.png (lanskap),
  *  unggahan = API file kerja. "" → "". */
@@ -436,6 +482,9 @@ export function terapkanFrame(sumber: Pengaturan, target: Pengaturan): Pengatura
     neonDuaGaris: sumber.neonDuaGaris,
     templateGrad1: sumber.templateGrad1,
     templateGrad2: sumber.templateGrad2,
+    // v0.54.0 — warna frame (recolor) ikut tersalin
+    frameWarna: sumber.frameWarna,
+    frameWarna2: sumber.frameWarna2,
   };
 }
 

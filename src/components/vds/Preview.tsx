@@ -3,7 +3,7 @@
 // VidSplit — pratinjau live: video 9:16 + overlay judul & Part berganti otomatis
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
-import { formatDurasi, FONT_CSS, neonDari, urlBingkai, type Pengaturan } from "@/lib/vidsplit/types";
+import { formatDurasi, FONT_CSS, neonDari, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
 import { LapisanNeon } from "@/components/vds/Neon";
@@ -373,8 +373,15 @@ export function Preview({
           {pengaturan.frameId && !modeTemplate && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              key={pengaturan.frameId}
-              src={urlBingkai(pengaturan.frameId, modeAsli && lebar > tinggi)}
+              key={`${pengaturan.frameId}|${pengaturan.frameWarna || ""}|${pengaturan.frameWarna2 || ""}`}
+              src={urlBingkaiWarna(
+                {
+                  frameId: pengaturan.frameId,
+                  frameWarna: pengaturan.frameWarna,
+                  frameWarna2: pengaturan.frameWarna2,
+                },
+                modeAsli && lebar > tinggi,
+              )}
               alt=""
               aria-hidden
               onError={(e) => {

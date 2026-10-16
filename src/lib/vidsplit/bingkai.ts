@@ -5,13 +5,22 @@
 // teks (DANGDUT IDOLA DESA / HOROR ALAM GAIB) tampil PENUH tanpa ter-crop.
 // Untuk ffmpeg (pathAman membatasi di work/), varian terpilih DICOPY sekali
 // ke work/upload/bawaan-<slug>-<rasio>.png — cache permanen per instalasi.
-import { copyFileSync, existsSync, statSync } from "node:fs";
+// v0.54.0 — RECOLOR frame: pilihan user warna solid / gradasi vertikal,
+// diterapkan TANPA mengubah bentuk (warna mengikuti terang/luminance piksel
+// asli — garis, hiasan, alpha transparan persis seperti frame aslinya).
+import { copyFileSync, existsSync, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { dirWork } from "./ffmpeg";
+import { dirWork, jalankanFfmpeg, probe } from "./ffmpeg";
 import { adalahSlugBawaan } from "./bingkaiBawaan";
 
 export { BINGKAI_BAWAAN, adalahSlugBawaan } from "./bingkaiBawaan";
 export type { BingkaiBawaan } from "./bingkaiBawaan";
+
+/** Hex "#rrggbb" (huruf besar/kecil) → "0xrrggbb" utk ffmpeg; null bila salah. */
+export function hexKeFf(h: string): string | null {
+  const t = (h || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(t) ? `0x${t.slice(1).toLowerCase()}` : null;
+}
 
 /** Path asal PNG bawaan utk rasio "916"|"169" — null bila slug tak dikenal.
  *  Fallback: bila varian rasio tak ada tapi <slug>.png ada (paket lama),
@@ -64,4 +73,117 @@ export function siapkanBingkai(frameId: string, lanskap = false): string | null 
     return null;
   }
   return null;
+}
+
+/** Folder cache PNG frame hasil pewarnaan (dibuat otomatis). */
+function dirWarna(): string {
+  return dirWork("bingkai-warna");
+}
+
+/**
+ * v0.54.0 — RANTAI FILTER RECOLOR (murni — dites dgn ffmpeg sungguhan di
+ * scripts/uji-warna-bingkai.ts). Warna baru = warna pilihan user dikalikan
+ * TERANG piksel asli (multiply) — bentuk, gradasi terang-gelap, dan area
+ * transparan frame TETAP PERSIS (permintaan user: ganti warna tanpa ubah bentuk).
+ *  [0] frame PNG → split RGB & alpha
+ *  · alpha → disimpan (alphaextract)
+ *  · RGB → luminance (colorchannelmixer, tetap format RGB agar blend
+ *    tidak mengubah gradien jadi abu-abu — pelajaran uji pertama)
+ *  · [1] gradients c0→c1 vertikal (c1=c0 utk warna solid)
+ *  · multiply grad × luminance → gabung alpha lagi (alphamerge)
+ */
+export function rantaiRecolorBingkai(): string {
+  return (
+    `[0:v]format=rgba,split=2[rgb][aa]` +
+    `;[aa]alphaextract[alp]` +
+    `;[rgb]format=rgb24,colorchannelmixer=rr=.299:rg=.587:rb=.114:gr=.299:gg=.587:gb=.114:br=.299:bg=.587:bb=.114[lum]` +
+    `;[1:v]format=rgb24[grad]` +
+    `;[grad][lum]blend=all_mode=multiply[mul]` +
+    `;[mul][alp]alphamerge[out]`
+  );
+}
+
+/** Desimal 0–255 dari kanal hex "0xrrggbb". */
+function kanal(hex: string, ofs: number): number {
+  return parseInt(hex.slice(2 + ofs, 4 + ofs), 16) || 0;
+}
+
+/** Argumen input lavfi utk GRADIEN vertikal penuh — DETERMINISTIK (tanpa
+ *  filter "gradients" yang fase/rotasinya diacak tiap jalan — pelajaran uji:
+ *  seed acak membuat warna atas/bawah berubah-ubah antar ekspor). Solid =
+ *  c2 kosong → rumus jatuh ke warna tetap. */
+export function argGradienBingkai(c1: string, c2: string, W: number, H: number): string {
+  const r1 = kanal(c1, 0);
+  const g1 = kanal(c1, 2);
+  const b1 = kanal(c1, 4);
+  const r2 = c2 ? kanal(c2, 0) : r1;
+  const g2 = c2 ? kanal(c2, 2) : g1;
+  const b2 = c2 ? kanal(c2, 4) : b1;
+  const t = "(Y/(H-1))";
+  return (
+    `color=c=black:s=${W}x${H}:r=1:d=1,format=rgb24,` +
+    `geq=r='${r1}+(${r2 - r1})*${t}':g='${g1}+(${g2 - g1})*${t}':b='${b1}+(${b2 - b1})*${t}'`
+  );
+}
+
+/**
+ * v0.54.0 — Warnai ulang PNG frame dgn warna pilihan user (SOLID atau GRADASI
+ * vertikal) TANPA mengubah bentuk. Hasil di-cache di work/bingkai-warna/<hash>.png
+ * (kunci = berkas+mtime+warna). Gagal (ffmpeg/probe) → kembalikan path ASLI
+ * supaya ekspor tetap jalan dengan frame asli — pewarnaan tidak pernah
+ * menggagalkan ekspor.
+ */
+export async function siapkanBingkaiWarna(
+  frameAbs: string,
+  warna1: string,
+  warna2: string,
+  ffmpegBin: string,
+): Promise<string> {
+  const c1 = hexKeFf(warna1);
+  if (!c1) return frameAbs; // warna kosong/salah → frame asli
+  const c2 = hexKeFf(warna2);
+  try {
+    const info = await probe(frameAbs);
+    const W = Math.max(2, Math.round(info.lebar));
+    const H = Math.max(2, Math.round(info.tinggi));
+    const stat = statSync(frameAbs);
+    const { createHash } = await import("node:crypto");
+    const kunci =
+      createHash("sha1")
+        .update(`${path.basename(frameAbs)}|${stat.size}|${stat.mtimeMs}|${c1}|${c2 || ""}`)
+        .digest("hex")
+        .slice(0, 24) + ".png";
+    const keluar = path.join(dirWarna(), kunci);
+    if (existsSync(keluar)) return keluar;
+    mkdirSync(dirWarna(), { recursive: true });
+    await jalankanFfmpeg(
+      [
+        "-y",
+        "-hide_banner",
+        "-v",
+        "error",
+        "-i",
+        frameAbs,
+        "-f",
+        "lavfi",
+        "-i",
+        argGradienBingkai(c1, c2 || "", W, H),
+        "-frames:v",
+        "1",
+        "-filter_complex",
+        rantaiRecolorBingkai(),
+        "-map",
+        "[out]",
+        keluar,
+      ],
+      0,
+      undefined,
+      ffmpegBin,
+      undefined,
+      { diamMs: 20_000, absolutMs: 60_000 },
+    );
+    return existsSync(keluar) ? keluar : frameAbs;
+  } catch {
+    return frameAbs; // gagal warna → frame asli (ekspor tetap jalan)
+  }
 }

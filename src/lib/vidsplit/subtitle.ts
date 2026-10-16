@@ -61,6 +61,73 @@ export const OVERLAP_BLOK = 1.5;
  * halusinasi teks pada bagian tanpa suara).
  */
 export const AMBATANG_SUNYI = 0.003;
+/**
+ * v0.54.0 — JUMLAH BENANG (thread) ONNX PER SESI dari kemampuan mesin (murni —
+ * dites unit). Dulu: tiap sesi onnxruntime memakai SEMUA core fisik — dgn pool
+ * 4 sesi paralel di mesin 8 core = 32 benang menimpa-nimpa (thrashing) sehingga
+ * transkrip jauh lebih lambat dr seharusnya. Kini benang per sesi = core ÷ jalur
+ * (min 2, maks 8). 0 = biarkan bawaan (dipakai bila hanya 1 jalur).
+ * env VIDSPLIT_AI_BENANG memaksa nilai (1–16).
+ */
+export function benangPerSesi(cores: number, ramGb: number): number {
+  const env = Number(process.env.VIDSPLIT_AI_BENANG || "");
+  if (Number.isFinite(env) && env >= 1) return Math.min(16, Math.floor(env));
+  const jalur = jumlahPipaParalel(cores, ramGb);
+  if (jalur <= 1) return 0; // satu jalur → default bawaan (semua core utk 1 sesi)
+  return Math.min(8, Math.max(2, Math.floor(cores / jalur)));
+}
+
+/**
+ * v0.54.0 — OPSI DECODE WHISPER per blok (murni — dites unit):
+ *  · do_sample: false — greedy deterministik (identik dulu, dijamin tidak
+ *    berubah-ubah antar percobaan);
+ *  · model Cepat (Base) + no_repeat_ngram_size 3 — memblok loop 3-gram
+ *    (halusinasi berulang khas model kecil) tanpa biaya waktu berarti.
+ * Model Tepat (Small) TIDAK diubah perilakunya (tanpa ngram) — hasil lama
+ * tetap konsisten dgn cache.
+ */
+export function opsiAsrWhisper(bahasa: "id" | "en", cepat: boolean): Record<string, unknown> {
+  const dasar: Record<string, unknown> = {
+    chunk_length_s: 30,
+    stride_length_s: 5,
+    return_timestamps: true,
+    language: bahasa === "id" ? "indonesian" : "english",
+    task: "transcribe",
+    do_sample: false,
+  };
+  if (cepat) dasar.no_repeat_ngram_size = 3;
+  return dasar;
+}
+
+/**
+ * v0.54.0 — WARNA TEKS SUBTITLE: "#rrggbb" → warna ASS "&H00BBGGRR" (BGR!
+ * & alpha 00 = pekat). Hex tak valid / kosong → nilai cadangan (putih/hitam)
+ * supaya ekspor tidak pernah gagal krn warna. Fungsi murni — dites unit.
+ */
+export function warnaAss(hex: string | undefined | null, cadangan = "#ffffff"): string {
+  const h = typeof hex === "string" ? hex.trim() : "";
+  const cocok = /^#[0-9a-fA-F]{6}$/.test(h) ? h : cadangan;
+  const r = cocok.slice(1, 3);
+  const g = cocok.slice(3, 5);
+  const b = cocok.slice(5, 7);
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
+/**
+ * v0.54.0 — PERBAIKAN EJAAN RINGAN pasca-transkrip (murni — dites unit).
+ * Model kecil (Base) sering salah menulis kata umum Indonesia dgn varian mirip
+ * (spasi hilang sebelum "-nya", artefak karakter aneh). Dua aturan aman:
+ *  · sambung spasi sebelum akhiran enklitik "-nya/lah/kah/pun" yang terpisah;
+ *  · buang tanda kutip salindung ` (artefak decode Base).
+ * Konservatif — TIDAK mengganti kata dgn kamus (berisiko merusak teks benar).
+ */
+export function perbaikiEjaan(teks: string): string {
+  return (teks || "")
+    .replace(/`/g, "")
+    .replace(/\s+(nya|lah|kah|pun)\b/gi, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /**
  * v0.47.0 — mode bahasa:
@@ -295,14 +362,29 @@ async function muatTransformers(): Promise<ModulTransformers | null> {
 }
 
 /** Pabrik sesi ASR Whisper (q8, CPU) — dipanggil beberapa kali utk pool paralel.
- *  v0.51.0 — `cepat` memilih Whisper Base (±2–3× lebih cepat, sedikit kurang tepat). */
+ *  v0.51.0 — `cepat` memilih Whisper Base (±2–3× lebih cepat, sedikit kurang tepat).
+ *  v0.54.0 — BENANG DIATUR: intraOpNumThreads = core ÷ jalur (benangPerSesi)
+ *  supaya beberapa sesi paralel TIDAK saling merebut core (dulu tiap sesi pakai
+ *  semua core → 4 sesi = 4× oversubscribe → transkrip jauh lebih lambat). */
 async function buatPipaAsr(cepat = false): Promise<ModulTransformers | null> {
   const m = await muatTransformers();
   if (!m) return null;
+  const opsiSesi: Record<string, unknown> = {};
+  try {
+    const { cpus, totalmem } = await import("node:os");
+    const benang = benangPerSesi(cpus().length, totalmem() / 1073741824);
+    if (benang > 0) {
+      opsiSesi.intraOpNumThreads = benang;
+      opsiSesi.interOpNumThreads = 1;
+    }
+  } catch {
+    /* tanpa info mesin — pakai bawaan onnxruntime */
+  }
   try {
     return await m.pipeline("automatic-speech-recognition", cepat ? ID_MODEL_WHISPER_CEPAT : ID_MODEL_WHISPER, {
       dtype: "q8",
       device: "cpu",
+      session_options: opsiSesi,
     });
   } catch {
     // v0.51.2 — model cepat (Base) tak bisa dimuat (berkas tak lengkap/tak
@@ -313,6 +395,7 @@ async function buatPipaAsr(cepat = false): Promise<ModulTransformers | null> {
       return await m.pipeline("automatic-speech-recognition", ID_MODEL_WHISPER, {
         dtype: "q8",
         device: "cpu",
+        session_options: opsiSesi,
       });
     } catch {
       return null;
@@ -445,7 +528,9 @@ function potongHasil(hasil: ModulTransformers): SegmenSub[] {
   const chunks = (hasil?.chunks || []) as Array<{ text?: string; timestamp?: [number | null, number | null] }>;
   const segmen: SegmenSub[] = [];
   for (const c of chunks) {
-    const teks = bersihTeksSub(String(c.text || ""));
+    // v0.54.0 — ejaan dirapikan (enklitik & artefak kutip) — terutama membantu
+    // model Cepat (Base) yang sering memisah "-nya/-lah" dgn spasi
+    const teks = perbaikiEjaan(bersihTeksSub(String(c.text || "")));
     if (!teks) continue;
     const a = Number(c.timestamp?.[0] ?? 0);
     const b = Number(c.timestamp?.[1] ?? a + 1);
@@ -619,13 +704,8 @@ export async function transkripDiterjemahkan(
   let gagal = 0;
   let selesai = 0;
   const mulaiTranskrip = Date.now();
-  const opsiAsr = {
-    chunk_length_s: 30,
-    stride_length_s: 5,
-    return_timestamps: true,
-    language: bahasa === "id" ? "indonesian" : "english",
-    task: "transcribe",
-  } as const;
+  // v0.54.0 — opsi decode lewat pembangun murni (dites): greedy + ngram utk Base
+  const opsiAsr = opsiAsrWhisper(bahasa, cepat);
 
   const kerjakanBlok = async (i: number, pipa: ModulTransformers): Promise<SegmenSub[] | null> => {
     const b = semuaBlok[i];
@@ -1045,6 +1125,10 @@ export interface OpsiAssSub {
   ukuran: number;
   /** persen tinggi frame utk TITIK BAWAH teks (88 = 12% dari bawah) */
   yPersen: number;
+  /** v0.54.0 — warna teks subtitle #rrggbb (tak valid → putih) */
+  warna?: string;
+  /** v0.54.0 — warna outline huruf #rrggbb (tak valid → hitam) */
+  warnaOutline?: string;
 }
 
 /**
@@ -1062,6 +1146,9 @@ export function bangunAssSubtitle(opsi: OpsiAssSub): string {
   // margin dari bawah = (100 - y)%
   const marginV = Math.round((H * (100 - Math.min(100, Math.max(0, yPersen)))) / 100);
   const akhirPart = mulaiPartRel + durasiPart;
+  // v0.54.0 — warna teks & outline pilihan user (bawaan putih/hitam = gaya lama)
+  const warnaSub = warnaAss(opsi.warna, "#ffffff");
+  const warnaGaris = warnaAss(opsi.warnaOutline, "#000000");
 
   const kepala = [
     "[Script Info]",
@@ -1074,7 +1161,7 @@ export function bangunAssSubtitle(opsi: OpsiAssSub): string {
     "",
     "[V4+ Styles]",
     "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Sub,DejaVu Sans,${fs},&H00FFFFFF,&H000000FF,&H00000000,&H96000000,0,0,0,0,100,100,0,0,1,${outline},1,2,48,48,${marginV},1`,
+    `Style: Sub,DejaVu Sans,${fs},${warnaSub},&H000000FF,${warnaGaris},&H96000000,0,0,0,0,100,100,0,0,1,${outline},1,2,48,48,${marginV},1`,
     "",
     "[Events]",
     "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",

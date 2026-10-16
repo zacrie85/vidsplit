@@ -1,12 +1,16 @@
-// Uji v0.52.0 — pemeriksaan piksel 14 PNG bingkai horor baru (7 desain × 2 rasio):
+// Uji v0.52.0 (diperbarui v0.54.0) — pemeriksaan piksel 14 PNG bingkai horor
+// baru (7 desain × 2 rasio):
 //   1) TENGAH HARUS TEMBUS PANDANG (alpha rata < 40/255) — video terlihat
 //   2) SISI TIPIS (SYARAT USER): strip tengah 13%–87% lebar pada ketinggian
 //      40–60% harus kosong (alpha < 40) — hiasan sisi TIDAK BOLEH melewati
 //      batas ±13% lebar; dan strip 1.5%–11% per sisi HARUS berisi (frame +
 //      hiasan sisi tipis memang ada).
 //   3) zona atas harus ada piksel (teks ALAM GAIB + motif)
-//   4) pita bawah harus ada piksel (teks ALAM GAIB)
-//   5) dimensi benar per rasio (teks menyentuh atas diverifikasi visual)
+//   4) pita bawah harus ada piksel (pita gradasi + ornamen — TANPA teks, v0.54.0)
+//   5) TULISAN NAMA DESAIN HILANG: strip tengah pada ketinggian tema lama
+//      (nama desain TENGGKORAK BERTANDUK dsb.) kosong — v0.54.0 hanya
+//      "ALAM GAIB" yang tersisa di atas (permintaan user)
+//   6) dimensi benar per rasio (teks menyentuh atas diverifikasi visual)
 // Jalankan: bun scripts/uji-bingkai-alpha-v52.ts
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -41,6 +45,18 @@ async function alphaRata(img: sharp.Sharp, kiri: number, atas: number, w: number
   const ch = 4; // RGBA
   for (let i = 3; i < buf.length; i += ch) sum += buf[i];
   return sum / ((buf.length / ch) || 1);
+}
+
+/** v0.54.0 — jumlah piksel OPAK & TERANG (utk deteksi teks di zona atas yang
+ *  berlatar gelap-OPAK — alpha di sana selalu 255, jadi diukur kecerahannya). */
+async function pikselTerang(img: sharp.Sharp, kiri: number, atas: number, w: number, h: number, ambang = 140): Promise<number> {
+  const buf = await img.clone().extract({ left: kiri, top: atas, width: w, height: h }).raw().toBuffer();
+  let n = 0;
+  for (let i = 0; i < buf.length; i += 4) {
+    if (buf[i + 3] < 200) continue;
+    if ((buf[i] + buf[i + 1] + buf[i + 2]) / 3 > ambang) n++;
+  }
+  return n;
 }
 
 for (const slug of HOROR_V52) {
@@ -84,6 +100,24 @@ for (const slug of HOROR_V52) {
 
     const bawah = await alphaRata(img, Math.round(W * 0.2), Math.round(H - (potret ? 120 : 110)), Math.round(W * 0.6), 70);
     ok(bawah > 3, `${slug}-${varian}: pita bawah berisi (alpha ${bawah.toFixed(2)})`);
+
+    // v0.54.0 — nama desain dihapus: strip tengah pada posisi teks tema lama
+    // (temaY = baseline hero + 102/84, huruf Cinzel 52/42) harus TANPA piksel
+    // terang (zona atas opak-gelap — teks lama berwarna terang mudah terdeteksi)
+    const s = Math.min(W, H) / 1080;
+    const cap = 0.75;
+    const fsHero = potret ? 150 : 116;
+    const temaY = Math.round(fsHero * cap + 34 * s + (potret ? 102 : 84));
+    const tTema = potret ? 52 : 42;
+    const stripTema = await pikselTerang(
+      img,
+      Math.round(W * 0.3),
+      temaY - Math.round(tTema * 0.85),
+      Math.round(W * 0.4),
+      Math.round(tTema * 0.62),
+    );
+    // ornamen kecil (bara/kunang) boleh lolos — tulisan lama ±2000+ piksel terang
+    ok(stripTema <= 100, `${slug}-${varian}: nama desain hilang (piksel terang strip tema = ${stripTema} ≤ 100)`);
   }
 }
 

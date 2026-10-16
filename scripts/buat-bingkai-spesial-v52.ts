@@ -10,7 +10,7 @@
 //   • latar HANYA zona atas + pita bawah — TENGAH TRANSPARAN (video terlihat)
 //   • teks "ALAM GAIB" puncaknya MENYENTUH garis bingkai atas (baseline dari
 //     cap-height Creepster 0.75em — diukur scripts/probe-font-v52.ts)
-//   • pita bawah juga bertuliskan "ALAM GAIB"
+//   • v0.54.0: SEMUA teks selain "ALAM GAIB" atas DIHAPUS (nama desain & pita)
 //   • bingkai dobel TIPIS + hiasan sisi selebar maks ±11% lebar per sisi
 //     (diverifikasi uji-bingkai-alpha-v52.ts: strip 13–87% tengah kosong)
 //   • tiap rasio varian sendiri: -916.png (1080×1920) & -169.png (1920×1080)
@@ -288,7 +288,9 @@ export function teksAlamGaib(
   return { svg, baseline };
 }
 
-/** Teks tema kecil di bawah hero: nama desain (Cinzel Decorative) */
+/** Teks tema kecil di bawah hero — v0.54.0 DIHAPUS dari semua frame (permintaan
+ *  user: cukup tulisan "ALAM GAIB" saja di bagian atas). Fungsi ditinggalkan
+ *  tanpa pemanggil demi riwayat (tidak dipakai lagi). */
 export function teksTema(
   W: number,
   baseline: number,
@@ -329,29 +331,24 @@ export function bingkaiTipis(
   );
 }
 
-/** Pita bawah + teks "ALAM GAIB" + garis sisi + sepasang ornamen */
+/** Pita bawah + garis sisi + sepasang ornamen — v0.54.0 TANPA teks (permintaan
+ *  user: cukup tulisan "ALAM GAIB" di bagian atas frame). Pita tetap sbg hiasan. */
 export function pitaBawahHoror(
   W: number,
   H: number,
   s: number,
   l: boolean,
   idBand: string,
-  warnaTeks: string,
   warnaGaris: string,
   ornamenKiri = "",
   ornamenKanan = "",
 ): string {
-  const fsBand = l ? 34 : 42;
-  const yTeks = H - 50 * s;
-  const teks =
-    `<text x="${W / 2}" y="${yTeks}" text-anchor="middle" font-family="Creepster" font-size="${fsBand}" fill="${warnaTeks}" letter-spacing="${(4 * s).toFixed(0)}">ALAM GAIB</text>`;
   const garis =
     `<line x1="${W * 0.1}" y1="${H - 60 * s}" x2="${W * 0.1 + 120 * s}" y2="${H - 60 * s}" stroke="${warnaGaris}" stroke-width="${(1.8 * s).toFixed(1)}"/>` +
     `<line x1="${W * 0.9}" y1="${H - 60 * s}" x2="${W * 0.9 - 120 * s}" y2="${H - 60 * s}" stroke="${warnaGaris}" stroke-width="${(1.8 * s).toFixed(1)}"/>`;
   return (
     `<rect x="0" y="${H - 150 * s}" width="${W}" height="${150 * s}" fill="url(#${idBand})"/>` +
     garis +
-    teks +
     ornamenKiri +
     ornamenKanan
   );
@@ -367,8 +364,8 @@ export function svgHoror3(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gDarah", "gGlow", "#ff2b1f", "#1c0505");
-  const temaY = hero.baseline + (l ? 84 : 102);
-  const pembatasY = temaY + (l ? 46 : 58);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY = hero.baseline + (l ? 84 : 102);
 
   // sepasang tengkorak bertanduk BESAR mengapit teks hero (meniru referensi
   // user) — ditarik ke sisi agar tidak menabrak teks (teks hero mulai ±253px)
@@ -421,13 +418,12 @@ export function svgHoror3(r: Rasio): string {
     kelelawar(W * (l ? 0.58 : 0.64), (l ? 62 : 88) * s, 0.9 * s, true, "#1f1d22") +
     tengkorakPasang +
     hero.svg +
-    teksTema(W, temaY, l, s, "TENGGKORAK BERTANDUK", "#e8ddd0", "#1c1210") +
     pembatas(W, pembatasY, s, "#9a4436") +
     tengkorakTengah +
     tetes(W / 2 - (l ? 240 : 235) * s, pembatasY, 42 * s, 4.6 * s) +
     tetes(W / 2 + (l ? 240 : 235) * s, pembatasY, 54 * s, 5 * s) +
     sisi +
-    pitaBawahHoror(W, H, s, l, "gBand", "#e8ddd0", "#8f6a4a",
+    pitaBawahHoror(W, H, s, l, "gBand", "#8f6a4a",
       tengkorak(90 * s, H - 74 * s, 0.5 * s, "#cfc9ba", "#111013", 0.85),
       tengkorak(W - 90 * s, H - 74 * s, 0.5 * s, "#cfc9ba", "#111013", 0.85)) +
     `</svg>`
@@ -444,7 +440,8 @@ export function svgHoror4(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gHijau", "h4Glow", "#9dff8a", "#0a150c");
-  const temaY = hero.baseline + (l ? 84 : 102);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY4 = hero.baseline + (l ? 84 : 102);
 
   // salib + nisan di sisi zona atas (tanah kubur)
   const makam =
@@ -501,10 +498,9 @@ export function svgHoror4(r: Rasio): string {
     gundukan +
     kabut +
     hero.svg +
-    teksTema(W, temaY, l, s, "TANAH KUBUR", "#dcebd4", "#0a150c") +
-    pembatas(W, temaY + (l ? 46 : 58), s, "#7fa878") +
+    pembatas(W, pembatasY4, s, "#7fa878") +
     pagar +
-    pitaBawahHoror(W, H, s, l, "h4Band", "#dcebd4", "#7fa878",
+    pitaBawahHoror(W, H, s, l, "h4Band", "#7fa878",
       salib(92 * s, H - 84 * s, 0.55 * s, "#9fb8a4", 0.85),
       salib(W - 92 * s, H - 84 * s, 0.55 * s, "#9fb8a4", 0.85)) +
     `</svg>`
@@ -521,7 +517,8 @@ export function svgHoror5(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gTulang5", "h5Glow", "#cdbfff", "#14101a");
-  const temaY = hero.baseline + (l ? 84 : 102);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY5 = hero.baseline + (l ? 84 : 102);
 
   // jaring di 2 sudut atas + benang laba-laba di sudut bawah pita
   const jaring =
@@ -575,10 +572,9 @@ export function svgHoror5(r: Rasio): string {
     star4(W * 0.74, (l ? 70 : 100) * s, 8 * s, 0.6, "#e8e4f0") +
     laba +
     hero.svg +
-    teksTema(W, temaY, l, s, "SARANG LABA-LABA", "#e4dff0", "#14101a") +
-    pembatas(W, temaY + (l ? 46 : 58), s, "#8a7aa8") +
+    pembatas(W, pembatasY5, s, "#8a7aa8") +
     sisi +
-    pitaBawahHoror(W, H, s, l, "h5Band", "#e4dff0", "#8a7aa8",
+    pitaBawahHoror(W, H, s, l, "h5Band", "#8a7aa8",
       labaLaba(96 * s, H - 78 * s, 1.1 * s, "#18161c", "#2a2730", "#e0342a"),
       labaLaba(W - 96 * s, H - 78 * s, 1.1 * s, "#18161c", "#2a2730", "#e0342a")) +
     `</svg>`
@@ -595,8 +591,8 @@ export function svgHoror6(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gDarah6", "h6Glow", "#ff3222", "#1c0303");
-  const temaY = hero.baseline + (l ? 84 : 102);
-  const pembatasY = temaY + (l ? 46 : 58);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY = hero.baseline + (l ? 84 : 102);
 
   // tetesan darah deret di bawah garis pembatas (dari "tepi" pembatas)
   let tetesRow = "";
@@ -655,12 +651,11 @@ export function svgHoror6(r: Rasio): string {
     hero.svg +
     tetes(W / 2 - fsHero(l) * 1.5, hero.baseline - 6 * s, 44 * s, 5 * s, "#b81527") +
     tetes(W / 2 + fsHero(l) * 1.2, hero.baseline - 6 * s, 58 * s, 5.6 * s, "#b81527") +
-    teksTema(W, temaY, l, s, "GUNUNG DARAH", "#ffd9d2", "#1c0303") +
     pembatas(W, pembatasY, s, "#b81527") +
     tetesRow +
     sungai +
     sisi +
-    pitaBawahHoror(W, H, s, l, "h6Band", "#ffd9d2", "#b81527", tetesPita, "") +
+    pitaBawahHoror(W, H, s, l, "h6Band", "#b81527", tetesPita, "") +
     `</svg>`
   );
 }
@@ -675,7 +670,8 @@ export function svgHoror7(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gApi", "h7Glow", "#ff9d2e", "#2a0a02");
-  const temaY = hero.baseline + (l ? 84 : 102);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY7 = hero.baseline + (l ? 84 : 102);
 
   // lidah api menyala di sepanjang dalam bingkai atas (zona atas saja)
   let apiAtas = "";
@@ -739,11 +735,10 @@ export function svgHoror7(r: Rasio): string {
     apiAtas +
     bara +
     hero.svg +
-    teksTema(W, temaY, l, s, "API NERAKA", "#ffe4b5", "#2a0a02") +
-    pembatas(W, temaY + (l ? 46 : 58), s, "#f97316") +
+    pembatas(W, pembatasY7, s, "#f97316") +
     apiBawahZona +
     sisi +
-    pitaBawahHoror(W, H, s, l, "h7Band", "#ffe4b5", "#f97316",
+    pitaBawahHoror(W, H, s, l, "h7Band", "#f97316",
       api(96 * s, H - 58 * s, 20 * s, 44 * s),
       api(W - 96 * s, H - 58 * s, 20 * s, 44 * s)) +
     `</svg>`
@@ -760,7 +755,8 @@ export function svgHoror8(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gEs", "h8Glow", "#9ec8ff", "#050a16");
-  const temaY = hero.baseline + (l ? 84 : 102);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY8 = hero.baseline + (l ? 84 : 102);
 
   // bulan purnama pucat di kanan atas zona
   const bulan =
@@ -812,10 +808,9 @@ export function svgHoror8(r: Rasio): string {
     arwahZona +
     kabut +
     hero.svg +
-    teksTema(W, temaY, l, s, "ARWAH LARUNG", "#dceafc", "#050a16") +
-    pembatas(W, temaY + (l ? 46 : 58), s, "#6f8fbf") +
+    pembatas(W, pembatasY8, s, "#6f8fbf") +
     sisi +
-    pitaBawahHoror(W, H, s, l, "h8Band", "#dceafc", "#6f8fbf",
+    pitaBawahHoror(W, H, s, l, "h8Band", "#6f8fbf",
       arwah(96 * s, H - 80 * s, 0.72 * s),
       arwah(W - 96 * s, H - 80 * s, 0.72 * s, true)) +
     `</svg>`
@@ -832,7 +827,8 @@ export function svgHoror9(r: Rasio): string {
   const zona = (l ? 400 : 480) * s;
 
   const hero = teksAlamGaib(W, l, s, "gRacun", "h9Glow", "#a4ff4d", "#07130a");
-  const temaY = hero.baseline + (l ? 84 : 102);
+  // v0.54.0 — nama desain dihapus; pembatas naik ke posisi semula nama desain
+  const pembatasY9 = hero.baseline + (l ? 84 : 102);
 
   // dahan patah melintung dari sudut atas (garis + ranting + daun jarum)
   const dahan = (x0: number, flip: boolean) => {
@@ -908,10 +904,9 @@ export function svgHoror9(r: Rasio): string {
     mata +
     kunang +
     hero.svg +
-    teksTema(W, temaY, l, s, "RIMBA TERKUTUK", "#dcf5b8", "#07130a") +
-    pembatas(W, temaY + (l ? 46 : 58), s, "#7bb04a") +
+    pembatas(W, pembatasY9, s, "#7bb04a") +
     sisi +
-    pitaBawahHoror(W, H, s, l, "h9Band", "#dcf5b8", "#7bb04a",
+    pitaBawahHoror(W, H, s, l, "h9Band", "#7bb04a",
       mataNyala(96 * s, H - 78 * s, 0.9 * s, "#a4ff4d", "h9GlowKecil"),
       mataNyala(W - 96 * s, H - 78 * s, 0.9 * s, "#a4ff4d", "h9GlowKecil")) +
     `</svg>`

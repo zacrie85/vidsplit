@@ -52,6 +52,7 @@ import {
   type Pengaturan,
   type Resolusi,
   urlBingkai,
+  urlBingkaiWarna,
 } from "@/lib/vidsplit/types";
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
@@ -833,7 +834,7 @@ export function PanelSubtitle({
                   <Sparkles className="h-3.5 w-3.5" />
                   Tepat (Small)
                 </span>
-                <span className="mt-0.5 block text-[10px] opacity-70">Hasil paling akurat</span>
+                <span className="mt-0.5 block text-[10px] opacity-70">Hasil paling akurat — kini lebih ngebut</span>
               </button>
               <button
                 type="button"
@@ -849,13 +850,13 @@ export function PanelSubtitle({
                   <Zap className="h-3.5 w-3.5" />
                   Cepat (Base)
                 </span>
-                <span className="mt-0.5 block text-[10px] opacity-70">±2–3× lebih cepat</span>
+                <span className="mt-0.5 block text-[10px] opacity-70">±2–4× lebih cepat · lebih pas</span>
               </button>
             </div>
             <p className="mt-1 text-[10px] leading-snug text-slate-500">
               {pengaturan.subtitleCepat
-                ? "Mode cepat: model Whisper Base — transkrip 1 jam video ±2–3× lebih singkat. Ketepatan sedikit turun (jarang terasa untuk suara jelas), bagian sunyi & musik tetap dilewati otomatis."
-                : "Mode tepat: model Whisper Small — ejaan & istilah paling akurat. Untuk video 1 jam+, pilih Cepat bila ingin hasil lebih dulu."}
+                ? "Mode cepat: model Whisper Base + benang CPU diatur otomatis (tidak saling rebutan), pemblokir kata berulang (anti halusinasi loop), dan perapian ejaan (-nya/-lah digabung otomatis) — transkrip JAUH lebih cepat dan lebih pas dari dulu."
+                : "Mode tepat: model Whisper Small — ejaan & istilah paling akurat, kini lebih responsif karena benang CPU tiap sesi diatur otomatis (tidak oversubscribe saat paralel)."}
             </p>
           </div>
           <BarisSlider
@@ -873,10 +874,24 @@ export function PanelSubtitle({
             onChange={(n) => set("subtitleY", n)}
             fmt={(n) => `${n.toFixed(0)}%`}
           />
+          {/* ---- v0.54.0 WARNA SUBTITLE (permintaan user: warna teks di semua menu teks) ---- */}
+          <div className="space-y-1.5 rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
+            <p className="text-[11px] font-medium text-slate-400">Warna subtitle</p>
+            <PilihWarna
+              label="Warna teks"
+              nilai={pengaturan.subtitleWarna || "#ffffff"}
+              onChange={(v) => set("subtitleWarna", v)}
+            />
+            <PilihWarna
+              label="Warna outline"
+              nilai={pengaturan.subtitleOutlineWarna || "#000000"}
+              onChange={(v) => set("subtitleOutlineWarna", v)}
+            />
+          </div>
           <button
             type="button"
             onClick={onTerapkanSemua}
-            title="Salin setelan subtitle (aktif/ukuran/posisi) video ini ke SEMUA video"
+            title="Salin setelan subtitle (aktif/ukuran/posisi/warna) video ini ke SEMUA video"
             className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/60 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-amber-400 hover:text-amber-300"
           >
             <ListChecks className="h-3.5 w-3.5" />
@@ -1082,6 +1097,89 @@ export function PanelFrame({
           bukaDialog={bukaDialog}
         />
       </div>
+
+      {/* ---- v0.54.0 WARNA BINGKAI: ganti warna frame TANPA mengubah bentuk ---- */}
+      {pengaturan.frameId && pengaturan.mode !== "template" && (
+        <div className="mt-4 space-y-2.5 rounded-xl border border-fuchsia-400/25 bg-fuchsia-400/5 p-3">
+          <p className="flex items-center gap-1.5 text-[11px] font-medium text-fuchsia-200">
+            <Palette className="h-3.5 w-3.5" /> Warna bingkai — bentuk frame tetap persis
+          </p>
+          <ChipPilihan<"asli" | "warna" | "gradasi">
+            pilihan={[
+              { v: "asli", label: "Warna asli" },
+              { v: "warna", label: "Satu warna" },
+              { v: "gradasi", label: "Gradasi" },
+            ]}
+            nilai={
+              !pengaturan.frameWarna
+                ? "asli"
+                : pengaturan.frameWarna2
+                  ? "gradasi"
+                  : "warna"
+            }
+            onChange={(v) => {
+              // SATU onChange — dua set() berurutan saling menimpa (stale closure)
+              const w1 = pengaturan.frameWarna;
+              const w2 = pengaturan.frameWarna2;
+              if (v === "warna")
+                onChange({ ...pengaturan, frameWarna: w1 || "#fbbf24", frameWarna2: "" });
+              else if (v === "gradasi")
+                onChange({ ...pengaturan, frameWarna: w1 || "#f59e0b", frameWarna2: w2 || "#ec4899" });
+              else onChange({ ...pengaturan, frameWarna: "", frameWarna2: "" });
+            }}
+          />
+          {pengaturan.frameWarna ? (
+            <>
+              <PilihWarna
+                label={pengaturan.frameWarna2 ? "Warna atas" : "Warna bingkai"}
+                nilai={pengaturan.frameWarna}
+                onChange={(v) => set("frameWarna", v)}
+              />
+              {pengaturan.frameWarna2 && (
+                <PilihWarna
+                  label="Warna bawah (gradasi)"
+                  nilai={pengaturan.frameWarna2}
+                  onChange={(v) => set("frameWarna2", v)}
+                />
+              )}
+              <div
+                className="h-3 w-full rounded-full border border-slate-600"
+                style={{
+                  background: pengaturan.frameWarna2
+                    ? `linear-gradient(to bottom, ${pengaturan.frameWarna}, ${pengaturan.frameWarna2})`
+                    : pengaturan.frameWarna,
+                }}
+              />
+              <div className="flex items-start gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  key={`${pengaturan.frameId}|${pengaturan.frameWarna}|${pengaturan.frameWarna2}`}
+                  src={urlBingkaiWarna(
+                    {
+                      frameId: pengaturan.frameId,
+                      frameWarna: pengaturan.frameWarna,
+                      frameWarna2: pengaturan.frameWarna2,
+                    },
+                    false,
+                  )}
+                  alt="pratinjau frame berwarna"
+                  className="h-32 w-auto rounded-lg border border-slate-700 bg-slate-900 object-contain"
+                />
+                <p className="text-[10px] leading-snug text-slate-400">
+                  Bentuk &amp; lubang frame TIDAK berubah — hanya warnanya yang diwarnai ulang
+                  (mengikuti terang-gelap desain asli). Pratinjau live &amp; hasil ekspor memakai
+                  pewarnaan yang sama.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-[10px] text-slate-500">
+              Pilih <b>Satu warna</b> untuk mengganti warna seluruh hiasan frame, atau{" "}
+              <b>Gradasi</b> untuk campuran dua warna dari atas ke bawah.
+            </p>
+          )}
+        </div>
+      )}
 
       {pengaturan.mode === "template" && pengaturan.frameId && (
         <p className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-200">

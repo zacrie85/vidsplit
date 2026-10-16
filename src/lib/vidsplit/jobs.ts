@@ -13,7 +13,7 @@ import {
   type InfoVideo,
   type PilihanEncoder,
 } from "./ffmpeg";
-import { siapkanBingkai } from "./bingkai";
+import { siapkanBingkai, siapkanBingkaiWarna } from "./bingkai";
 import { catatRiwayat } from "./riwayat";
 import {
   bangunAssSubtitle,
@@ -303,6 +303,9 @@ export function mulaiEksporAntrean(
           H,
           ukuran: p.subtitleUkuran,
           yPersen: p.subtitleY,
+          // v0.54.0 — warna teks & outline subtitle pilihan user
+          warna: p.subtitleWarna,
+          warnaOutline: p.subtitleOutlineWarna,
         });
         if (ass) {
           fileSub = path.join(dirTmp, `${tag}-sub.ass`);
@@ -501,6 +504,16 @@ export function mulaiEksporAntrean(
         const lanskap = Wt > Ht;
         // frame hiasan (resolve path bawaan/unggahan — varian rasio yang pas)
         if (!it.frameAbs && pgh.frameId) it.frameAbs = siapkanBingkai(pgh.frameId, lanskap);
+        // v0.54.0 — RECOLOR frame (warna solid/gradasi pilihan user, bentuk tetap).
+        // Gagal pewarnaan TIDAK menggagalkan ekspor (fallback path asli di dalam).
+        if (it.frameAbs && (pgh.frameWarna || pgh.frameWarna2)) {
+          it.frameAbs = await siapkanBingkaiWarna(
+            it.frameAbs,
+            pgh.frameWarna || "",
+            pgh.frameWarna2 || "",
+            ff.bin,
+          );
+        }
         // neon berputar — rect: mode template = kotak video, lainnya kanvas penuh
         const neon = neonDari(pgh);
         if (neon.aktif) {
