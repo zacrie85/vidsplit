@@ -17,8 +17,9 @@ import { siapkanBingkai } from "./bingkai";
 import { catatRiwayat } from "./riwayat";
 import {
   bangunAssSubtitle,
-  siapkanSegmenSubtitle,
+  mulaiTranskripLatar,
   type SegmenSub,
+  type TranskripLatar,
 } from "./subtitle";
 import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tujuan";
 import { siapkanSequenceNeon } from "./neonRender";
@@ -92,6 +93,23 @@ export interface InfoJob {
 }
 
 const jobs = new Map<string, InfoJob>();
+
+/** v0.53.0 — tunggu subtitle zona part siap sambil tetap respons terhadap batal:
+ *  poling tiap 500 ms supaya tombol Batalkan tidak terasa mati saat menunggu AI. */
+async function tungguCakupanDenganBatal(
+  latar: TranskripLatar,
+  akhirRel: number,
+  id: string,
+): Promise<SegmenSub[]> {
+  for (;;) {
+    if (apakahBatal(id)) throw new Error("DIBATALKAN");
+    const hasil = await Promise.race([
+      latar.tungguCakupan(akhirRel),
+      new Promise<null>((ok) => setTimeout(() => ok(null), 500)),
+    ]);
+    if (hasil) return hasil;
+  }
+}
 
 export function ambilJob(id: string): InfoJob | undefined {
   return jobs.get(id);
@@ -224,7 +242,7 @@ export function mulaiEksporAntrean(
       vi: number,
       it: ItemEkspor,
       n: number,
-      segmenSub: SegmenSub[] | null,
+      subLatar: TranskripLatar | null,
       aset46: { neon: SeqNeon | null; templatBg: string | null },
     ) => {
       if (apakahBatal(id)) throw new Error("DIBATALKAN");
@@ -262,6 +280,17 @@ export function mulaiEksporAntrean(
       // v0.44.0 — bangun berkas .ass subtitle utk part ini (bila subtitle aktif
       // dan hasil analisis suara tersedia); waktu segmen RELATIF RENTANG TRIM
       const pakaiBg = !!it.bgAbs;
+      // v0.53.0 — transkrip berjalan DI LATAR: tunggu sampai blok audio zona
+      // part ini selesai dianalisis (umumnya sudah lama selesai krn render lebih
+      // lambat dr transkrip). Blok zona gagal? part tetap dirender tanpa teks.
+      let segmenSub: SegmenSub[] | null = null;
+      if (subLatar) {
+        segmenSub = await tungguCakupanDenganBatal(
+          subLatar,
+          mulai - p.mulaiDetik + durasi,
+          id,
+        );
+      }
       let fileSub: string | null = null;
       if (segmenSub && segmenSub.length) {
         const ass = bangunAssSubtitle({
@@ -341,7 +370,7 @@ export function mulaiEksporAntrean(
     const renderVideo = async (
       vi: number,
       it: ItemEkspor,
-      segmenSub: SegmenSub[] | null,
+      subLatar: TranskripLatar | null,
       aset46: { neon: SeqNeon | null; templatBg: string | null },
     ) => {
       job.videoAktif = vi;
@@ -356,7 +385,7 @@ export function mulaiEksporAntrean(
           berikut += 1;
           if (n > nTotal || gagal) return;
           try {
-            await renderSatu(vi, it, n, segmenSub, aset46);
+            await renderSatu(vi, it, n, subLatar, aset46);
           } catch (e) {
             // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
             if (apakahBatal(id)) return;
@@ -384,16 +413,25 @@ export function mulaiEksporAntrean(
     for (let vi = 0; vi < daftar.length; vi++) {
       if (apakahBatal(id)) break;
       const it = daftar[vi];
-      // v0.44.0 — SUBTITLE AI OTOMATIS: analisis suara SEKALI per video (dgn cache)
-      // sebelum render part. Gagal AI TIDAK menggagalkan ekspor — lanjut tanpa subtitle.
-      let segmenSub: SegmenSub[] | null = null;
+      // v0.53.0 — SUBTITLE AI LATAR: transkrip dijalankan BERBARENGAN dgn render
+      // part (dulu: analisis SELURUH video menunggu tuntas SEBELUM part pertama
+      // dirender → video 30 mnt+ tampak "tidak mulai-mulai" berpuluh menit).
+      // Eksport & part mulai seketika; part N hanya menunggu blok audio zona-nya.
+      let subLatar: TranskripLatar | null = null;
       if (it.pengaturan.subtitleAktif && it.info.adaAudio) {
         const mulaiAi = Date.now();
         const pemantau = setInterval(() => {
-          job.antrean[vi].tahap = `AI: analisis suara… ${Math.round((Date.now() - mulaiAi) / 1000)} dtk`;
+          // hanya isi bila kosong — progres transkrip (onTahap) diutamakan
+          if (!job.antrean[vi].tahap) {
+            job.antrean[vi].tahap = `AI: analisis suara… ${Math.round((Date.now() - mulaiAi) / 1000)} dtk`;
+          }
         }, 1000);
+        const bersihkan = () => {
+          clearInterval(pemantau);
+          delete job.antrean[vi].tahap;
+        };
         try {
-          const hasil = await siapkanSegmenSubtitle(
+          subLatar = await mulaiTranskripLatar(
             it.srcAbs,
             it.pengaturan.mulaiDetik,
             it.pengaturan.akhirDetik,
@@ -405,31 +443,45 @@ export function mulaiEksporAntrean(
               modeBahasa: it.pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus",
               // v0.51.0 — pilihan model: Whisper Base (cepat) vs Small (bawaan, tepat)
               modelCepat: it.pengaturan.subtitleCepat === true,
+              // v0.53.0 — ekspor dibatalkan → transkrip berhenti ambil blok baru
+              apakahBerhenti: () => apakahBatal(id),
             },
           );
-          if (hasil) {
-            segmenSub = hasil.segmen;
-            if (hasil.bahasa === "en" && !hasil.diterjemahkan && !job.peringatanSubtitle) {
-              job.peringatanSubtitle =
-                "Penerjemah EN→ID tidak tersedia — subtitle dipakai dalam bahasa Inggris asli";
-            }
-            // v0.47.0 — sebagian blok gagal dianalisis (jarang): teks bisa kurang
-            if (hasil.peringatan && !job.peringatanSubtitle) {
-              job.peringatanSubtitle = `${it.nama}: ${hasil.peringatan}`;
-            }
-          } else if (!job.peringatanSubtitle) {
-            job.peringatanSubtitle =
-              "Mesin subtitle AI tidak tersedia (model tidak ditemukan) — video dirender tanpa subtitle";
-          }
         } catch (e) {
           if (!job.peringatanSubtitle) {
             job.peringatanSubtitle = `Subtitle AI dilewati: ${
               e instanceof Error ? e.message : String(e)
             }`;
           }
-        } finally {
-          clearInterval(pemantau);
-          delete job.antrean[vi].tahap;
+        }
+        if (!subLatar) {
+          bersihkan();
+        } else {
+          // latar: peringatan + tahap diperbarui saat transkrip berakhir
+          void subLatar.janji
+            .then((hasil) => {
+              if (hasil) {
+                if (hasil.bahasa === "en" && !hasil.diterjemahkan && !job.peringatanSubtitle) {
+                  job.peringatanSubtitle =
+                    "Penerjemah EN→ID tidak tersedia — subtitle dipakai dalam bahasa Inggris asli";
+                }
+                // v0.47.0 — sebagian blok gagal dianalisis (jarang): teks bisa kurang
+                if (hasil.peringatan && !job.peringatanSubtitle) {
+                  job.peringatanSubtitle = `${it.nama}: ${hasil.peringatan}`;
+                }
+              } else if (!job.peringatanSubtitle) {
+                job.peringatanSubtitle =
+                  "Mesin subtitle AI tidak tersedia (model tidak ditemukan) — video dirender tanpa subtitle";
+              }
+            })
+            .catch((e) => {
+              if (!job.peringatanSubtitle) {
+                job.peringatanSubtitle = `Subtitle AI dilewati: ${
+                  e instanceof Error ? e.message : String(e)
+                }`;
+              }
+            })
+            .finally(bersihkan);
         }
       } else if (it.pengaturan.subtitleAktif && !it.info.adaAudio) {
         job.antrean[vi].tahap = undefined;
@@ -470,7 +522,11 @@ export function mulaiEksporAntrean(
         aset46.neon = null;
         aset46.templatBg = null;
       }
-      await renderVideo(vi, it, segmenSub, aset46);
+      await renderVideo(vi, it, subLatar, aset46);
+      // v0.53.0 — pastikan transkrip latar tuntas (cache tersimpan, peringatan
+      // terpasang) sebelum lanjut video berikutnya — part terakhir sudah
+      // menjamin cakupan penuh, jadi ini biasanya langsung selesai.
+      if (subLatar) await subLatar.janji.catch(() => null);
     }
 
     // rapikan urutan akhir — slot menjaga posisi meski ada video yang gagal di tengah

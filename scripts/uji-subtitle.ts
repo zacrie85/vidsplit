@@ -23,6 +23,11 @@ import {
   AMBATANG_SUNYI,
   // v0.51.2 — model cepat (Base) tak lagi hilang diam-diam
   modelCepatTersedia,
+  // v0.53.0 — transkrip latar (pipeline dgn render part)
+  balapanWaktu,
+  indeksBlokTerakhirSebelum,
+  BLOK_PERTAMA_DTK,
+  MAKS_DTK_BLOK,
   type ModeBahasa,
 } from "../src/lib/vidsplit/subtitle";
 
@@ -327,7 +332,7 @@ cek("jalur: 16 core RAM 6GB → 3 (RAM kurang)", jumlahPipaParalel(16, 6) === 3)
 // ================= v0.51.2 — MODEL CEPAT TAK LAGI HILANG DIAM-DIAM =================
 
 // --- modelCepatTersedia: cek berkas Whisper Base di folder model (env disamarkan) ---
-const { mkdtempSync, mkdirSync, closeSync, openSync, rmSync } = await import("node:fs");
+const { mkdtempSync, mkdirSync, closeSync, openSync, rmSync, existsSync } = await import("node:fs");
 const { tmpdir } = await import("node:os");
 const { join: gabungPath } = await import("node:path");
 const envModelLama = process.env.VIDSPLIT_AI_MODELS;
@@ -348,10 +353,85 @@ mkdirSync(gabungPath(dirModelUji, "onnx-community", "whisper-base"), { recursive
 sentuh(gabungPath(dirModelUji, "onnx-community", "whisper-base", "config.json"));
 cek("modelCepat: Small+Base → tersedia", modelCepatTersedia() === true);
 envModel(gabungPath(dirModelUji, "tak-ada"));
-cek("modelCepat: folder model tak ada → false", modelCepatTersedia() === false);
+// v0.53.0 — cariDirModelAi punya KANDIDAT CADANGAN (cwd/assets/ai-models); di
+// sandbox dgn model terunduh fallback itu ada → hasil mengikuti fallback, bukan
+// env. Uji hermetic: hasil WAJIB sama dgn keberadaan base di kandidat cadangan.
+const cadanganBase = gabungPath(process.cwd(), "assets", "ai-models", "onnx-community", "whisper-base", "config.json");
+cek(
+  "modelCepat: env folder tak ada → ikut kandidat cadangan (hermetic)",
+  modelCepatTersedia() === existsSync(cadanganBase),
+);
 if (envModelLama === undefined) envModel(undefined); else envModel(envModelLama);
 cek("modelCepat: hasil selalu boolean", typeof modelCepatTersedia() === "boolean");
 rmSync(dirModelUji, { recursive: true, force: true });
+
+// ================= v0.53.0 — TRANSKRIP LATAR (pipeline dgn render part) =================
+
+// --- bagiBlokAudio dgn blok pertama kickstart (durasiPertama) ---
+{
+  // durasiPertama 0/undefined = perilaku lama PERSIS
+  const lama = bagiBlokAudio(audioBuatan(601));
+  const lama2 = bagiBlokAudio(audioBuatan(601), DURASI_BLOK, OVERLAP_BLOK, 0);
+  cek("kickstart: param 0 = perilaku lama", lama.length === lama2.length && lama.length === 7);
+
+  // 600 dtk, blok pertama 30 dtk → blok-0 [0, 31.5], blok-1 mulai tepat 30
+  const k = bagiBlokAudio(audioBuatan(600), DURASI_BLOK, OVERLAP_BLOK, 30);
+  cek("kickstart: blok-0 mulai 0", k[0].mulai === 0);
+  cek("kickstart: blok-0 ≈ 30 + overlap", Math.abs(k[0].data.length / sr - (30 + OVERLAP_BLOK)) < 0.01, k[0].data.length / sr);
+  cek("kickstart: blok-1 mulai = durasiPertama", Math.abs(k[1].mulai - 30) < 0.01, k[1].mulai);
+  // zona menyambung: tiap blok menjangkau blok berikutnya (overlap nyata, tanpa celah)
+  let nyambung = true;
+  for (let i = 0; i < k.length - 1; i += 1) {
+    const akhirI = k[i].mulai + k[i].data.length / sr;
+    if (akhirI <= k[i + 1].mulai + 0.01 || k[i + 1].mulai + OVERLAP_BLOK > akhirI + 0.01) nyambung = false;
+  }
+  cek("kickstart: zona nyambung & overlap konsisten", nyambung);
+  // blok terakhir mencapai ujung audio
+  const akhirK = k[k.length - 1].mulai + k[k.length - 1].data.length / sr;
+  cek("kickstart: blok akhir sampai ujung", Math.abs(akhirK - 600) < 0.01, akhirK);
+  // semua blok menutup [0, 600] tanpa celah waktu
+  const mulaiNaik = k.every((b, i) => i === 0 || b.mulai > k[i - 1].mulai);
+  cek("kickstart: mulai terurut", mulaiNaik);
+  // audio pendek (< kickstart+overlap) → jalur lama (1 blok)
+  const pendek = bagiBlokAudio(audioBuatan(20), DURASI_BLOK, OVERLAP_BLOK, 30);
+  cek("kickstart: audio 20 dtk tetap 1 blok", pendek.length === 1 && Math.abs(pendek[0].data.length / sr - 20) < 0.01);
+}
+
+// --- indeksBlokTerakhirSebelum: blok pengandung ujung zona part ---
+{
+  const zona = [
+    { mulai: 0, akhir: 31.5 },
+    { mulai: 30, akhir: 121.5 },
+    { mulai: 120, akhir: 211.5 },
+  ];
+  cek("indeksBlok: t=0 → -1", indeksBlokTerakhirSebelum(zona, 0) === -1);
+  cek("indeksBlok: t=20 → blok 0 (kickstart cepat)", indeksBlokTerakhirSebelum(zona, 20) === 0);
+  cek("indeksBlok: t=30 persis → blok 0", indeksBlokTerakhirSebelum(zona, 30) === 0);
+  cek("indeksBlok: t=45 → blok 1", indeksBlokTerakhirSebelum(zona, 45) === 1);
+  cek("indeksBlok: t=130 → blok 2", indeksBlokTerakhirSebelum(zona, 130) === 2);
+  cek("indeksBlok: t melewati semua → blok terakhir", indeksBlokTerakhirSebelum(zona, 500) === 2);
+  cek("indeksBlok: daftar kosong → -1", indeksBlokTerakhirSebelum([], 10) === -1);
+}
+
+// --- balapanWaktu: janji lambat kena batas, janji cepat lolos ---
+{
+  const tidur = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+  const lambat = balapanWaktu(tidur(300).then(() => "terlambat"), 30);
+  cek("balapan: janji lambat → null", (await lambat) === null);
+  const cepat2 = balapanWaktu(Promise.resolve("cepat"), 5000);
+  cek("balapan: janji cepat → nilainya", (await cepat2) === "cepat");
+  // janji yang kalah balapan lalu REJECT tidak boleh menjatuhkan proses
+  const jahat = balapanWaktu(
+    tidur(60).then(() => { throw new Error("rejection terlambat"); }),
+    20,
+  );
+  cek("balapan: janji jahat → null", (await jahat) === null);
+  await tidur(120); // beri waktu rejection terlambat terjadi (tak boleh crash)
+}
+
+// --- konstanta v0.53.0 ---
+cek("kickstart: BLOK_PERTAMA_DTK = 30", BLOK_PERTAMA_DTK === 30);
+cek("anti-hang: MAKS_DTK_BLOK = 900", MAKS_DTK_BLOK === 900);
 
 console.log(`\n=== uji-subtitle: ${lulus} LULUS, ${gagal} GAGAL ===`);
 if (gagal > 0) process.exit(1);

@@ -379,12 +379,12 @@ export function PanelEkspor({
                   </button>
                 )}
                 <span className="shrink-0 text-[10px] opacity-80">
-                  {/* v0.44.0 — tahap AI (analisis suara) menggantikan hitungan part sementara */}
-                  {v.status === "proses" && v.tahap
-                    ? v.tahap
-                    : v.status === "proses"
-                      ? `${v.selesai}/${v.total} part`
-                      : LABEL_STATUS[v.status] ?? v.status}
+                  {/* v0.53.0 — tahap AI tampil BARENG hitungan part (transkrip
+                      latar berjalan berbarengan dgn render) — dulu saling
+                      menggantikan sehingga hitungan part hilang saat AI aktif */}
+                  {v.status === "proses"
+                    ? [v.tahap, `${v.selesai}/${v.total} part`].filter(Boolean).join(" · ")
+                    : LABEL_STATUS[v.status] ?? v.status}
                 </span>
               </li>
             ))}

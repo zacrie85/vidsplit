@@ -80,6 +80,26 @@ export interface OpsiTranskrip {
    *  v0.51.2 — model Base tak ada di bundel? otomatis jatuh ke Small + peringatan
    *  (dulu: gagal diam-diam → video diekspor tanpa subtitle). */
   modelCepat?: boolean;
+  /** v0.53.0 — blok PERTAMA dibuat lebih pendek (detik, "kickstart") supaya
+   *  zona part-part awal cepat tercakup dan render part bisa mulai lebih awal.
+   *  0/undefined = perilaku lama (blok seragam DURASI_BLOK). */
+  blokPertamaDtk?: number;
+  /** v0.53.0 — daftar zona SEMUA blok (termasuk blok sunyi) dilaporkan sebelum
+   *  transkrip dimulai — dipakai TranskripLatar untuk melacak cakupan. */
+  onBlokDaftar?: (
+    daftar: Array<{ mulai: number; akhir: number; sunyi: boolean }>,
+  ) => void;
+  /** v0.53.0 — dilaporkan tiap blok selesai dianalisis (sukses ATAU gagal).
+   *  `indeks` = urutan zona dr onBlokDaftar; `segmen` null = blok gagal. */
+  onBlokSelesai?: (info: {
+    indeks: number;
+    mulai: number;
+    akhir: number;
+    segmen: SegmenSub[] | null;
+  }) => void;
+  /** v0.53.0 — bila mengembalikan true, pekerja berhenti MENGAMBIL blok baru
+   *  (ekspor dibatalkan) — blok yang sedang berjalan dibiarkan selesai. */
+  apakahBerhenti?: () => boolean;
 }
 
 export interface HasilTranskrip {
@@ -394,6 +414,33 @@ export async function ekstrakAudioF32(
 
 // ================= ASR + terjemahan =================
 
+/** v0.53.0 — batas waktu SATU percobaan blok (detik) — jaring pengaman anti-hang:
+ *  sesi WASM kadang menghangu selamanya di audio tertentu (dulu: ekspor berhenti
+ *  selamanya tanpa pesan). 900 dtk jauh di atas waktu normal blok 90 dtk (60–150
+ *  dtk di mesin lemah) sehingga hanya menangkap kemacetan sungguhan. */
+export const MAKS_DTK_BLOK = 900;
+const WAKTU_MAKS_BLOK_MS = MAKS_DTK_BLOK * 1000;
+
+/**
+ * v0.53.0 — balapan janji dgn penjaga waktu: null bila `p` belum selesai dalam
+ * `ms`. Catatan: inferensi WASM tak bisa dibunuh — sesi bisa tetap sibuk di
+ * latar; pemanggil memperlakukan null sebagai kegagalan percobaan (coba lagi,
+ * lalu lewati blok tsb).
+ * Fungsi murni-asinkron — dites di scripts/uji-subtitle.ts.
+ */
+export async function balapanWaktu<T>(p: Promise<T>, ms: number): Promise<T | null> {
+  p.catch(() => {}); // cegah unhandled rejection bila p kalah balapan
+  let penjaga: ReturnType<typeof setTimeout> | undefined;
+  const batas = new Promise<null>((ok) => {
+    penjaga = setTimeout(() => ok(null), ms);
+  });
+  try {
+    return await Promise.race([p, batas]);
+  } finally {
+    clearTimeout(penjaga);
+  }
+}
+
 function potongHasil(hasil: ModulTransformers): SegmenSub[] {
   const chunks = (hasil?.chunks || []) as Array<{ text?: string; timestamp?: [number | null, number | null] }>;
   const segmen: SegmenSub[] = [];
@@ -419,13 +466,36 @@ export interface BlokAudio {
 /**
  * Bagi audio jadi blok-blok ±DURASI_BLOK dgn tumpang-tindih OVERLAP_BLOK detik
  * di tiap batas. Langkah antar blok uniform supaya beban seimbang. Fungsi murni.
+ * v0.53.0 — `durasiPertama` > 0 = blok PERTAMA hanya sepanjang itu (kickstart):
+ * zona part awal cepat tercakup tanpa menunggu blok 90 dtk penuh; blok berikutnya
+ * tetap uniform dan zona tetap menyambung dgn overlap yang sama.
  */
 export function bagiBlokAudio(
   audio: Float32Array,
   durasiBlok = DURASI_BLOK,
   overlap = OVERLAP_BLOK,
+  durasiPertama = 0,
 ): BlokAudio[] {
   const sr = 16000;
+  const totalKick = audio.length / sr;
+  if (durasiPertama > 0 && totalKick > durasiPertama + overlap) {
+    const blokKick: BlokAudio[] = [];
+    const a0 = 0;
+    const b0 = Math.max(a0 + 1, Math.floor((durasiPertama + overlap) * sr));
+    blokKick.push({ mulai: 0, data: audio.slice(a0, b0) });
+    const sisa = totalKick - durasiPertama;
+    const efektifKick = Math.max(0, sisa - overlap);
+    const nKick = Math.max(1, Math.ceil(efektifKick / durasiBlok));
+    const langkahKick = efektifKick / nKick;
+    for (let i = 0; i < nKick; i += 1) {
+      const mulai = durasiPertama + i * langkahKick;
+      const akhir = Math.min(totalKick, mulai + langkahKick + overlap);
+      const a = Math.floor(mulai * sr);
+      const b = Math.max(a + 1, Math.floor(akhir * sr));
+      blokKick.push({ mulai, data: audio.slice(a, b) });
+    }
+    return blokKick;
+  }
   const total = audio.length / sr;
   const efektif = Math.max(0, total - overlap);
   const n = Math.max(1, Math.ceil(efektif / durasiBlok));
@@ -518,16 +588,26 @@ export async function transkripDiterjemahkan(
   const bahasaLabel = bahasa === "id" ? "(Indonesia)" : "(Inggris)";
   // v0.51.0 — blok SUNYI (RMS < AMBATANG_SUNYI) dilewati tanpa transkrip:
   // intro/keheningan/instrumen tak memakan waktu decode + tak memicu halusinasi
-  const semuaBlok = bagiBlokAudio(audio);
-  const blok: BlokAudio[] = [];
+  // v0.53.0 — indeks hasil = indeks zona SEMUA blok (sunyi tetap dilaporkan sbg
+  // zona tuntas) supaya pelacak cakupan mode latar selalu sinkron.
+  const semuaBlok = bagiBlokAudio(audio, DURASI_BLOK, OVERLAP_BLOK, opsi?.blokPertamaDtk || 0);
+  const indeksAktif: number[] = [];
   let sunyi = 0;
-  for (const b of semuaBlok) {
+  semuaBlok.forEach((b, i) => {
     if (apakahBlokSunyi(b.data)) sunyi += 1;
-    else blok.push(b);
-  }
+    else indeksAktif.push(i);
+  });
+  // v0.53.0 — laporkan zona semua blok (sunyi = tuntas seketika) sebelum transkrip
+  opsi?.onBlokDaftar?.(
+    semuaBlok.map((b) => ({
+      mulai: b.mulai,
+      akhir: b.mulai + b.data.length / 16000,
+      sunyi: apakahBlokSunyi(b.data),
+    })),
+  );
   const { cpus, totalmem } = await import("node:os");
   const jalurMax = jumlahPipaParalel(cpus().length, totalmem() / 1073741824);
-  const pool = blok.length > 1 ? await ambilPoolAsr(jalurMax, cepat) : [asrUtama];
+  const pool = indeksAktif.length > 1 ? await ambilPoolAsr(jalurMax, cepat) : [asrUtama];
   const jalur = Math.max(1, pool.length);
   tahap(
     `transkrip suara ${bahasaLabel}${cepat ? " — mode cepat" : ""}${
@@ -535,7 +615,7 @@ export async function transkripDiterjemahkan(
     }${sunyi > 0 ? ` — ${sunyi} bagian sunyi dilewati` : ""}…`,
   );
 
-  const hasilBlok: Array<{ mulai: number; segmen: SegmenSub[] } | null> = blok.map(() => null);
+  const hasilBlok: Array<{ mulai: number; segmen: SegmenSub[] } | null> = semuaBlok.map(() => null);
   let gagal = 0;
   let selesai = 0;
   const mulaiTranskrip = Date.now();
@@ -548,11 +628,14 @@ export async function transkripDiterjemahkan(
   } as const;
 
   const kerjakanBlok = async (i: number, pipa: ModulTransformers): Promise<SegmenSub[] | null> => {
-    const b = blok[i];
+    const b = semuaBlok[i];
     for (let coba = 0; coba < 2; coba += 1) {
       try {
-        const r = await pipa(b.data, opsiAsr);
-        const geser = blok[i].mulai;
+        // v0.53.0 — blok yang menghangu dijatuhi batas waktu lalu dicoba sekali
+        // lagi; tetap macet → blok dilewati (ekspor TIDAK berhenti selamanya)
+        const r = await balapanWaktu(pipa(b.data, opsiAsr), WAKTU_MAKS_BLOK_MS);
+        if (r === null) continue; // kehabisan waktu — coba lagi sekali
+        const geser = b.mulai;
         return potongHasil(r).map((s) => ({ a: s.a + geser, b: s.b + geser, t: s.t }));
       } catch {
         /* coba lagi sekali — model kadang tersendat di blok tertentu */
@@ -564,20 +647,31 @@ export async function transkripDiterjemahkan(
   let berikut = 0;
   const pekerja = pool.map(async (pipa) => {
     for (;;) {
-      const i = berikut;
+      // v0.53.0 — ekspor dibatalkan? jangan ambil blok baru (yang berjalan selesai)
+      if (opsi?.apakahBerhenti?.()) return;
+      const k = berikut;
       berikut += 1;
-      if (i >= blok.length) return;
+      if (k >= indeksAktif.length) return;
+      const i = indeksAktif[k];
+      const b = semuaBlok[i];
       const r = await kerjakanBlok(i, pipa);
-      if (r) hasilBlok[i] = { mulai: blok[i].mulai, segmen: r };
+      if (r) hasilBlok[i] = { mulai: b.mulai, segmen: r };
       else gagal += 1;
       selesai += 1;
-      if (blok.length > 1) {
+      // v0.53.0 — laporkan blok selesai (pelacak cakupan mode latar)
+      opsi?.onBlokSelesai?.({
+        indeks: i,
+        mulai: b.mulai,
+        akhir: b.mulai + b.data.length / 16000,
+        segmen: r,
+      });
+      if (indeksAktif.length > 1) {
         // v0.51.0 — progres + perkiraan sisa waktu (rata-rata kecepatan ÷ jalur)
-        const pct = Math.round((selesai / blok.length) * 100);
-        const sisa = perkiraanSisaDtk(Date.now() - mulaiTranskrip, selesai, blok.length, jalur);
+        const pct = Math.round((selesai / indeksAktif.length) * 100);
+        const sisa = perkiraanSisaDtk(Date.now() - mulaiTranskrip, selesai, indeksAktif.length, jalur);
         const sisaTeks = sisa >= 90 ? `±${Math.max(1, Math.round(sisa / 60))} mnt` : `±${sisa} dtk`;
         tahap(
-          `transkrip suara ${bahasaLabel}… ${pct}% (${selesai}/${blok.length} bagian) — sisa ${sisaTeks}`,
+          `transkrip suara ${bahasaLabel}… ${pct}% (${selesai}/${indeksAktif.length} bagian) — sisa ${sisaTeks}`,
         );
       }
     }
@@ -744,6 +838,181 @@ export async function siapkanSegmenSubtitle(
   if (!hasil) return null;
   simpanCache(kunci, hasil);
   return hasil;
+}
+
+// ================= v0.53.0 — TRANSKRIP LATAR (berbarengan dgn render part) =================
+
+/**
+ * v0.53.0 — LATAR BELAKANG: dulu jobs.ts MENUNGGU transkrip SELURUH video tuntas
+ * sebelum part pertama dirender — video 30 mnt+ terasa "tidak mulai-mulai"
+ * berpuluh menit (persis laporan user). Kini transkrip dijalankan DI LATAR dan
+ * tiap part hanya menunggu zona waktunya sendiri siap — eksport & part mulai
+ * jalan dalam hitungan detik, sisanya menyusul berbarengan.
+ */
+
+/** durasi blok PERTAMA (kickstart, detik) pada mode latar — part-part awal tak
+ *  perlu menunggu blok penuh 90 dtk sebelum bisa dirender. */
+export const BLOK_PERTAMA_DTK = 30;
+
+export interface TranskripLatar {
+  /** hasil PENUH (termasuk terjemahan EN→ID) — resolve setelah semua blok
+   *  beres; null = mesin tidak siap / ekspor dibatalkan sebelum beres. */
+  janji: Promise<HasilTranskrip | null>;
+  /**
+   * Tunggu sampai zona [0..sampaiDtk] (relatif rentang trim) bisa disubtitle:
+   * semua blok yang memotong zona itu sudah selesai dianalisis (sukses ATAU
+   * gagal), atau transkrip tuntas/gagal total. Mengembalikan segmen yang sudah
+   * tersedia sejauh ini (bisa kosong bila semua blok zona gagal — part tetap
+   * dirender tanpa teks, sama seperti perilaku "AI gagal tidak menggagalkan
+   * ekspor"). Mode "deteksi" selalu menunggu hasil penuh (teks Inggris baru
+   * jadi Indonesia setelah semua blok beres).
+   */
+  tungguCakupan: (sampaiDtk: number) => Promise<SegmenSub[]>;
+}
+
+/**
+ * Indeks blok TERAKHIR yang memotong [0..t] — daftar zona terurut menaik dan
+ * menyambung (tiap blok menjangkau blok berikutnya lewat overlap). -1 bila t
+ * masih sebelum blok pertama. Fungsi murni — dites di scripts/uji-subtitle.ts.
+ */
+export function indeksBlokTerakhirSebelum(
+  daftar: Array<{ mulai: number }>,
+  t: number,
+): number {
+  let last = -1;
+  for (let i = 0; i < daftar.length; i += 1) {
+    if (daftar[i].mulai < t - 0.01) last = i;
+    else break;
+  }
+  return last;
+}
+
+/**
+ * v0.53.0 — mulai transkrip DI LATAR untuk satu video (dgn cache, sama seperti
+ * siapkanSegmenSubtitle) TAPI tidak menunggu: pemanggil bisa langsung merender
+ * part dan memanggil tungguCakupan() per part. Return null bila mesin tidak siap
+ * atau cache/berkas bermasalah (video tetap diekspor tanpa subtitle).
+ */
+export async function mulaiTranskripLatar(
+  file: string,
+  mulaiDetik: number,
+  akhirDetik: number,
+  durasiSumber: number,
+  ffmpegBin: string,
+  opsi?: OpsiTranskrip,
+): Promise<TranskripLatar | null> {
+  if (!modelTersedia()) return null;
+  const mode: ModeBahasa = opsi?.modeBahasa === "deteksi" ? "deteksi" : "fokus";
+  // kunci cache memakai model yang EFEKTIF dipakai (sama dgn siapkanSegmenSubtitle)
+  const cepat = opsi?.modelCepat === true && modelCepatTersedia();
+  let stat: { size: number; mtimeMs: number } | null = null;
+  try {
+    const { statSync } = await import("node:fs");
+    stat = statSync(file) as unknown as { size: number; mtimeMs: number };
+  } catch {
+    return null;
+  }
+  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode, cepat);
+  const tersimpan = ambilCache(kunci);
+  if (tersimpan) {
+    // cache kena — segmen penuh tersedia SEKETIKA, render tak pernah menunggu
+    return {
+      janji: Promise.resolve(tersimpan),
+      tungguCakupan: async () => tersimpan.segmen,
+    };
+  }
+
+  const batasAkhir = akhirDetik > 0 ? Math.min(akhirDetik, durasiSumber) : durasiSumber;
+  const durasi = Math.min(MAKS_DURASI_ANALISIS, Math.max(0.5, batasAkhir - mulaiDetik));
+
+  // ---- pelacak cakupan (diisi lewat callback dr transkripDiterjemahkan) ----
+  let zona: Array<{ mulai: number; akhir: number; sunyi: boolean }> = [];
+  const zonaTuntas = new Set<number>(); // indeks zona yang sudah selesai (sukses/gagal/sunyi)
+  const potonganBlok = new Map<number, { mulai: number; segmen: SegmenSub[] }>();
+  let tuntas = false; // transkrip latar berakhir (hasil apa pun)
+
+  const penunggu = new Set<() => void>();
+  const tandai = () => {
+    for (const p of [...penunggu]) p();
+    penunggu.clear();
+  };
+  const tungguTanda = () =>
+    new Promise<void>((ok) => {
+      penunggu.add(ok);
+    });
+  const tidur = (ms: number) => new Promise<void>((ok) => setTimeout(ok, ms));
+
+  /** segmen gabungan dr semua blok yang sudah selesai — fungsi gabung yang sama
+   *  dgn jalur hasil akhir supaya hasil tahapan konsisten. */
+  const segmenSaatIni = (): SegmenSub[] => {
+    if (!potonganBlok.size) return [];
+    const daftar = [...potonganBlok.entries()]
+      .sort((x, y) => x[0] - y[0])
+      .map(([, h]) => ({ mulai: h.mulai, segmen: h.segmen }));
+    return bersihSegmenHalusinasi(gabungSegmenBlok(daftar));
+  };
+
+  const tungguCakupan = async (sampaiDtk: number): Promise<SegmenSub[]> => {
+    const t = Math.max(0, sampaiDtk);
+    // mode "deteksi": teks Inggris diterjemahkan SETELAH semua blok — segmen
+    // bertahap belum berbahasa akhir → tunggu hasil penuh (perilaku lama).
+    if (mode === "deteksi") {
+      const hasil = await janpi.catch(() => null);
+      return hasil?.segmen ?? [];
+    }
+    for (;;) {
+      if (tuntas) return segmenSaatIni();
+      if (!zona.length) {
+        // ekstraksi audio masih berjalan — atau mesin gagal sebelum zona terbentuk
+        await Promise.race([tungguTanda(), tidur(400)]);
+        continue;
+      }
+      const last = indeksBlokTerakhirSebelum(zona, t);
+      let tercakup = true;
+      for (let j = 0; j <= last; j += 1) {
+        if (!zonaTuntas.has(j)) {
+          tercakup = false;
+          break;
+        }
+      }
+      if (tercakup) return segmenSaatIni();
+      await Promise.race([tungguTanda(), tidur(400)]);
+    }
+  };
+
+  const janpi = (async (): Promise<HasilTranskrip | null> => {
+    try {
+      const audio = await ekstrakAudioF32(file, mulaiDetik, durasi, ffmpegBin);
+      if (!audio.length) return { segmen: [], bahasa: "id", diterjemahkan: false };
+      const hasil = await transkripDiterjemahkan(audio, {
+        ...opsi,
+        blokPertamaDtk: opsi?.blokPertamaDtk ?? BLOK_PERTAMA_DTK,
+        onBlokDaftar: (d) => {
+          zona = d;
+          d.forEach((z, i) => {
+            if (z.sunyi) zonaTuntas.add(i); // blok sunyi = tuntas seketika
+          });
+          tandai();
+        },
+        onBlokSelesai: (info) => {
+          zonaTuntas.add(info.indeks);
+          if (info.segmen) potonganBlok.set(info.indeks, { mulai: info.mulai, segmen: info.segmen });
+          tandai();
+        },
+      });
+      // v0.53.0 — JANGAN simpan cache bila ekspor dibatalkan di tengah jalan:
+      // hasil parsial/kosong akan meracuni cache (ekspor ulang tanpa subtitle).
+      if (hasil && !opsi?.apakahBerhenti?.()) simpanCache(kunci, hasil);
+      return hasil;
+    } catch {
+      return null;
+    } finally {
+      tuntas = true;
+      tandai();
+    }
+  })();
+
+  return { janji: janpi, tungguCakupan };
 }
 
 // ================= ASS utk satu part (murni — dites unit) =================
