@@ -22,6 +22,14 @@ const SLUGS = [
   "dangdut-idola-desa-6",
   "dangdut-idola-desa-7",
   "dangdut-idola-desa-8",
+  // v0.52.0 — 7 frame HOROR ALAM GAIB baru (teks atas + sisi tipis)
+  "horor-alam-gaib-3",
+  "horor-alam-gaib-4",
+  "horor-alam-gaib-5",
+  "horor-alam-gaib-6",
+  "horor-alam-gaib-7",
+  "horor-alam-gaib-8",
+  "horor-alam-gaib-9",
 ];
 
 async function utama() {

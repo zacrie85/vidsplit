@@ -1,0 +1,92 @@
+// Uji v0.52.0 — pemeriksaan piksel 14 PNG bingkai horor baru (7 desain × 2 rasio):
+//   1) TENGAH HARUS TEMBUS PANDANG (alpha rata < 40/255) — video terlihat
+//   2) SISI TIPIS (SYARAT USER): strip tengah 13%–87% lebar pada ketinggian
+//      40–60% harus kosong (alpha < 40) — hiasan sisi TIDAK BOLEH melewati
+//      batas ±13% lebar; dan strip 1.5%–11% per sisi HARUS berisi (frame +
+//      hiasan sisi tipis memang ada).
+//   3) zona atas harus ada piksel (teks ALAM GAIB + motif)
+//   4) pita bawah harus ada piksel (teks ALAM GAIB)
+//   5) dimensi benar per rasio (teks menyentuh atas diverifikasi visual)
+// Jalankan: bun scripts/uji-bingkai-alpha-v52.ts
+import { existsSync } from "node:fs";
+import path from "node:path";
+import sharp from "sharp";
+
+let lolos = 0;
+let total = 0;
+function ok(kondisi: boolean, nama: string, detail?: unknown) {
+  total++;
+  if (kondisi) {
+    lolos++;
+    console.log(`  ✓ ${nama}`);
+  } else {
+    console.error(`  ✗ GAGAL: ${nama}`, detail ?? "");
+  }
+}
+
+const DIR = path.join(process.cwd(), "public", "bingkai");
+const HOROR_V52 = [
+  "horor-alam-gaib-3",
+  "horor-alam-gaib-4",
+  "horor-alam-gaib-5",
+  "horor-alam-gaib-6",
+  "horor-alam-gaib-7",
+  "horor-alam-gaib-8",
+  "horor-alam-gaib-9",
+];
+
+async function alphaRata(img: sharp.Sharp, kiri: number, atas: number, w: number, h: number): Promise<number> {
+  const buf = await img.clone().extract({ left: kiri, top: atas, width: w, height: h }).raw().toBuffer();
+  let sum = 0;
+  const ch = 4; // RGBA
+  for (let i = 3; i < buf.length; i += ch) sum += buf[i];
+  return sum / ((buf.length / ch) || 1);
+}
+
+for (const slug of HOROR_V52) {
+  for (const varian of ["916", "169"] as const) {
+    const p = path.join(DIR, `${slug}-${varian}.png`);
+    if (!existsSync(p)) {
+      ok(false, `${slug}-${varian}: berkas ada`, p);
+      continue;
+    }
+    const meta = await sharp(p).metadata();
+    const W = meta.width ?? 0;
+    const H = meta.height ?? 0;
+    const potret = varian === "916";
+    ok(potret ? W === 1080 && H === 1920 : W === 1920 && H === 1080, `${slug}-${varian}: dimensi ${W}×${H}`);
+
+    const img = sharp(p).ensureAlpha();
+
+    const tengah = await alphaRata(img, Math.round(W * 0.3), Math.round(H * 0.42), Math.round(W * 0.4), Math.round(H * 0.2));
+    ok(tengah < 40, `${slug}-${varian}: tengah tembus pandang (alpha ${tengah.toFixed(2)} < 40)`);
+
+    // SYARAT USER — sisi kiri-kanan TIPIS: tidak ada hiasan melewati 13% lebar
+    const sisiKiriLebar = Math.round(W * 0.13);
+    const zonaTengahLebar = W - 2 * sisiKiriLebar;
+    const stripTengah = await alphaRata(
+      img,
+      sisiKiriLebar,
+      Math.round(H * 0.4),
+      zonaTengahLebar,
+      Math.round(H * 0.2),
+    );
+    ok(stripTengah < 40, `${slug}-${varian}: sisi tipis — strip 13–87% kosong (alpha ${stripTengah.toFixed(2)} < 40)`);
+
+    // sisi tipis MEMANG ADA di 1.5–11% lebar (bingkai + hiasan sisi)
+    const sisiKiri = await alphaRata(img, Math.round(W * 0.015), Math.round(H * 0.4), Math.round(W * 0.095), Math.round(H * 0.2));
+    const sisiKanan = await alphaRata(img, Math.round(W * 0.89), Math.round(H * 0.4), Math.round(W * 0.095), Math.round(H * 0.2));
+    ok(sisiKiri > 1, `${slug}-${varian}: hiasan sisi kiri ada (alpha ${sisiKiri.toFixed(2)} > 1)`);
+    ok(sisiKanan > 1, `${slug}-${varian}: hiasan sisi kanan ada (alpha ${sisiKanan.toFixed(2)} > 1)`);
+
+    const atas = await alphaRata(img, Math.round(W * 0.2), Math.round(H * 0.04), Math.round(W * 0.6), Math.round(H * 0.08));
+    ok(atas > 3, `${slug}-${varian}: zona atas berisi (alpha ${atas.toFixed(2)})`);
+
+    const bawah = await alphaRata(img, Math.round(W * 0.2), Math.round(H - (potret ? 120 : 110)), Math.round(W * 0.6), 70);
+    ok(bawah > 3, `${slug}-${varian}: pita bawah berisi (alpha ${bawah.toFixed(2)})`);
+  }
+}
+
+console.log(`\n${lolos}/${total} uji LOLOS`);
+if (lolos !== total) process.exit(1);
+console.log("=== SEMUA UJI ALPHA BINGKAI HOROR v52 LOLOS ===");

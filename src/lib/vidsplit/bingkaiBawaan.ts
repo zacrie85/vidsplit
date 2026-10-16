@@ -8,6 +8,10 @@
 // v0.49.0 — teks spesial naik menyentuh garis atas + 2 varian baru
 // v0.50.0 — permintaan user: +6 frame spesial IDOLA DESA bertema dangdut
 //   (Gong Emas, Kendang Ria, Tirai Merah, Payet Disco, Batik Mega, Bunga Rampak)
+// v0.52.0 — permintaan user: +7 frame HOROR "ALAM GAIB" (teks ALAM GAIB di
+//   bagian atas frame, sisi kiri-kanan TIPIS): Tengkorak Bertanduk, Tanah
+//   Kubur, Sarang Laba-laba, Gunung Darah, Api Neraka, Arwah Larung,
+//   Rimba Terkutuk
 // Tiap frame punya DUA varian rasio: <slug>-916.png (1080×1920) dan
 // <slug>-169.png (1920×1080) sehingga tampil PENUH di kedua rasio (bug lama:
 // frame 9:16 saja ter-crop di video 16:9).
@@ -17,8 +21,8 @@ export interface BingkaiBawaan {
   label: string;
 }
 
-/** 20 frame bawaan v0.50.0 — 10 reguler tipis + 10 spesial bertema
- *  (v0.50.0: +6 frame IDOLA DESA bertema dangdut atas permintaan user) */
+/** 27 frame bawaan v0.52.0 — 10 reguler tipis + 17 spesial bertema
+ *  (v0.52.0: +7 frame HOROR ALAM GAIB atas permintaan user) */
 export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "garis-emas", label: "Garis Emas" },
   { slug: "perak-minimal", label: "Perak Minimalis" },
@@ -40,6 +44,13 @@ export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "dangdut-idola-desa-6", label: "★ Idola Desa 6 — Payet Disco" },
   { slug: "dangdut-idola-desa-7", label: "★ Idola Desa 7 — Batik Mega" },
   { slug: "dangdut-idola-desa-8", label: "★ Idola Desa 8 — Bunga Rampak" },
+  { slug: "horor-alam-gaib-3", label: "★ Horor Alam Gaib 3 — Tengkorak Bertanduk" },
+  { slug: "horor-alam-gaib-4", label: "★ Horor Alam Gaib 4 — Tanah Kubur" },
+  { slug: "horor-alam-gaib-5", label: "★ Horor Alam Gaib 5 — Sarang Laba-laba" },
+  { slug: "horor-alam-gaib-6", label: "★ Horor Alam Gaib 6 — Gunung Darah" },
+  { slug: "horor-alam-gaib-7", label: "★ Horor Alam Gaib 7 — Api Neraka" },
+  { slug: "horor-alam-gaib-8", label: "★ Horor Alam Gaib 8 — Arwah Larung" },
+  { slug: "horor-alam-gaib-9", label: "★ Horor Alam Gaib 9 — Rimba Terkutuk" },
 ];
 
 export function adalahSlugBawaan(slug: string): boolean {
