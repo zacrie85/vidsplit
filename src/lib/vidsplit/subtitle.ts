@@ -76,7 +76,9 @@ export interface OpsiTranskrip {
   onTahap?: (tahap: string) => void;
   modeBahasa?: ModeBahasa;
   /** v0.51.0 — true = pakai Whisper Base (cepat, ketepatan sedikit turun);
-   *  false (bawaan) = Whisper Small (paling tepat). Hasil cache dipisah. */
+   *  false (bawaan) = Whisper Small (paling tepat). Hasil cache dipisah.
+   *  v0.51.2 — model Base tak ada di bundel? otomatis jatuh ke Small + peringatan
+   *  (dulu: gagal diam-diam → video diekspor tanpa subtitle). */
   modelCepat?: boolean;
 }
 
@@ -231,6 +233,21 @@ export function modelTersedia(): boolean {
   return cariDirModelAi() !== null;
 }
 
+/**
+ * v0.51.2 — model CEPAT (Whisper Base) benar-benar ada di folder model terpilih?
+ * (murah — cek berkas saja) LATAR BUG v0.51.0: bundel rilis hanya membawa Whisper
+ * Small (workflow CI hanya mengunduh whisper-small) sehingga memilih "Cepat (Base)"
+ * membuat pipeline gagal → transkrip null → video diekspor TANPA subtitle.
+ * Dengan pemeriksaan ini, pilihan cepat yang tak tersedia OTOMATIS jatuh ke model
+ * Tepat dan diberi tahu lewat peringatan — subtitle tidak pernah hilang diam-diam.
+ * Fungsi murni-filesystem — dites di scripts/uji-subtitle.ts.
+ */
+export function modelCepatTersedia(): boolean {
+  const dir = cariDirModelAi();
+  if (!dir) return false;
+  return existsSync(path.join(dir, ID_MODEL_WHISPER_CEPAT, "config.json"));
+}
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type ModulTransformers = any;
 
@@ -268,7 +285,18 @@ async function buatPipaAsr(cepat = false): Promise<ModulTransformers | null> {
       device: "cpu",
     });
   } catch {
-    return null;
+    // v0.51.2 — model cepat (Base) tak bisa dimuat (berkas tak lengkap/tak
+    // dibundel)? JANGAN biarkan subtitle hilang diam-diam — jatuh ke model
+    // Tepat (Small) supaya hasil tetap bersubtitle.
+    if (!cepat) return null;
+    try {
+      return await m.pipeline("automatic-speech-recognition", ID_MODEL_WHISPER, {
+        dtype: "q8",
+        device: "cpu",
+      });
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -453,7 +481,10 @@ export async function transkripDiterjemahkan(
   audio: Float32Array,
   opsi?: OpsiTranskrip,
 ): Promise<HasilTranskrip | null> {
-  const cepat = opsi?.modelCepat === true;
+  const cepatDiminta = opsi?.modelCepat === true;
+  // v0.51.2 — model cepat WAJIB benar-benar ada; bila tidak, jatuh ke model Tepat
+  // (dulu: pipeline Base gagal → null → ekspor berjalan TANPA subtitle — bug v0.51.0)
+  const cepat = cepatDiminta && modelCepatTersedia();
   const asrUtama = await ambilPipaAsr(cepat);
   if (!asrUtama) return null;
   const tahap = opsi?.onTahap ?? (() => {});
@@ -586,9 +617,15 @@ export async function transkripDiterjemahkan(
     }
     segmen = hasilBaru;
   }
-  const peringatan = gagal > 0
+  // v0.51.2 — beri tahu bila pilihan "Cepat" diturunkan ke model Tepat
+  const peringatanModel = cepatDiminta && !cepat
+    ? "Mode cepat (Base) tidak tersedia — otomatis memakai model Tepat (Small)"
+    : undefined;
+  const peringatanGagal = gagal > 0
     ? `${gagal} bagian audio gagal dianalisis — sebagian teks mungkin tidak muncul`
     : undefined;
+  const peringatan =
+    [peringatanModel, peringatanGagal].filter(Boolean).join(" ") || undefined;
   return { segmen, bahasa, diterjemahkan: bahasa === "en", peringatan };
 }
 
@@ -682,7 +719,9 @@ export async function siapkanSegmenSubtitle(
 ): Promise<HasilTranskrip | null> {
   if (!modelTersedia()) return null;
   const mode: ModeBahasa = opsi?.modeBahasa === "deteksi" ? "deteksi" : "fokus";
-  const cepat = opsi?.modelCepat === true;
+  // v0.51.2 — kunci cache memakai model yang EFEKTIF dipakai (Base hanya bila
+  // benar-benar ada) — hasil Small tak pernah salah slot di "|cepat"
+  const cepat = opsi?.modelCepat === true && modelCepatTersedia();
   let stat: { size: number; mtimeMs: number } | null = null;
   try {
     const { statSync } = await import("node:fs");

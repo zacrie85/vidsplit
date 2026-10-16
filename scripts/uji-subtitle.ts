@@ -21,6 +21,8 @@ import {
   bersihSegmenHalusinasi,
   perkiraanSisaDtk,
   AMBATANG_SUNYI,
+  // v0.51.2 — model cepat (Base) tak lagi hilang diam-diam
+  modelCepatTersedia,
   type ModeBahasa,
 } from "../src/lib/vidsplit/subtitle";
 
@@ -321,6 +323,35 @@ cek("jalur: 5 core RAM 8GB → 2", jumlahPipaParalel(5, 8) === 2);
 cek("jalur: 6 core RAM 7GB → 3", jumlahPipaParalel(6, 7) === 3);
 cek("jalur: 8 core RAM 8GB → 4 (naik dari 3)", jumlahPipaParalel(8, 8) === 4);
 cek("jalur: 16 core RAM 6GB → 3 (RAM kurang)", jumlahPipaParalel(16, 6) === 3);
+
+// ================= v0.51.2 — MODEL CEPAT TAK LAGI HILANG DIAM-DIAM =================
+
+// --- modelCepatTersedia: cek berkas Whisper Base di folder model (env disamarkan) ---
+const { mkdtempSync, mkdirSync, closeSync, openSync, rmSync } = await import("node:fs");
+const { tmpdir } = await import("node:os");
+const { join: gabungPath } = await import("node:path");
+const envModelLama = process.env.VIDSPLIT_AI_MODELS;
+const dirModelUji = mkdtempSync(gabungPath(tmpdir(), "vds-model-"));
+const envModel = (d?: string) => {
+  if (d === undefined) delete process.env.VIDSPLIT_AI_MODELS;
+  else process.env.VIDSPLIT_AI_MODELS = d;
+};
+const sentuh = (p: string) => closeSync(openSync(p, "w"));
+// struktur minimum model TEPAT — syarat cariDirModelAi menganggap folder valid
+mkdirSync(gabungPath(dirModelUji, "onnx-community", "whisper-small"), { recursive: true });
+sentuh(gabungPath(dirModelUji, "onnx-community", "whisper-small", "config.json"));
+envModel(dirModelUji);
+// simulasi bundel rilis v0.51.0 (CI hanya unduh whisper-small):
+cek("modelCepat: hanya Small → tak tersedia (jatuh ke Tepat)", modelCepatTersedia() === false);
+// setelah v0.51.2 CI mengunduh dua-duanya:
+mkdirSync(gabungPath(dirModelUji, "onnx-community", "whisper-base"), { recursive: true });
+sentuh(gabungPath(dirModelUji, "onnx-community", "whisper-base", "config.json"));
+cek("modelCepat: Small+Base → tersedia", modelCepatTersedia() === true);
+envModel(gabungPath(dirModelUji, "tak-ada"));
+cek("modelCepat: folder model tak ada → false", modelCepatTersedia() === false);
+if (envModelLama === undefined) envModel(undefined); else envModel(envModelLama);
+cek("modelCepat: hasil selalu boolean", typeof modelCepatTersedia() === "boolean");
+rmSync(dirModelUji, { recursive: true, force: true });
 
 console.log(`\n=== uji-subtitle: ${lulus} LULUS, ${gagal} GAGAL ===`);
 if (gagal > 0) process.exit(1);
