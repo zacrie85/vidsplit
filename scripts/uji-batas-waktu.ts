@@ -2,6 +2,11 @@
 // "ffmpeg melewati batas waktu 675 detik" padahal stderr menunjukkan time= MASIH
 // BERTAMBAH — proses maju, bukan macet). Batas absolut kaku diganti tenggat yang
 // diperpanjang tiap media maju, plus batas keras 2 jam sebagai jaring terakhir.
+// v0.57.1 — laporan user baru: "ffmpeg macet (tidak ada progres 40 detik)" dgn
+// stderr terakhir hanya pesan inisialisasi font/libass (fontselect) — frame
+// PERTAMA yang berat tak menulis time= sama sekali → dibunuh padahal bekerja.
+// Kini: fase awal diberi diamAwalMs (bawaan 150 dtk) berbasis tanda hidup stderr
+// + aturan bekuMediaMs (stderr hidup tapi time= tak naik → terhenti).
 // Jalankan: bun scripts/uji-batas-waktu.ts
 import { jalankanFfmpeg, hitungBatasKeras, perpanjangTenggat } from "../src/lib/vidsplit/ffmpeg";
 import path from "node:path";
@@ -123,6 +128,65 @@ try {
 const dE = Date.now() - tE;
 cek("integrasi: kriek maju kecil-kecil SELESAI (dulu dibunuh di 4 dtk)", okeE, errE);
 cek("integrasi: kriek selesai ±8–14 dtk (0,06x jalan sampai tuntas)", dE >= 7_500 && dE <= 14_000, `${dE} ms`);
+
+// F. v0.57.1 — KASUS LAPORAN USER: inisialisasi font/libass + frame pertama
+//    berat (SUNYI > diamMs tanpa time= sama sekali). v0.57.0: DIBUNUH "macet"
+//    padahal bekerja; v0.57.1: fase awal diberi diamAwalMs → SELESAI.
+process.env.FAKE_FFMPEG_MODE = "frame-berat";
+let okeF = false;
+let errF = "";
+const tF = Date.now();
+try {
+  await jalankanFfmpeg(["-nostdin"], 10, undefined, fake, undefined, {
+    absolutMs: 60_000,
+    diamMs: 5_000, // v0.57.0: membunuh di sini saat fase awal
+    diamAwalMs: 12_000, // v0.57.1: masa tenggang frame pertama
+  });
+  okeF = true;
+} catch (e) {
+  errF = e instanceof Error ? e.message : String(e);
+}
+const dF = Date.now() - tF;
+cek("integrasi: frame pertama berat (font init + sunyi) SELESAI (v0.57.0: dibunuh)", okeF, errF);
+cek("integrasi: frame pertama berat selesai ±9–14 dtk (sunyi 8 + render cepat)", dF >= 7_500 && dF <= 14_000, `${dF} ms`);
+
+// G. v0.57.1 — stderr HIDUP tapi time= TAK NAIK → bekuMediaMs menangkap
+//    ("media tidak maju"); dulu menggantung sampai tenggat (60 dtk).
+process.env.FAKE_FFMPEG_MODE = "beku-media";
+let msgG = "";
+const tG = Date.now();
+try {
+  await jalankanFfmpeg(["-nostdin"], 10, undefined, fake, undefined, {
+    absolutMs: 60_000,
+    diamMs: 30_000,
+    bekuMediaMs: 4_000,
+  });
+} catch (e) {
+  msgG = e instanceof Error ? e.message : String(e);
+}
+const dG = Date.now() - tG;
+cek("integrasi: stderr hidup + time= tak naik → 'media tidak maju'", msgG.includes("media tidak maju"), msgG);
+cek("integrasi: beku-media dibunuh dekat bekuMediaMs (4–9,5 dtk)", dG >= 3_500 && dG <= 9_500, `${dG} ms`);
+
+// H. v0.57.1 — fase awal SUNYI TOTAL tanpa time= → dibunuh diamAwalMs dgn
+//    pesan yang JELAS (dulu: "macet 40 detik — file rusak" yang menyesatkan).
+//    Catatan: ambang fase awal = max(diamMs, diamAwalMs) — tak boleh lebih
+//    ketat dr fase jalan — jadi diamMs ikut diperkecil di skenario ini.
+process.env.FAKE_FFMPEG_MODE = "sunyi";
+let msgH = "";
+const tH = Date.now();
+try {
+  await jalankanFfmpeg(["-nostdin"], 10, undefined, fake, undefined, {
+    absolutMs: 90_000,
+    diamMs: 5_000,
+    diamAwalMs: 6_000,
+  });
+} catch (e) {
+  msgH = e instanceof Error ? e.message : String(e);
+}
+const dH = Date.now() - tH;
+cek("integrasi: fase awal sunyi total → pesan 'belum menghasilkan frame pertama'", msgH.includes("belum menghasilkan frame pertama"), msgH);
+cek("integrasi: fase awal sunyi dibunuh dekat diamAwalMs (8–13,5 dtk)", dH >= 7_500 && dH <= 13_500, `${dH} ms`);
 
 console.log(`\nHASIL: ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal ? 1 : 0);

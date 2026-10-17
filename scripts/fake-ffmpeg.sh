@@ -38,5 +38,34 @@ case "$MODE" in
       sleep 0.2
     done
     ;;
+  frame-berat)
+    # v0.57.1 — KASUS LAPORAN USER: pesan inisialisasi font/libass, lalu SUNYI
+    # (frame pertama berat — belum ada time= sama sekali). v0.57.0 membunuh di
+    # diamMs (uji: 5 dtk) padahal masih bekerja; v0.57.1 fase awal diberi
+    # diamAwalMs → SELESAI.
+    printf "[Parsed_subtitles_16 @ 0x0] Loading font file 'C:/Program Files/VidSplit/resources/fonts/Teko-Bold.ttf'\n" >&2
+    printf "[Parsed_subtitles_16 @ 0x0] Error opening memory font 'LISENSI-FONT.txt'\n" >&2
+    printf "[Parsed_subtitles_16 @ 0x0] fontselect: (DejaVu Sans, 400, 0) -> DejaVuSans, 0, DejaVuSans\n" >&2
+    sleep "${FAKE_DIAM_AWAL:-8}"
+    for t in 02.00 04.00 06.00 08.00 10.00; do
+      printf 'frame=64 fps=1.4 q=-1.0 size=256kB time=00:00:%s bitrate=1200.0kbits/s speed=0.08x\n' "$t" >&2
+      sleep 0.2
+    done
+    ;;
+  beku-media)
+    # v0.57.1 — stderr HIDUP (time= 01.00 BERULANG, tak pernah naik) → aturan
+    # diamMs tak menembak (stderr terus menulis), yang menangkap = bekuMediaMs
+    # ("media tidak maju") — dulu menggantung sampai tenggat adaptif.
+    printf 'frame=8 fps=0.1 q=28.0 size=512kB time=00:00:01.00 bitrate=900.0kbits/s speed=0.001x\n' >&2
+    sleep 1
+    for i in $(seq 1 400); do
+      printf 'frame=%s fps=0.0 q=28.0 size=512kB time=00:00:01.00 bitrate=900.0kbits/s speed=0.001x\n' "$i" >&2
+      sleep 0.3
+    done
+    ;;
+  sunyi)
+    # v0.57.1 — SUNYI TOTAL tanpa baris time= (menguji diamAwalMs fase awal).
+    sleep 30
+    ;;
 esac
 exit 0

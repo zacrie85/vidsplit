@@ -180,7 +180,7 @@ export async function siapkanBingkaiWarna(
       undefined,
       ffmpegBin,
       undefined,
-      { diamMs: 20_000, absolutMs: 60_000 },
+      { diamMs: 20_000, diamAwalMs: 20_000, absolutMs: 60_000 },
     );
     return existsSync(keluar) ? keluar : frameAbs;
   } catch {

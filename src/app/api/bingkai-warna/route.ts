@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
         undefined,
         ff.bin,
         undefined,
-        { diamMs: 20_000, absolutMs: 60_000 },
+        { diamMs: 20_000, diamAwalMs: 20_000, absolutMs: 60_000 },
       );
     }
     if (!existsSync(keluar)) {

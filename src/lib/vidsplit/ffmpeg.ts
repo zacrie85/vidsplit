@@ -764,8 +764,19 @@ export interface OpsiFfmpeg {
    *  Bawaan 240_000 (atau durasi×15 bila durasi diketahui). Panggilan adegan
    *  komik mengirim max(150 dtk, durasi×15). */
   absolutMs?: number;
-  /** batas tanpa statistik time= di stderr (ms). Bawaan 40_000. */
+  /** batas tanpa statistik time= di stderr saat fase JALAN (ms). Bawaan 40_000. */
   diamMs?: number;
+  /** v0.57.1 — batas FASE AWAL (belum ada baris time= pertama): pesan
+   *  inisialisasi font/libass + frame pertama yang berat TIDAK menulis time=
+   *  sama sekali — v0.57.0 membunuhnya di diamMs (40 dtk) padahal masih
+   *  bekerja (laporan user: stderr terakhir hanya "fontselect: ... DejaVuSans").
+   *  Fase awal kini diberi masa tenggang berbasis TANDA HIDUP stderr (output
+   *  apapun dihitung hidup). Bawaan 150_000. */
+  diamAwalMs?: number;
+  /** v0.57.1 — fase jalan: stderr mengalir tapi time= TAK NAIK >0,001 dtk
+   *  selama ini (ms) → terhenti (mis. loop galat decode tanpa akhir). Bawaan
+   *  180_000 — jangan biarkan menggantung sampai tenggat adaptif (puluhan menit). */
+  bekuMediaMs?: number;
   /** liveness: dipanggil tiap ±5 dtk dgn detik berlalu — UI tampil proses hidup */
   onDetik?: (detik: number) => void;
 }
@@ -848,7 +859,13 @@ function bunuhPohon(c: ChildProcess): void {
  *  detik" padahal stderr menunjukkan time= masih bertambah): batas absolut kaku
  *  diganti tenggat yg DIPERPANJANG tiap media maju ≥0,25 dtk (perpanjangTenggat)
  *  — render lambat-tapi-maju dibiarkan selesai; beku tetap dibunuh oleh tenggat
- *  (tak diperpanjang) / diamMs (sunyi >diamMs) / batas keras 2 jam (hitungBatasKeras). */
+ *  (tak diperpanjang) / diamMs (sunyi >diamMs) / batas keras 2 jam (hitungBatasKeras).
+ *  v0.57.1 — FASE AWAL (belum ada time=): pesan inisialisasi font/libass + frame
+ *  pertama yang berat TIDAK menulis time= → dulu dibunuh diamMs 40 dtk padahal
+ *  masih bekerja (laporan user: stderr terakhir hanya "fontselect: ..."). Kini
+ *  fase awal diberi diamAwalMs (bawaan 150 dtk) berbasis tanda hidup stderr;
+ *  fase jalan diberi bekuMediaMs (stderr hidup tapi time= tak naik 180 dtk →
+ *  terhenti, tak menunggu tenggat puluhan menit). */
 export async function jalankanFfmpeg(
   args: string[],
   totalDetik: number,
@@ -859,6 +876,9 @@ export async function jalankanFfmpeg(
 ): Promise<void> {
   const binFinal = bin || (await pilihFfmpeg()).bin;
   const diamMs = opsi?.diamMs ?? 40_000;
+  // v0.57.1 — fase awal (belum ada time=): masa tenggang berbasis tanda hidup
+  const diamAwalMs = Math.max(diamMs, opsi?.diamAwalMs ?? 150_000);
+  const bekuMediaMs = opsi?.bekuMediaMs ?? 180_000;
   // tenggat dasar: eksplisit > skala durasi utk stream terpanjang > bawaan 4 menit
   const absolutMs = opsi?.absolutMs
     ?? (totalDetik > 0 ? Math.max(150_000, Math.ceil(totalDetik) * 15_000) : 240_000);
@@ -870,22 +890,57 @@ export async function jalankanFfmpeg(
     onSpawn?.(c);
     const mulai = Date.now();
     let stderr = "";
-    let terakhirProgres = Date.now();
+    let terakhirProgres = Date.now(); // baris time= terakhir (fase jalan)
+    let terakhirHidup = Date.now(); // v0.57.1 — output stderr APAPUN (fase awal)
+    let majuTerakhir = Date.now(); // v0.57.1 — terakhir time= NAIK >0,001 dtk
+    let sudahTime = false; // v0.57.1 — sudah ada baris time= (fase jalan)?
     let tenggat = mulai + absolutMs;
     let mediaDetik = 0;
     const berhenti = () => clearInterval(pemeriksa);
     const pemeriksa = setInterval(() => {
       const lewat = Date.now() - mulai;
       opsi?.onDetik?.(Math.round(lewat / 1000));
-      if (Date.now() - terakhirProgres > diamMs) {
-        berhenti();
-        bunuhPohon(c);
-        reject(
-          new Error(
-            `ffmpeg macet (tidak ada progres ${Math.round(diamMs / 1000)} detik) — kemungkinan file sumber/background rusak. stderr: ${stderr.slice(-400)}`,
-          ),
-        );
-        return;
+      if (!sudahTime) {
+        // v0.57.1 FASE AWAL — pesan inisialisasi font/libass + frame pertama
+        // berat TIDAK menulis time= sama sekali; dulu dibunuh diamMs 40 dtk
+        // padahal masih bekerja (laporan user v0.57). Kini masa tenggang
+        // diamAwalMs berbasis tanda hidup stderr (output apapun = hidup).
+        if (Date.now() - terakhirHidup > diamAwalMs) {
+          berhenti();
+          bunuhPohon(c);
+          reject(
+            new Error(
+              `ffmpeg belum menghasilkan frame pertama (tidak ada keluaran ${Math.round(diamAwalMs / 1000)} detik) — filter/font berat, mesin sangat sibuk (kurangi Proses paralel, tunggu Subtitle AI selesai), atau kemungkinan berkas sumber/background bermasalah. stderr: ${stderr.slice(-400)}`,
+            ),
+          );
+          return;
+        }
+      } else {
+        // fase JALAN: sunyi dari baris time= > diamMs → macet (perilaku v0.55)
+        if (Date.now() - terakhirProgres > diamMs) {
+          berhenti();
+          bunuhPohon(c);
+          reject(
+            new Error(
+              `ffmpeg macet (tidak ada progres ${Math.round(diamMs / 1000)} detik) — kemungkinan file sumber/background rusak. stderr: ${stderr.slice(-400)}`,
+            ),
+          );
+          return;
+        }
+        // v0.57.1 — stderr mengalir tapi time= TAK NAIK sama sekali (mis. loop
+        // galat decode tanpa akhir) → potong di bekuMediaMs; dulu hanya tenggat
+        // adaptif yang menangkap — bisa menggantung puluhan menit.
+        if (Date.now() - majuTerakhir > bekuMediaMs) {
+          berhenti();
+          bunuhPohon(c);
+          const spd2 = mediaDetik > 0 ? ((lewat / 1000) / mediaDetik).toFixed(2) : "?";
+          reject(
+            new Error(
+              `ffmpeg terhenti (media tidak maju ${Math.round(bekuMediaMs / 1000)} detik — terakhir time=${fmtWaktu(mediaDetik)}, kecepatan ±${spd2}x) — mesin kelebihan beban atau berkas bermasalah; kurangi Proses paralel / coba Mode Cepat atau 720p. stderr: ${stderr.slice(-400)}`,
+            ),
+          );
+          return;
+        }
       }
       const spd = mediaDetik > 0 ? ((lewat / 1000) / mediaDetik).toFixed(2) : "?";
       if (Date.now() > tenggat) {
@@ -912,10 +967,16 @@ export async function jalankanFfmpeg(
       const s = d.toString();
       stderr += s;
       if (stderr.length > 8000) stderr = stderr.slice(-8000);
+      terakhirHidup = Date.now(); // v0.57.1 — output apapun = tanda hidup (fase awal)
       const m = s.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
       if (m) {
         terakhirProgres = Date.now();
+        if (!sudahTime) {
+          sudahTime = true; // fase jalan dimulai (baris time= pertama)
+          majuTerakhir = Date.now(); // penilaian kemajuan mulai dari sini
+        }
         const det = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        if (det - mediaDetik > 0.001) majuTerakhir = Date.now(); // v0.57.1 — maju beneran
         // v0.55.0 — media maju → tenggat ikut digeser (render lambat tapi maju = selamat)
         tenggat = perpanjangTenggat(
           tenggat, Date.now(), mulai, absolutMs, totalDetik, det, mediaDetik,

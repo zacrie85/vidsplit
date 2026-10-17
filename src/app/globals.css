@@ -46,7 +46,7 @@ input[type="color"] {
   background: transparent;
 }
 
-/* ===== 15 font sinematik bundel (public/fonts, lisensi OFL — lihat LISENSI-FONT.txt) =====
+/* ===== 15 font sinematik bundel (public/fonts, lisensi OFL — lihat LISENSI-FONT.txt (di public/ & assets/)) =====
    Nama keluarga "VDS *" dipakai pratinjau browser lewat FONT_CSS di types.ts;
    render final ffmpeg tetap memakai berkas TTF yang sama dari assets/fonts. */
 @font-face { font-family: "VDS Bebas Neue"; src: url("/fonts/BebasNeue.ttf") format("truetype"); font-display: swap; }
