@@ -65,8 +65,14 @@ export const AMBATANG_SUNYI = 0.003;
  * v0.54.0 — JUMLAH BENANG (thread) ONNX PER SESI dari kemampuan mesin (murni —
  * dites unit). Dulu: tiap sesi onnxruntime memakai SEMUA core fisik — dgn pool
  * 4 sesi paralel di mesin 8 core = 32 benang menimpa-nimpa (thrashing) sehingga
- * transkrip jauh lebih lambat dr seharusnya. Kini benang per sesi = core ÷ jalur
- * (min 2, maks 8). 0 = biarkan bawaan (dipakai bila hanya 1 jalur).
+ * transkrip jauh lebih lambat dr seharusnya. Lalu v0.54 benang per sesi = core ÷
+ * jalur (8 core ÷ 4 jalur = 2 benang × 4 sesi = 8 benang).
+ * v0.55.0 — SISAKAN CORE UTK RENDER: transkrip latar berjalan BERBARENGAN dgn
+ * render ffmpeg (v0.53). Bila 4 sesi memakai seluruh 8 core, ffmpeg TIDAK
+ * kebagian CPU → render part 45 dtk melorot ke 0,06x (fps 1,9) → kena batas
+ * waktu 675 dtk & eksport gagal (laporan user v0.54). Kini benang per sesi =
+ * (core − 2) ÷ jalur (min 1, maks 8) — render SELALU punya ±2 core.
+ * 0 = biarkan bawaan (dipakai bila hanya 1 jalur).
  * env VIDSPLIT_AI_BENANG memaksa nilai (1–16).
  */
 export function benangPerSesi(cores: number, ramGb: number): number {
@@ -74,7 +80,7 @@ export function benangPerSesi(cores: number, ramGb: number): number {
   if (Number.isFinite(env) && env >= 1) return Math.min(16, Math.floor(env));
   const jalur = jumlahPipaParalel(cores, ramGb);
   if (jalur <= 1) return 0; // satu jalur → default bawaan (semua core utk 1 sesi)
-  return Math.min(8, Math.max(2, Math.floor(cores / jalur)));
+  return Math.min(8, Math.max(1, Math.floor((cores - 2) / jalur)));
 }
 
 /**

@@ -492,10 +492,12 @@ cek("ejaan: '-nya' di akhir kalimat digabung", perbaikiEjaan("warnanya keren ban
 // ===================== v0.54.0 — BENANG PER SESI =====================
 const envLama = process.env.VIDSPLIT_AI_BENANG;
 delete process.env.VIDSPLIT_AI_BENANG;
-cek("benang: 8 core/16GB (4 jalur) → 2", benangPerSesi(8, 16) === 2);
-cek("benang: 4 core/8GB (3 jalur) → 2 (min)", benangPerSesi(4, 8) === 2);
+// v0.55.0 — (core−2)÷jalur: render ffmpeg SELALU punya ±2 core (dulu core÷jalur
+// memakan SEMUA core → render distarve → kena batas waktu, laporan user v0.54)
+cek("benang: 8 core/16GB (4 jalur) → 1 (sisakan core render)", benangPerSesi(8, 16) === 1);
+cek("benang: 4 core/8GB (3 jalur) → 1 (min)", benangPerSesi(4, 8) === 1);
 cek("benang: 2 core (1 jalur) → 0 = default", benangPerSesi(2, 8) === 0);
-cek("benang: 16 core (4 jalur) → 4", benangPerSesi(16, 16) === 4);
+cek("benang: 16 core (4 jalur) → 3", benangPerSesi(16, 16) === 3);
 process.env.VIDSPLIT_AI_BENANG = "6";
 cek("benang: env override 6", benangPerSesi(8, 16) === 6);
 process.env.VIDSPLIT_AI_BENANG = "99";

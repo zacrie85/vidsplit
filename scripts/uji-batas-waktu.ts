@@ -1,0 +1,103 @@
+// VidSplit v0.55.0 — uji BATAS WAKTU ADAPTIF ffmpeg (laporan user: eksport gagal
+// "ffmpeg melewati batas waktu 675 detik" padahal stderr menunjukkan time= MASIH
+// BERTAMBAH — proses maju, bukan macet). Batas absolut kaku diganti tenggat yang
+// diperpanjang tiap media maju, plus batas keras 2 jam sebagai jaring terakhir.
+// Jalankan: bun scripts/uji-batas-waktu.ts
+import { jalankanFfmpeg, hitungBatasKeras, perpanjangTenggat } from "../src/lib/vidsplit/ffmpeg";
+import path from "node:path";
+
+let lulus = 0;
+let gagal = 0;
+function cek(nama: string, kondisi: boolean, detail?: unknown) {
+  if (kondisi) {
+    lulus += 1;
+  } else {
+    gagal += 1;
+    console.error(`  GAGAL: ${nama}`, detail ?? "");
+  }
+}
+
+// ===================== unit hitungBatasKeras =====================
+cek("batas keras: 675 dtk → 2 jam", hitungBatasKeras(675_000) === 2 * 3_600_000);
+cek("batas keras: 400 dtk (×6 < 2 jam) → 2 jam", hitungBatasKeras(400_000) === 2 * 3_600_000);
+cek("batas keras: 30 mnt (×6 > 2 jam) → 3 jam", hitungBatasKeras(1_800_000) === 10_800_000);
+
+// ===================== unit perpanjangTenggat =====================
+const T0 = 1_000_000; // epoch ms mulai (murni utk hitungan)
+
+// 1) media beku (delta < 0,25) → tenggat TIDAK berubah (nanti dibunuh tenggat/diamMs)
+cek(
+  "perpanjang: delta 0 → tak berubah",
+  perpanjangTenggat(5_000_000, 2_000_000, T0, 675_000, 45, 42.6, 42.6) === 5_000_000,
+);
+// 2) KASUS LAPORAN USER: 675 dtk berjalan, media 42,6/45 (kecepatan 15,85x) →
+//    dulu: DIBUNUH persis di sini. Kini: estimasi sisa 38 dtk → tenggat digeser.
+const tenggatLama = T0 + 675_000;
+const baru = perpanjangTenggat(tenggatLama, T0 + 675_000, T0, 675_000, 45, 42.6, 42.3);
+cek("perpanjang: kasus user — tenggat melewati batas lama", baru > tenggatLama);
+cek(
+  "perpanjang: kasus user — tambah = lantai absolutMs (675 dtk)",
+  baru === T0 + 675_000 + 675_000,
+);
+// 3) render sehat: kecepatan rendah → tambah tetap dilantai ke absolutMs
+const b3 = perpanjangTenggat(T0 + 675_000, T0 + 22_500, T0, 675_000, 45, 10, 9.5);
+cek("perpanjang: render cepat — lantai absolutMs", b3 === T0 + 22_500 + 675_000);
+// 4) mulai super lambat (60 dtk wall utk 1 dtk media) → plafon absolutMs×4
+const b4 = perpanjangTenggat(T0 + 675_000, T0 + 60_000, T0, 675_000, 45, 1, 0.5);
+cek("perpanjang: plafon absolutMs×4", b4 === T0 + 60_000 + 2_700_000);
+// 5) tenggat lama lebih besar dr hasil perpanjangan → dipertahankan (max)
+const b5 = perpanjangTenggat(T0 + 9_000_000, T0 + 1_000, T0, 675_000, 45, 5, 4);
+cek("perpanjang: tenggat lama lebih besar → dipertahankan", b5 === T0 + 9_000_000);
+
+// ===================== integrasi dgn ffmpeg palsu =====================
+const fake = path.join(import.meta.dir, "fake-ffmpeg.sh");
+
+// A. LAMBAT TAPI MAJU → SELESAI (perilaku lama: DIBUNUH di 4 dtk — persis kasus user)
+process.env.FAKE_FFMPEG_MODE = "lambat";
+let oke = false;
+let errA = "";
+try {
+  await jalankanFfmpeg(["-nostdin"], 10, undefined, fake, undefined, {
+    absolutMs: 4_000,
+    diamMs: 10_000,
+  });
+  oke = true;
+} catch (e) {
+  errA = e instanceof Error ? e.message : String(e);
+}
+cek("integrasi: render lambat-tapi-maju SELESAI (dulu dibunuh di 4 dtk)", oke, errA);
+
+// B. BEKU SUNYI (stderr berhenti) → tetap tertangkap diamMs sebagai "macet"
+process.env.FAKE_FFMPEG_MODE = "beku";
+let msgB = "";
+try {
+  await jalankanFfmpeg(["-nostdin"], 10, undefined, fake, undefined, {
+    absolutMs: 60_000,
+    diamMs: 2_500,
+  });
+} catch (e) {
+  msgB = e instanceof Error ? e.message : String(e);
+}
+cek("integrasi: beku sunyi → macet", msgB.includes("macet"), msgB);
+
+// C. time= BEKU tapi stderr mengalir → tenggat TIDAK diperpanjang → "batas waktu"
+process.env.FAKE_FFMPEG_MODE = "beku-waktu";
+let msgC = "";
+const tC = Date.now();
+try {
+  await jalankanFfmpeg(["-nostdin"], 10, undefined, fake, undefined, {
+    absolutMs: 4_000,
+    diamMs: 30_000,
+  });
+} catch (e) {
+  msgC = e instanceof Error ? e.message : String(e);
+}
+const dC = Date.now() - tC;
+cek("integrasi: time= beku → melewati batas waktu", msgC.includes("melewati batas waktu"), msgC);
+cek("integrasi: time= beku dibunuh dekat tenggat (3,5–9,5 dtk)", dC >= 3_500 && dC <= 9_500, `${dC} ms`);
+
+// D. pesan galat menyertakan diagnosa kecepatan utk kasus C
+cek("integrasi: pesan batas waktu menyertakan kecepatan", msgC.includes("kecepatan"), msgC);
+
+console.log(`\nHASIL: ${lulus} lulus, ${gagal} gagal`);
+process.exit(gagal ? 1 : 0);

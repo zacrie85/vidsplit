@@ -719,13 +719,62 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
 }
 
 export interface OpsiFfmpeg {
-  /** batas ABSOLUT wall-clock (ms) — proses dibunuh walau time= masih mengalir.
-   *  Bawaan 240_000. Panggilan adegan komik mengirim max(150 dtk, durasi×15). */
+  /** tenggat DASAR wall-clock (ms) — titik awal sebelum diperpanjang progres.
+   *  Bawaan 240_000 (atau durasi×15 bila durasi diketahui). Panggilan adegan
+   *  komik mengirim max(150 dtk, durasi×15). */
   absolutMs?: number;
   /** batas tanpa statistik time= di stderr (ms). Bawaan 40_000. */
   diamMs?: number;
   /** liveness: dipanggil tiap ±5 dtk dgn detik berlalu — UI tampil proses hidup */
   onDetik?: (detik: number) => void;
+}
+
+/** v0.55.0 — batas keras MUTLAK (murni — dites unit): jaring pengaman terakhir
+ *  agar proses tak mungkin bergantung selamanya walau progres terus mengalir.
+ *  = max(absolutMs × 6, 2 jam). Render es-lambat ekstrem sampai di sini pun
+ *  dihentikan dgn pesan yg menjelaskan kecepatan teramati. */
+export function hitungBatasKeras(absolutMs: number): number {
+  return Math.max(absolutMs * 6, 2 * 3_600_000);
+}
+
+/** v0.55.0 — PERPANJANGAN TENGGAT ADAPTIF (murni — dites unit).
+ *  Dulu: batas absolut KAKU (durasi×15 dtk) MEMBUNUH ffmpeg yg masih maju —
+ *  render berat (frame hiasan + blur + subtitle) sambil AI latar berebut CPU
+ *  melorot ke 0,06x → part 45 dtk kena batas 675 dtk & eksport gagal (laporan
+ *  user v0.54, stderr jelas menunjukkan time= TERUS BERTAMBAH = bukan macet).
+ *  Kini: tiap media maju ≥0,25 dtk, tenggat digeser ke now + max(estimasiSisa
+ *  ×2,5 + 90 dtk, absolutMs), dibatasi plafon absolutMs×4. estimasiSisa =
+ *  kecepatan teramati (dtk-wall/dtk-media) × sisa media. Jadi render LAMBAT
+ *  TAPI MAJU dibiarkan selesai; yg beku (media tak maju) tetap dibunuh —
+ *  oleh tenggat (tidak diperpanjang) atau diamMs (sunyi total). */
+export function perpanjangTenggat(
+  tenggatLama: number,
+  sekarang: number,
+  mulaiMs: number,
+  absolutMs: number,
+  totalDetik: number,
+  mediaDetik: number,
+  mediaSebelumnya: number,
+): number {
+  if (mediaDetik - mediaSebelumnya < 0.25) return tenggatLama; // tak maju bermakna
+  const lewatDtk = Math.max(0.001, (sekarang - mulaiMs) / 1000);
+  const kecepatan = lewatDtk / Math.max(0.25, mediaDetik); // dtk-wall per dtk-media
+  const sisa = Math.max(0, totalDetik - mediaDetik);
+  const estimasiSisa = kecepatan * sisa;
+  const tambah = Math.min(
+    Math.max(estimasiSisa * 2500 + 90_000, absolutMs), // estimasiSisa dtk → ms
+    absolutMs * 4,
+  );
+  return Math.max(tenggatLama, sekarang + tambah);
+}
+
+/** format detik → HH:MM:SS utk pesan diagnosa */
+function fmtWaktu(dtk: number): string {
+  const s = Math.max(0, Math.floor(dtk));
+  const j = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const d = s % 60;
+  return `${String(j).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(d).padStart(2, "0")}`;
 }
 
 /** Bunuh proses + SELURUH pohon anaknya (Windows: taskkill /T /F — SIGKILL Node
@@ -747,11 +796,14 @@ function bunuhPohon(c: ChildProcess): void {
  *  v0.32.0 PERBAIKAN "Merender adegan stak selamanya" (laporan user v0.31):
  *  (1) -nostdin + stdin diabaikan — ffmpeg yang dit_spawn dari Node punya stdin
  *  pipe yang tak pernah tertutup; sebagian build ffmpeg Windows menunggu stdin
- *  dan BEKU tanpa jejak (penyebab paling mungkin laporan user);
- *  (2) batas ABSOLUT wall-clock — proses dibunuh walau time= masih mengalir
- *  (audio branch yang tak pernah EOF tak lagi bisa menggantung selamanya);
- *  (3) Windows: taskkill /T /F membunuh seluruh pohon proses;
- *  (4) pesan galat macet kini menyertakan ekor stderr utk diagnosa. */
+ *  dan BEKU tanpa jejak;
+ *  (2) batas wall-clock + Windows: taskkill /T /F membunuh seluruh pohon proses;
+ *  (3) pesan galat macet menyertakan ekor stderr utk diagnosa.
+ *  v0.55.0 — TENGGAT ADAPTIF (laporan user "ffmpeg melewati batas waktu 675
+ *  detik" padahal stderr menunjukkan time= masih bertambah): batas absolut kaku
+ *  diganti tenggat yg DIPERPANJANG tiap media maju ≥0,25 dtk (perpanjangTenggat)
+ *  — render lambat-tapi-maju dibiarkan selesai; beku tetap dibunuh oleh tenggat
+ *  (tak diperpanjang) / diamMs (sunyi >diamMs) / batas keras 2 jam (hitungBatasKeras). */
 export async function jalankanFfmpeg(
   args: string[],
   totalDetik: number,
@@ -762,9 +814,10 @@ export async function jalankanFfmpeg(
 ): Promise<void> {
   const binFinal = bin || (await pilihFfmpeg()).bin;
   const diamMs = opsi?.diamMs ?? 40_000;
-  // batas absolut: eksplisit > skala durasi utk stream terpanjang > bawaan 4 menit
+  // tenggat dasar: eksplisit > skala durasi utk stream terpanjang > bawaan 4 menit
   const absolutMs = opsi?.absolutMs
     ?? (totalDetik > 0 ? Math.max(150_000, Math.ceil(totalDetik) * 15_000) : 240_000);
+  const kerasMs = hitungBatasKeras(absolutMs);
   // -nostdin HARUS di depan (opsi global); hindari dobel bila pemanggil sudah mengirim
   const argumen = args[0] === "-nostdin" ? args : ["-nostdin", ...args];
   await new Promise<void>((resolve, reject) => {
@@ -773,6 +826,8 @@ export async function jalankanFfmpeg(
     const mulai = Date.now();
     let stderr = "";
     let terakhirProgres = Date.now();
+    let tenggat = mulai + absolutMs;
+    let mediaDetik = 0;
     const berhenti = () => clearInterval(pemeriksa);
     const pemeriksa = setInterval(() => {
       const lewat = Date.now() - mulai;
@@ -787,12 +842,13 @@ export async function jalankanFfmpeg(
         );
         return;
       }
-      if (lewat > absolutMs) {
+      const spd = mediaDetik > 0 ? ((lewat / 1000) / mediaDetik).toFixed(2) : "?";
+      if (Date.now() > tenggat || lewat > kerasMs) {
         berhenti();
         bunuhPohon(c);
         reject(
           new Error(
-            `ffmpeg melewati batas waktu ${Math.round(absolutMs / 1000)} detik — proses dihentikan agar tidak menggantung. stderr: ${stderr.slice(-400)}`,
+            `ffmpeg melewati batas waktu ${Math.round(Math.max(absolutMs, kerasMs) / 1000)} detik — media baru sampai time=${fmtWaktu(mediaDetik)} (kecepatan ±${spd}x; mesin sangat sibuk/sangat lambat — coba Mode Cepat, resolusi 720p, atau GPU). stderr: ${stderr.slice(-400)}`,
           ),
         );
       }
@@ -804,8 +860,13 @@ export async function jalankanFfmpeg(
       const m = s.match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
       if (m) {
         terakhirProgres = Date.now();
+        const det = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+        // v0.55.0 — media maju → tenggat ikut digeser (render lambat tapi maju = selamat)
+        tenggat = perpanjangTenggat(
+          tenggat, Date.now(), mulai, absolutMs, totalDetik, det, mediaDetik,
+        );
+        mediaDetik = Math.max(mediaDetik, det);
         if (onProgres && totalDetik > 0) {
-          const det = Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
           onProgres(Math.min(1, Math.max(0, det / totalDetik)));
         }
       }
