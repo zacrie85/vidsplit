@@ -742,11 +742,15 @@ export function hitungBatasKeras(absolutMs: number): number {
  *  render berat (frame hiasan + blur + subtitle) sambil AI latar berebut CPU
  *  melorot ke 0,06x → part 45 dtk kena batas 675 dtk & eksport gagal (laporan
  *  user v0.54, stderr jelas menunjukkan time= TERUS BERTAMBAH = bukan macet).
- *  Kini: tiap media maju ≥0,25 dtk, tenggat digeser ke now + max(estimasiSisa
- *  ×2,5 + 90 dtk, absolutMs), dibatasi plafon absolutMs×4. estimasiSisa =
- *  kecepatan teramati (dtk-wall/dtk-media) × sisa media. Jadi render LAMBAT
- *  TAPI MAJU dibiarkan selesai; yg beku (media tak maju) tetap dibunuh —
- *  oleh tenggat (tidak diperpanjang) atau diamMs (sunyi total). */
+ *  v0.56.0 — AMBANG DIPERKECIL (laporan user kedua): di fps=1,9 tiap event
+ *  stderr hanya maju 0,03–0,05 dtk media — ambang lama 0,25 dtk PER EVENT
+ *  membuat perpanjangan TIDAK PERNAH terjadi (media maju kecil-kecil terus,
+ *  tenggat tetap habis). Kini maju >0,001 dtk sejak penilaian terakhir sudah
+ *  dihitung maju → tenggat digeser ke now + max(estimasiSisa×2500 ms + 90 dtk,
+ *  absolutMs), plafon absolutMs×4. estimasiSisa = kecepatan teramati
+ *  (dtk-wall/dtk-media) × sisa media. Render LAMBAT TAPI MAJU = selamat
+ *  (dibatasi batas keras 2 jam); yang benar-benar beku (media tak maju sama
+ *  sekali) tetap dibunuh — oleh tenggat / diamMs (sunyi total). */
 export function perpanjangTenggat(
   tenggatLama: number,
   sekarang: number,
@@ -756,7 +760,7 @@ export function perpanjangTenggat(
   mediaDetik: number,
   mediaSebelumnya: number,
 ): number {
-  if (mediaDetik - mediaSebelumnya < 0.25) return tenggatLama; // tak maju bermakna
+  if (mediaDetik - mediaSebelumnya <= 0.001) return tenggatLama; // tak maju bermakna
   const lewatDtk = Math.max(0.001, (sekarang - mulaiMs) / 1000);
   const kecepatan = lewatDtk / Math.max(0.25, mediaDetik); // dtk-wall per dtk-media
   const sisa = Math.max(0, totalDetik - mediaDetik);
@@ -843,12 +847,22 @@ export async function jalankanFfmpeg(
         return;
       }
       const spd = mediaDetik > 0 ? ((lewat / 1000) / mediaDetik).toFixed(2) : "?";
-      if (Date.now() > tenggat || lewat > kerasMs) {
+      if (Date.now() > tenggat) {
+        // media TAK maju cukup lama (perpanjangan tak terjadi) = macet pelan
         berhenti();
         bunuhPohon(c);
         reject(
           new Error(
-            `ffmpeg melewati batas waktu ${Math.round(Math.max(absolutMs, kerasMs) / 1000)} detik — media baru sampai time=${fmtWaktu(mediaDetik)} (kecepatan ±${spd}x; mesin sangat sibuk/sangat lambat — coba Mode Cepat, resolusi 720p, atau GPU). stderr: ${stderr.slice(-400)}`,
+            `ffmpeg macet pelan (media tidak maju — terakhir time=${fmtWaktu(mediaDetik)}, kecepatan ±${spd}x) — kemungkinan berkas sumber/background bermasalah atau mesin kelebihan beban. stderr: ${stderr.slice(-400)}`,
+          ),
+        );
+      } else if (lewat > kerasMs) {
+        // jaring mutlak 2 jam: maju terus tapi super lambat luar biasa
+        berhenti();
+        bunuhPohon(c);
+        reject(
+          new Error(
+            `ffmpeg melewati batas keras ${Math.round(kerasMs / 1000)} detik — media baru sampai time=${fmtWaktu(mediaDetik)} (kecepatan ±${spd}x; mesin sangat sibuk/sangat lambat — coba Mode Cepat, resolusi 720p, atau GPU). stderr: ${stderr.slice(-400)}`,
           ),
         );
       }

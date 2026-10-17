@@ -18,11 +18,24 @@ case "$MODE" in
     sleep 30
     ;;
   beku-waktu)
-    # stderr mengalir tapi time= BEKU di 0.10 → terakhirProgres menyegarkan,
-    # tapi media tak maju → tenggat TIDAK diperpanjang → "melewati batas waktu".
+    # stderr mengalir tapi time= BEKU di 0.00 (delta=0 → perpanjangan TAK terjadi)
+    # → tenggat dasar habis → "macet pelan".
     while true; do
-      printf 'frame=30 fps=0.1 q=28.0 size=512kB time=00:00:00.10 bitrate=900.0kbits/s speed=0.001x\n' >&2
+      printf 'frame=30 fps=0.1 q=28.0 size=512kB time=00:00:00.00 bitrate=900.0kbits/s speed=0.001x\n' >&2
       sleep 0.3
+    done
+    ;;
+  kriek)
+    # v0.56.0 — MAJU KECIL-KECIL (persis laporan user v0.55): tiap event stderr
+    # hanya maju 0,05 dtk media tiap 0,2 dtk wall. Ambang lama 0,25 dtk/event
+    # membuat perpanjangan tak pernah terjadi → dibunuh di tenggat dasar 4 dtk;
+    # ambang baru 0,001 → tenggat terus digeser → SELESAI di ±8 dtk.
+    t=0.05
+    for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 \
+             21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
+      printf 'frame=%s fps=1.9 q=28.0 size=128kB time=00:00:0%s bitrate=2000.0kbits/s speed=0.06x\n' "$i" "$t" >&2
+      t=$(awk "BEGIN{printf \"%.2f\", $t + 0.05}")
+      sleep 0.2
     done
     ;;
 esac

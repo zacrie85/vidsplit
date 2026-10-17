@@ -954,6 +954,13 @@ export interface TranskripLatar {
    * jadi Indonesia setelah semua blok beres).
    */
   tungguCakupan: (sampaiDtk: number) => Promise<SegmenSub[]>;
+  /**
+   * v0.56.0 — true bila transkrip latar sudah BERAKHIR (sukses/gagal) atau
+   * langsung kena cache. Dipakai jobs.ts utk menahan render paralel: selama AI
+   * masih menganalisis, render part dibatasi SATU per satu supaya ffmpeg tidak
+   * berebut CPU dgn sesi Whisper (fps=1.9 → kena batas waktu, laporan user).
+   */
+  apakahTuntas: () => boolean;
 }
 
 /**
@@ -1005,6 +1012,7 @@ export async function mulaiTranskripLatar(
     return {
       janji: Promise.resolve(tersimpan),
       tungguCakupan: async () => tersimpan.segmen,
+      apakahTuntas: () => true,
     };
   }
 
@@ -1098,7 +1106,7 @@ export async function mulaiTranskripLatar(
     }
   })();
 
-  return { janji: janpi, tungguCakupan };
+  return { janji: janpi, tungguCakupan, apakahTuntas: () => tuntas };
 }
 
 // ================= ASS utk satu part (murni — dites unit) =================

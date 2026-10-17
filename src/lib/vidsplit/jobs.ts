@@ -381,12 +381,24 @@ export function mulaiEksporAntrean(
       const nTotal = nTotalPerVideo[vi];
       let berikut = 1;
       let gagal = false;
+      let sedangRender = 0; // jumlah ffmpeg aktif utk video ini
       const pekerja = Array.from({ length: Math.min(paralel, nTotal) }, async () => {
         while (true) {
           if (apakahBatal(id)) return;
+          // v0.56.0 — SELAMA transkrip AI latar masih berjalan, render aktif
+          // dibatasi SATU part: pool ffmpeg (default 2) + sesi Whisper di mesin
+          // 8 core membuat tiap render cuma dapat <1 core → fps=1.9, speed=0.06x
+          // → kena batas waktu (laporan user v0.55, encoder pun sudah QSV GPU).
+          // Satu part dgn CPU lega selesai LEBIH CEPAT dr dua part berebutan;
+          // setelah AI tuntas (sukses/gagal) atau tanpa AI → paralel penuh.
+          while (subLatar && !subLatar.apakahTuntas() && sedangRender > 0) {
+            if (apakahBatal(id)) return;
+            await new Promise<void>((ok) => setTimeout(ok, 500));
+          }
           const n = berikut;
           berikut += 1;
           if (n > nTotal || gagal) return;
+          sedangRender += 1;
           try {
             await renderSatu(vi, it, n, subLatar, aset46);
           } catch (e) {
@@ -397,6 +409,8 @@ export function mulaiEksporAntrean(
               gagal = true;
               job.error = `${it.nama}: ${e instanceof Error ? e.message : String(e)}`;
             }
+          } finally {
+            sedangRender -= 1;
           }
         }
       });

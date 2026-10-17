@@ -25,11 +25,16 @@ cek("batas keras: 30 mnt (×6 > 2 jam) → 3 jam", hitungBatasKeras(1_800_000) =
 // ===================== unit perpanjangTenggat =====================
 const T0 = 1_000_000; // epoch ms mulai (murni utk hitungan)
 
-// 1) media beku (delta < 0,25) → tenggat TIDAK berubah (nanti dibunuh tenggat/diamMs)
+// 1) media beku (delta ≤ 0,001) → tenggat TIDAK berubah (nanti dibunuh tenggat/diamMs)
 cek(
   "perpanjang: delta 0 → tak berubah",
   perpanjangTenggat(5_000_000, 2_000_000, T0, 675_000, 45, 42.6, 42.6) === 5_000_000,
 );
+// 1b) v0.56.0 — maju kecil-kecil (0,05 dtk/event persis kasus user fps=1,9) KINI
+//     dihitung maju → tenggat digeser (ambang lama 0,25 membuat perpanjangan tak
+//     pernah terjadi — laporan user kedua: dibunuh di tenggat dasar 300 dtk)
+const b1b = perpanjangTenggat(T0 + 300_000, T0 + 300_000, T0, 300_000, 20, 18.85, 18.80);
+cek("perpanjang: maju kecil 0,05 dtk → tenggat digeser (v0.56)", b1b > T0 + 300_000);
 // 2) KASUS LAPORAN USER: 675 dtk berjalan, media 42,6/45 (kecepatan 15,85x) →
 //    dulu: DIBUNUH persis di sini. Kini: estimasi sisa 38 dtk → tenggat digeser.
 const tenggatLama = T0 + 675_000;
@@ -80,7 +85,7 @@ try {
 }
 cek("integrasi: beku sunyi → macet", msgB.includes("macet"), msgB);
 
-// C. time= BEKU tapi stderr mengalir → tenggat TIDAK diperpanjang → "batas waktu"
+// C. time= BEKU tapi stderr mengalir → tenggat TIDAK diperpanjang → "macet pelan"
 process.env.FAKE_FFMPEG_MODE = "beku-waktu";
 let msgC = "";
 const tC = Date.now();
@@ -93,11 +98,31 @@ try {
   msgC = e instanceof Error ? e.message : String(e);
 }
 const dC = Date.now() - tC;
-cek("integrasi: time= beku → melewati batas waktu", msgC.includes("melewati batas waktu"), msgC);
+cek("integrasi: time= beku → macet pelan", msgC.includes("macet pelan"), msgC);
 cek("integrasi: time= beku dibunuh dekat tenggat (3,5–9,5 dtk)", dC >= 3_500 && dC <= 9_500, `${dC} ms`);
 
 // D. pesan galat menyertakan diagnosa kecepatan utk kasus C
-cek("integrasi: pesan batas waktu menyertakan kecepatan", msgC.includes("kecepatan"), msgC);
+cek("integrasi: pesan macet pelan menyertakan kecepatan", msgC.includes("kecepatan"), msgC);
+
+// E. v0.56.0 — KRIEK: maju kecil-kecil (0,05 dtk tiap 0,2 dtk wall) → SELESAI
+//    (perilaku lama v0.55: ambang 0,25/event → tenggat tak pernah digeser →
+//    DIBUNUH di absolutMs 4 dtk — persis laporan user "melewati batas waktu")
+process.env.FAKE_FFMPEG_MODE = "kriek";
+let okeE = false;
+let errE = "";
+const tE = Date.now();
+try {
+  await jalankanFfmpeg(["-nostdin"], 2, undefined, fake, undefined, {
+    absolutMs: 4_000,
+    diamMs: 5_000,
+  });
+  okeE = true;
+} catch (e) {
+  errE = e instanceof Error ? e.message : String(e);
+}
+const dE = Date.now() - tE;
+cek("integrasi: kriek maju kecil-kecil SELESAI (dulu dibunuh di 4 dtk)", okeE, errE);
+cek("integrasi: kriek selesai ±8–14 dtk (0,06x jalan sampai tuntas)", dE >= 7_500 && dE <= 14_000, `${dE} ms`);
 
 console.log(`\nHASIL: ${lulus} lulus, ${gagal} gagal`);
 process.exit(gagal ? 1 : 0);
