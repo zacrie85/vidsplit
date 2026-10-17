@@ -279,7 +279,7 @@ export function PanelEkspor({
           label="Proses paralel (part dalam satu video)"
           nilai={opsiEkspor.paralel}
           min={1}
-          max={4}
+          max={10}
           onChange={(n) => onOpsiEkspor({ ...opsiEkspor, paralel: n })}
           fmt={(n) => `${n} video kecil sekaligus`}
         />

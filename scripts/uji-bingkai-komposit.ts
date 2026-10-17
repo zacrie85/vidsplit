@@ -30,6 +30,17 @@ const SLUGS = [
   "horor-alam-gaib-7",
   "horor-alam-gaib-8",
   "horor-alam-gaib-9",
+  // v0.57.0 — 10 frame horor baru (pocong, kuntilanak dkk)
+  "horor-alam-gaib-10",
+  "horor-alam-gaib-11",
+  "horor-alam-gaib-12",
+  "horor-alam-gaib-13",
+  "horor-alam-gaib-14",
+  "horor-alam-gaib-15",
+  "horor-alam-gaib-16",
+  "horor-alam-gaib-17",
+  "horor-alam-gaib-18",
+  "horor-alam-gaib-19",
 ];
 
 async function utama() {

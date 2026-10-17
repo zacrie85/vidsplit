@@ -30,7 +30,9 @@ import {
   durasiEfektif,
   hitungPart,
   neonDari,
+  hitungPartDgnHapus,
   rentangPart,
+  rentangPartHapus,
   slugify,
   templatDari,
   type CodecVideo,
@@ -149,12 +151,18 @@ export function mulaiEksporAntrean(
   const id = randomBytes(4).toString("hex");
   const folder = dirWork(`output/${id}`);
   const dirTmp = dirWork("tmp");
-  const paralel = Math.min(4, Math.max(1, Math.round(daftar[0]?.pengaturan.prosesParalel || 2)));
+  // v0.57.0 — bawaan maks 4 → 10 atas permintaan user (selama AI latar jalan, tetap dibatasi 1 oleh gerbang v0.56)
+  const paralel = Math.min(10, Math.max(1, Math.round(daftar[0]?.pengaturan.prosesParalel || 2)));
 
+  // v0.57.0 — hitung part MENGHORMATI zona hapus (Potong & Hapus Bagian):
+  // tanpa zona = rumus lama PERSIS; dgn zona = tiap potongan dipecah mandiri
   const nTotalPerVideo = daftar.map((it) =>
-    hitungPart(
-      durasiEfektif(it.info.durasi, it.pengaturan.mulaiDetik, it.pengaturan.akhirDetik),
+    hitungPartDgnHapus(
+      it.info.durasi,
       it.pengaturan.durasiPart,
+      it.pengaturan.mulaiDetik,
+      it.pengaturan.akhirDetik,
+      it.pengaturan.zonaHapus || [],
     ),
   );
   const totalPartSemua = nTotalPerVideo.reduce((a, b) => a + b, 0);
@@ -251,13 +259,12 @@ export function mulaiEksporAntrean(
       if (!job.akselerasi.includes(enc.nama)) {
         job.akselerasi = `${job.akselerasi} + ${enc.nama}`;
       }
-      const [mulai, durasi] = rentangPart(
-        n,
-        it.info.durasi,
-        p.durasiPart,
-        p.mulaiDetik,
-        p.akhirDetik,
-      );
+      // v0.57.0 — rentang part melompati zona hapus bila ada (part TIDAK
+      // PERNAH berisi bagian yang dihapus); tanpa zona = jalur lama PERSIS
+      const [mulai, durasi] =
+        p.zonaHapus && p.zonaHapus.length
+          ? rentangPartHapus(n, it.info.durasi, p.durasiPart, p.mulaiDetik, p.akhirDetik, p.zonaHapus)
+          : rentangPart(n, it.info.durasi, p.durasiPart, p.mulaiDetik, p.akhirDetik);
       // v0.7.0 mode "asli": pertahankan ukuran ASLI video — hanya digenapkan agar
       // valid utk yuv420p (libx264 menolak dimensi ganjil); mode lain tetap 9:16
       const W =

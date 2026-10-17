@@ -5,6 +5,7 @@ import path from "node:path";
 import { teksSiapGambar } from "./bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import type { CodecVideo, GayaTeks, ModeKonversi, Pengaturan } from "./types";
+import { DURASI_TRANSISI, rapikanKecepatan } from "./types";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
   ? path.resolve(process.env.VIDSPLIT_WORK)
@@ -527,7 +528,12 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     !!a.neon && existsSync(path.join((a.neon as SeqNeon).dir, "f0001.png"));
   // TANPA bg: total = durasi video saja (bukan + durasiIntro — kalau tidak,
   // track audio/hening ikut memanjang dan hasil split punya ekor diam ±3 dtk)
-  const total = pakaiBg ? p.durasiIntro + a.durasi : a.durasi;
+  // v0.57.0 — KECEPATAN TAYANG: durasi part hasil = durasi sumber ÷ kecepatan
+  // (video setpts + audio atempo diujung rantai; subtitle ikut bergeser otomatis
+  // karena dibakar SEBELUM setpts — waktu ASS tetap waktu sumber).
+  const kec = rapikanKecepatan(p.kecepatanVideo);
+  const totalDasar = pakaiBg ? p.durasiIntro + a.durasi : a.durasi;
+  const total = kec !== 1 ? totalDasar / kec : totalDasar;
   const W = a.W;
   const H = a.H;
   const fps = a.fps;
@@ -584,14 +590,14 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     if (a.adaAudio) {
       filterAudio.push(
         `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,atrim=duration=${a.durasi.toFixed(3)},asetpts=PTS-STARTPTS[ma]`,
-        `[2:a][ma]concat=n=2:v=0:a=1[aout]`,
+        `[2:a][ma]concat=n=2:v=0:a=1${kec !== 1 ? `,atempo=${kec}` : ""}[aout]`,
       );
       mapAudio = ["-map", "[aout]"];
     } else {
       mapAudio = ["-map", "2:a"];
     }
   } else if (a.adaAudio) {
-    filterAudio.push(`[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[aout]`);
+    filterAudio.push(`[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS${kec !== 1 ? `,atempo=${kec}` : ""}[aout]`);
     mapAudio = ["-map", "[aout]"];
   } else {
     // tanpa bg & tanpa audio: input 0 = src, input 1 = anullsrc
@@ -680,6 +686,41 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
       filterVideo.push(
         `[vpre]subtitles=filename='${escapePathFilter(a.fileSub as string)}':fontsdir='${escapePathFilter(dirFontsSub())}',format=yuv420p[vout]`,
       );
+    }
+  }
+
+  // v0.57.0 — PASCA-PROSES di ujung rantai video: KECEPATAN TAYANG (setpts)
+  // + TRANSISI ANTAR PART (fade / slide). Ditempatkan SETELAH frame, teks,
+  // subtitle & logo sehingga SELURUH gambar ikut berpindah (transisi terlihat
+  // utuh). Label [vout] produsen terakhir diganti [vpre], rantai pasca
+  // menghasilkan [vout] kembali → -map & sisa argumen tak berubah.
+  const transisi: string =
+    p.transisiPart === "fade" || p.transisiPart === "slide" ? p.transisiPart : "";
+  if (kec !== 1 || transisi) {
+    const idxAkhir = filterVideo.length - 1;
+    filterVideo[idxAkhir] = filterVideo[idxAkhir].replace("[vout]", "[vpre]");
+    const TD = DURASI_TRANSISI;
+    const stKeluar = Math.max(0, total - TD).toFixed(3);
+    if (transisi === "fade") {
+      // pudar dari hitam (masuk) + pudar ke hitam (keluar) tiap part
+      const fade = `fade=t=in:st=0:d=${TD},fade=t=out:st=${stKeluar}:d=${TD}`;
+      filterVideo.push(
+        kec !== 1
+          ? `[vpre]setpts=PTS/${kec.toFixed(4)},${fade}[vout]`
+          : `[vpre]${fade}[vout]`,
+      );
+    } else if (transisi === "slide") {
+      // geser: masuk dari kanan (0→TD dtk), keluar ke kiri (total−TD→total),
+      // di atas latar hitam — waktu memakai t SETELAH setpts (detik hasil)
+      const xExpr =
+        `if(lt(t,${TD}),W*(1-min(t/${TD},1)),` +
+        `if(gte(t,${stKeluar}),-W*min((t-${stKeluar})/${TD},1),0))`;
+      if (kec !== 1) filterVideo.push(`[vpre]setpts=PTS/${kec.toFixed(4)}[vspd]`);
+      filterVideo.push(`color=c=black:s=${W}x${H}:r=${fps}:d=${total.toFixed(3)}[bgtr]`);
+      filterVideo.push(`[bgtr][${kec !== 1 ? "vspd" : "vpre"}]overlay=x='${xExpr}':y=0[vout]`);
+    } else {
+      // hanya kecepatan tanpa transisi
+      filterVideo.push(`[vpre]setpts=PTS/${kec.toFixed(4)}[vout]`);
     }
   }
 

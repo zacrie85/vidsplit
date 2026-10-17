@@ -11,6 +11,40 @@ export type CodecVideo = "h264" | "h265";
 export type PosisiLogo = "kiri-atas" | "kanan-atas" | "kiri-bawah" | "kanan-bawah";
 export type PosisiTeks = "atas" | "tengah" | "bawah";
 
+/** v0.57.0 — transisi antar part: "" = tanpa transisi (perilaku lama),
+ *  "fade" = pudar ke hitam (masuk + keluar tiap part),
+ *  "slide" = geser (masuk dari kanan, keluar ke kiri) */
+export type TransisiPart = "" | "fade" | "slide";
+/** durasi transisi tiap sisi (detik) */
+export const DURASI_TRANSISI = 0.5;
+/** v0.57.0 — langkah kecepatan tayang (×): 0,5 sampai 2 */
+export const LANGKAH_KECEPATAN = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+/** Rapikan kecepatan ke langkah terdekat — aman thd nilai aneh dari simpanan
+ *  lama / input manual (NaN → 1). Fungsi murni — dites unit. */
+export function rapikanKecepatan(n: unknown): number {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 1;
+  let terbaik = 1;
+  let beda = Number.POSITIVE_INFINITY;
+  for (const k of LANGKAH_KECEPATAN) {
+    const b = Math.abs(k - x);
+    if (b < beda) {
+      beda = b;
+      terbaik = k;
+    }
+  }
+  return terbaik;
+}
+
+/** v0.57.0 — POTONG & HAPUS BAGIAN: satu zona (detik, ABSOLUT dari awal video)
+ *  yang dilewati saat pemecahan part — bagian video yang tak ingin ditayangkan
+ *  (intro panjang, momen salah, iklan). Zona boleh tumpang-tindih; dirapikan
+ *  dgn rapikanZonaHapus() sebelum dipakai. */
+export interface ZonaHapus {
+  mulai: number;
+  akhir: number;
+}
+
 /** 3 font dasar + 15 font sinematik (berkas TTF dibundel di assets/fonts) */
 export type NamaFont =
   | "tebal"
@@ -77,10 +111,21 @@ export interface Pengaturan {
    *  geser kiri/kanan lewat posisiPotong (rumus overlay sama dgn zoomPotong).
    *  300 = paling besar (±3×). */
   zoomBlur: number;
+  /** v0.57.0 — kecepatan tayang video (0,5–2 ×; bawaan 1 = normal).
+   *  Video & audio dipercepat/diperlambat seragam; subtitle ikut bergeser
+   *  otomatis; durasi part hasil = durasi sumber ÷ kecepatan. */
+  kecepatanVideo: number;
+  /** v0.57.0 — transisi antar part ("" = tanpa; "fade" = pudar hitam;
+   *  "slide" = geser dari kanan → keluar ke kiri). Diterapkan di AWAL & AKHIR
+   *  tiap part sehingga antar part terasa ada perpindahannya. */
+  transisiPart: TransisiPart;
   /** detik mulai rentang video yang diproses (0 = dari awal) */
   mulaiDetik: number;
   /** detik akhir rentang video yang diproses (0 = sampai habis) */
   akhirDetik: number;
+  /** v0.57.0 — zona yang DIHAPUS dari pemecahan part (Potong & Hapus Bagian)
+   *  — absen pada simpanan lama = tanpa zona (perilaku lama) */
+  zonaHapus: ZonaHapus[];
   /** codec video hasil — h265 menghasilkan file jauh lebih kecil */
   codec: CodecVideo;
   /** v0.39.0 — teks deskripsi bebas yang dibakar ke dalam video ("" = tanpa deskripsi).
@@ -172,6 +217,10 @@ export const pengaturanDefault: Pengaturan = {
   zoomPotong: 100,
   // v0.51.0 — zoom manual blur: bawaan 100 = perilaku lama (video pas layar)
   zoomBlur: 100,
+  // v0.57.0 — kecepatan normal, tanpa transisi, tanpa zona hapus (perilaku lama)
+  kecepatanVideo: 1,
+  transisiPart: "" as TransisiPart,
+  zonaHapus: [] as ZonaHapus[],
   mulaiDetik: 0,
   akhirDetik: 0,
   codec: "h264",
@@ -239,6 +288,12 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
     hasil.gayaPart = { ...hasil.gayaPart, ukuran: 23 };
   if (hasil.gayaDeskripsi?.ukuran === 28)
     hasil.gayaDeskripsi = { ...hasil.gayaDeskripsi, ukuran: 23 };
+  // v0.57.0 — simpanan lama tanpa fitur baru: isi bawaan agar tak pernah undefined
+  if (hasil.transisiPart === undefined) hasil.transisiPart = "";
+  if (hasil.kecepatanVideo === undefined) hasil.kecepatanVideo = 1;
+  else hasil.kecepatanVideo = rapikanKecepatan(hasil.kecepatanVideo);
+  if (hasil.zonaHapus === undefined || !Array.isArray(hasil.zonaHapus))
+    hasil.zonaHapus = [];
   return hasil;
 }
 
@@ -292,6 +347,102 @@ export function rentangPart(
   return [mulai, durasi];
 }
 
+/* ============ v0.57.0 — POTONG & HAPUS BAGIAN (zona hapus) ============ */
+
+/** Rapikan daftar zona hapus: clip ke rentang trim, tukar mulai>akhir, buang
+ *  zona < 0,5 dtk, urutkan, dan GABUNGKAN yang tumpang-tindih/bersinggungan.
+ *  Fungsi murni — dites unit. */
+export function rapikanZonaHapus(
+  zonas: ZonaHapus[],
+  mulaiDetik: number,
+  akhirDetik: number,
+  durasiVideo: number,
+): ZonaHapus[] {
+  const efAkhir =
+    akhirDetik > 0 ? Math.min(Math.max(akhirDetik, mulaiDetik + 0.5), durasiVideo) : durasiVideo;
+  const efMulai = Math.max(0, Math.min(mulaiDetik, efAkhir - 0.5));
+  const urut = (zonas || [])
+    .map((z) => ({
+      mulai: Math.max(efMulai, Math.min(Number(z?.mulai) || 0, Number(z?.akhir) || 0)),
+      akhir: Math.min(efAkhir, Math.max(Number(z?.mulai) || 0, Number(z?.akhir) || 0)),
+    }))
+    .filter((z) => z.akhir - z.mulai >= 0.5)
+    .sort((a, b) => a.mulai - b.mulai);
+  const gabung: ZonaHapus[] = [];
+  for (const z of urut) {
+    const last = gabung[gabung.length - 1];
+    if (last && z.mulai <= last.akhir + 0.001) last.akhir = Math.max(last.akhir, z.akhir);
+    else gabung.push({ ...z });
+  }
+  return gabung;
+}
+
+/** Potongan video yang TETAP DIPROSES = rentang trim minus zona hapus. Potongan
+ *  < 0,5 dtk dibuang (terlalu kecil utk satu part). Murni — dites unit. */
+export function potonganEfektif(
+  durasiVideo: number,
+  mulaiDetik: number,
+  akhirDetik: number,
+  zonas: ZonaHapus[],
+): ZonaHapus[] {
+  const efAkhir =
+    akhirDetik > 0 ? Math.min(Math.max(akhirDetik, mulaiDetik + 0.5), durasiVideo) : durasiVideo;
+  const efMulai = Math.max(0, Math.min(mulaiDetik, efAkhir - 0.5));
+  const bersih = rapikanZonaHapus(zonas, mulaiDetik, akhirDetik, durasiVideo);
+  const pot: ZonaHapus[] = [];
+  let kursor = efMulai;
+  for (const z of bersih) {
+    if (z.mulai > kursor + 0.001) pot.push({ mulai: kursor, akhir: Math.min(z.mulai, efAkhir) });
+    kursor = Math.max(kursor, z.akhir);
+    if (kursor >= efAkhir) break;
+  }
+  if (kursor < efAkhir - 0.001) pot.push({ mulai: kursor, akhir: efAkhir });
+  return pot.filter((p) => p.akhir - p.mulai >= 0.5);
+}
+
+/** Jumlah part dgn zona hapus — tanpa zona = hitungPart lama PERSIS (nol
+ *  regresi). Tiap potongan dipecah mandiri (part TIDAK melintasi zona). */
+export function hitungPartDgnHapus(
+  durasiVideo: number,
+  durasiPart: number,
+  mulaiDetik: number,
+  akhirDetik: number,
+  zonas: ZonaHapus[],
+): number {
+  if (!zonas || !zonas.length)
+    return hitungPart(durasiEfektif(durasiVideo, mulaiDetik, akhirDetik), durasiPart);
+  const dp = Math.max(1, durasiPart);
+  return potonganEfektif(durasiVideo, mulaiDetik, akhirDetik, zonas).reduce(
+    (a, p) => a + Math.max(1, Math.ceil((p.akhir - p.mulai) / dp)),
+    0,
+  );
+}
+
+/** [mulai, durasi] part ke-n dgn zona hapus — part mengisi potongan berurutan
+ *  dan TIDAK PERNAH melintasi zona. WAJIB dipakai berpasangan dgn
+ *  hitungPartDgnHapus (total part sama). Murni — dites unit. */
+export function rentangPartHapus(
+  n: number,
+  durasiVideo: number,
+  durasiPart: number,
+  mulaiDetik: number,
+  akhirDetik: number,
+  zonas: ZonaHapus[],
+): [number, number] {
+  const dp = Math.max(1, durasiPart);
+  let sisa = Math.max(1, n);
+  for (const p of potonganEfektif(durasiVideo, mulaiDetik, akhirDetik, zonas)) {
+    const jml = Math.max(1, Math.ceil((p.akhir - p.mulai) / dp));
+    if (sisa <= jml) {
+      const mulai = p.mulai + (sisa - 1) * dp;
+      return [mulai, Math.min(dp, p.akhir - mulai)];
+    }
+    sisa -= jml;
+  }
+  // di luar cakupan (n > total) — nilai aman agar ekspor tidak crash
+  return [mulaiDetik, 0.5];
+}
+
 /** v0.38.0 — salinan SELEKTIF utk tombol "Terapkan pengaturan video #N ke SEMUA video".
  *  Yang mengikuti video sumber HANYA 3 kartu ini:
  *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, zoom
@@ -322,6 +473,11 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     codec: sumber.codec,
     mulaiDetik: sumber.mulaiDetik,
     akhirDetik: sumber.akhirDetik,
+    // v0.57.0 — kecepatan tayang, transisi antar part & zona hapus ikut
+    // diterapkan ke semua video (zona disalin dalam agar tak bersambung referensi)
+    kecepatanVideo: sumber.kecepatanVideo,
+    transisiPart: sumber.transisiPart,
+    zonaHapus: (sumber.zonaHapus || []).map((z) => ({ ...z })),
     // kartu 3 — Tulisan Part otomatis (v0.41.0: ukuran huruf TETAP milik target)
     kataPart: sumber.kataPart,
     durasiPart: sumber.durasiPart,

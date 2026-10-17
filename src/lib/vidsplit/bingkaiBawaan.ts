@@ -51,6 +51,18 @@ export const BINGKAI_BAWAAN: BingkaiBawaan[] = [
   { slug: "horor-alam-gaib-7", label: "★ Horor Alam Gaib 7 — Api Neraka" },
   { slug: "horor-alam-gaib-8", label: "★ Horor Alam Gaib 8 — Arwah Larung" },
   { slug: "horor-alam-gaib-9", label: "★ Horor Alam Gaib 9 — Rimba Terkutuk" },
+  // v0.57.0 — +10 frame horor BARU (pocong, kuntilanak & seram lainnya) atas
+  // permintaan user — teks atas HANYA "ALAM GAIB"
+  { slug: "horor-alam-gaib-10", label: "★ Horor Alam Gaib 10 — Pocong Mengapit" },
+  { slug: "horor-alam-gaib-11", label: "★ Horor Alam Gaib 11 — Pocong Melantai" },
+  { slug: "horor-alam-gaib-12", label: "★ Horor Alam Gaib 12 — Kuntilanak Berdiri" },
+  { slug: "horor-alam-gaib-13", label: "★ Horor Alam Gaib 13 — Kuntilanak Terik" },
+  { slug: "horor-alam-gaib-14", label: "★ Horor Alam Gaib 14 — Wajah Mengintip" },
+  { slug: "horor-alam-gaib-15", label: "★ Horor Alam Gaib 15 — Lorong Makam" },
+  { slug: "horor-alam-gaib-16", label: "★ Horor Alam Gaib 16 — Pohon Arwah" },
+  { slug: "horor-alam-gaib-17", label: "★ Horor Alam Gaib 17 — Lilin & Tengkorak" },
+  { slug: "horor-alam-gaib-18", label: "★ Horor Alam Gaib 18 — Nisan Bercahaya" },
+  { slug: "horor-alam-gaib-19", label: "★ Horor Alam Gaib 19 — Kabut Kuburan" },
 ];
 
 export function adalahSlugBawaan(slug: string): boolean {

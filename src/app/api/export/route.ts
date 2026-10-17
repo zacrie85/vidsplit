@@ -12,6 +12,7 @@ import {
   durasiEfektif,
   INFO_FONT,
   neonDari,
+  hitungPartDgnHapus,
   pengaturanDefault,
   templatDari,
   type NamaFont,
@@ -59,7 +60,8 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   const daftarFont = Object.keys(INFO_FONT) as NamaFont[];
   if (!daftarFont.includes(p.gayaJudul?.font)) p.gayaJudul = { ...p.gayaJudul, font: "tebal" };
   if (!daftarFont.includes(p.gayaPart?.font)) p.gayaPart = { ...p.gayaPart, font: "tebal" };
-  p.prosesParalel = clamp(p.prosesParalel, 1, 4, 2);
+  // v0.57.0 — maks 10 (dulu 4) atas permintaan user
+  p.prosesParalel = clamp(p.prosesParalel, 1, 10, 2);
   p.pakaiGpu = p.pakaiGpu !== false;
   // v0.46.0 — frame hiasan + neon + template (clamp aman dgn modul murni)
   p.frameId = typeof p.frameId === "string" ? p.frameId.slice(0, 300) : "";
@@ -202,10 +204,19 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const totalPart = items.reduce((a, it) => {
-      const efektif = durasiEfektif(it.info.durasi, it.pengaturan.mulaiDetik, it.pengaturan.akhirDetik);
-      return a + Math.max(1, Math.ceil(efektif / it.pengaturan.durasiPart));
-    }, 0);
+    // v0.57.0 — hitungan part utk UI menghormati zona hapus (Potong & Hapus Bagian)
+    const totalPart = items.reduce(
+      (a, it) =>
+        a +
+        hitungPartDgnHapus(
+          it.info.durasi,
+          it.pengaturan.durasiPart,
+          it.pengaturan.mulaiDetik,
+          it.pengaturan.akhirDetik,
+          it.pengaturan.zonaHapus || [],
+        ),
+      0,
+    );
     const id = mulaiEksporAntrean(items, modeEkspor);
     return NextResponse.json({ ok: true, id, total: items.length, totalPart });
   } catch (e) {

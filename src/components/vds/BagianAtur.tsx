@@ -41,7 +41,9 @@ import {
   labelPosisiPotong,
   labelZoomBlur,
   labelZoomPotong,
+  LANGKAH_KECEPATAN,
   POSISI_LOGO_PRESET,
+  potonganEfektif,
   uraiWaktu,
   type CodecVideo,
   type GayaTeks,
@@ -51,6 +53,8 @@ import {
   type PosisiTeks,
   type Pengaturan,
   type Resolusi,
+  type TransisiPart,
+  type ZonaHapus,
   urlBingkai,
   urlBingkaiWarna,
 } from "@/lib/vidsplit/types";
@@ -410,6 +414,135 @@ export function PanelMode({
               Aktif: {formatDurasi(pengaturan.mulaiDetik)} → {formatDurasi(pengaturan.akhirDetik)} ({formatDurasi(spanEfektif)})
             </span>
           )}
+        </p>
+      </div>
+      {/* v0.57.0 — POTONG & HAPUS BAGIAN: zona merah yang dilewati saat split */}
+      <div className="mt-3 border-t border-slate-700/50 pt-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-slate-400">Potong &amp; hapus bagian (opsional)</p>
+          <button
+            type="button"
+            onClick={() =>
+              set("zonaHapus", [
+                ...(pengaturan.zonaHapus || []),
+                { mulai: Math.min(spanEfektif / 2, Math.max(0, pengaturan.mulaiDetik + (spanEfektif || 10) / 4)), akhir: Math.min(spanEfektif, Math.max(1, pengaturan.mulaiDetik + (spanEfektif || 10) / 2)) },
+              ])
+            }
+            className="rounded-lg border border-red-400/40 bg-red-400/10 px-2.5 py-1 text-[11px] text-red-200 transition hover:bg-red-400/20"
+          >
+            + Tambah zona merah
+          </button>
+        </div>
+        {(pengaturan.zonaHapus || []).length > 0 && (
+          <div className="mt-2">
+            {/* pita timeline: zona merah di atas rentang yang diproses */}
+            {(() => {
+              const efAkhir = pengaturan.akhirDetik > 0 ? pengaturan.akhirDetik : durasiVideo || spanEfektif;
+              const spanTotal = Math.max(0.5, efAkhir - pengaturan.mulaiDetik);
+              return (
+                <div className="relative h-4 overflow-hidden rounded-full bg-slate-800">
+                  {(pengaturan.zonaHapus || []).map((z, i) => {
+                    const kiri = Math.max(0, ((z.mulai - pengaturan.mulaiDetik) / spanTotal) * 100);
+                    const lebar = Math.max(1, Math.min(100 - kiri, ((z.akhir - z.mulai) / spanTotal) * 100));
+                    return (
+                      <div
+                        key={i}
+                        className="absolute inset-y-0 bg-red-500/70"
+                        style={{ left: `${kiri}%`, width: `${lebar}%` }}
+                      />
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            <p className="mt-1 text-[11px] text-slate-500">
+              Zona merah = bagian yang DIHAPUS (tidak ikut di-split &amp; diekspor). Part tidak
+              pernah memotong zona merah.
+            </p>
+          </div>
+        )}
+        <div className="mt-2 space-y-2">
+          {(pengaturan.zonaHapus || []).map((z, i) => (
+            <div key={i} className="rounded-xl border border-red-400/25 bg-red-400/5 p-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] font-medium text-red-200">Zona merah #{i + 1}</p>
+                <button
+                  type="button"
+                  onClick={() =>
+                    set("zonaHapus", (pengaturan.zonaHapus || []).filter((_, j) => j !== i) as ZonaHapus[])
+                  }
+                  className="rounded-lg border border-slate-600 px-2 py-0.5 text-[11px] text-slate-400 transition hover:border-red-400 hover:text-red-200"
+                >
+                  Hapus
+                </button>
+              </div>
+              <div className="mt-1.5 grid grid-cols-2 gap-2">
+                <InputWaktu
+                  label="Mulai hapus"
+                  nilaiDetik={z.mulai}
+                  onSet={(d) =>
+                    set(
+                      "zonaHapus",
+                      (pengaturan.zonaHapus || []).map((zz, j) => (j === i ? { ...zz, mulai: d } : zz)) as ZonaHapus[],
+                    )
+                  }
+                />
+                <InputWaktu
+                  label="Sampai hapus"
+                  nilaiDetik={z.akhir}
+                  onSet={(d) =>
+                    set(
+                      "zonaHapus",
+                      (pengaturan.zonaHapus || []).map((zz, j) => (j === i ? { ...zz, akhir: d } : zz)) as ZonaHapus[],
+                    )
+                  }
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+        {(pengaturan.zonaHapus || []).length > 0 && durasiVideo > 0 && (() => {
+          const pot = potonganEfektif(durasiVideo, pengaturan.mulaiDetik, pengaturan.akhirDetik, pengaturan.zonaHapus || []);
+          const sisa = pot.reduce((a, p) => a + (p.akhir - p.mulai), 0);
+          return (
+            <p className="mt-1.5 text-[11px] text-amber-300">
+              Sisa diproses: {formatDurasi(sisa)} dari {formatDurasi(spanEfektif)} — ±{hitungPart(sisa, pengaturan.durasiPart)} part
+            </p>
+          );
+        })()}
+      </div>
+      {/* v0.57.0 — KECEPATAN TAYANG + TRANSISI ANTAR PART */}
+      <div className="mt-3 border-t border-slate-700/50 pt-3">
+        <p className="mb-1 text-xs text-slate-400">Kecepatan tayang video</p>
+        <ChipPilihan<number>
+          pilihan={LANGKAH_KECEPATAN.map((k) => ({
+            v: k,
+            label: k === 1 ? "Normal (1×)" : `${k.toString().replace(".", ",")}×`,
+            hint: k < 1 ? "slow-motion" : k > 1 ? "dipercepat" : "kecepatan asli",
+          }))}
+          nilai={pengaturan.kecepatanVideo}
+          onChange={(v) => set("kecepatanVideo", v)}
+        />
+        <p className="mt-1.5 text-[11px] text-slate-500">
+          Suara &amp; subtitle ikut menyesuaikan otomatis. Contoh: part 60 detik dgn 2× jadi
+          30 detik. 0,5× = slow-motion, 2× = dipercepat dua kali lipat.
+        </p>
+      </div>
+      <div className="mt-3 border-t border-slate-700/50 pt-3">
+        <p className="mb-1 text-xs text-slate-400">Transisi antar part (opsional)</p>
+        <ChipPilihan<TransisiPart>
+          pilihan={[
+            { v: "", label: "Tanpa transisi", hint: "langsung nyambung (perilaku lama)" },
+            { v: "fade", label: "Fade", hint: "pudar ke hitam masuk & keluar tiap part" },
+            { v: "slide", label: "Slide", hint: "geser masuk dari kanan, keluar ke kiri" },
+          ]}
+          nilai={pengaturan.transisiPart}
+          onChange={(v) => set("transisiPart", v)}
+        />
+        <p className="mt-1.5 text-[11px] text-slate-500">
+          Diterapkan di awal &amp; akhir TIAP part (durasi 0,5 detik per sisi) — saat part
+diputar berurutan, antar part terasa ada perpindahannya. Gunakan tombol "Terapkan
+          ke SEMUA video" di bawah untuk menerapkan ke semua video yang diekspor.
         </p>
       </div>
     </Kartu>

@@ -931,8 +931,12 @@ const daftar: [string, (r: Rasio) => string][] = [
   ["horor-alam-gaib-9", svgHoror9],
 ];
 
-for (const [slug, fn] of daftar) {
-  await render(`${slug}-916.png`, fn(R916));
-  await render(`${slug}-169.png`, fn(R169));
+// v0.57.0 — guard agar helper keluarga ALAM GAIB bisa diimpor skrip v56
+// (10 frame horor baru) tanpa memicu render ulang 14 PNG v0.52.
+if (import.meta.main) {
+  for (const [slug, fn] of daftar) {
+    await render(`${slug}-916.png`, fn(R916));
+    await render(`${slug}-169.png`, fn(R169));
+  }
+  console.log("SELESAI →", OUT);
 }
-console.log("SELESAI →", OUT);

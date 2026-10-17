@@ -29,6 +29,8 @@ function ok(kondisi: boolean, nama: string, detail?: unknown) {
 }
 
 const DIR = path.join(process.cwd(), "public", "bingkai");
+// v0.57.0 — daftar frame horor diperluas: 3–9 (v0.52) + 10–19 (v0.57, pocong &
+// kuntilanak dkk) — semua diuji aturan yang sama
 const HOROR_V52 = [
   "horor-alam-gaib-3",
   "horor-alam-gaib-4",
@@ -37,6 +39,16 @@ const HOROR_V52 = [
   "horor-alam-gaib-7",
   "horor-alam-gaib-8",
   "horor-alam-gaib-9",
+  "horor-alam-gaib-10",
+  "horor-alam-gaib-11",
+  "horor-alam-gaib-12",
+  "horor-alam-gaib-13",
+  "horor-alam-gaib-14",
+  "horor-alam-gaib-15",
+  "horor-alam-gaib-16",
+  "horor-alam-gaib-17",
+  "horor-alam-gaib-18",
+  "horor-alam-gaib-19",
 ];
 
 async function alphaRata(img: sharp.Sharp, kiri: number, atas: number, w: number, h: number): Promise<number> {

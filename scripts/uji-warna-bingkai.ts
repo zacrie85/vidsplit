@@ -10,7 +10,7 @@
 //   4) hexKeFf: valid/salah
 //   5) cache: panggilan ke-2 instan (berkas sama, tidak re-render — mtime sama)
 // Jalankan: bun scripts/uji-warna-bingkai.ts
-import { existsSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   argGradienBingkai,
@@ -101,6 +101,8 @@ if (!asal) {
   ok(false, "frame sumber horor-alam-gaib-3-916 ada");
 } else {
   const dir = path.join(process.cwd(), "work", "uji-warna");
+  // v0.57.0 — pastikan folder cache ada (sandbox/work bisa dibersihkan antar jalan)
+  mkdirSync(dir, { recursive: true });
   const solid = path.join(dir, "uji-solid.png");
   const grad = path.join(dir, "uji-grad.png");
   await jalankanFfmpeg(

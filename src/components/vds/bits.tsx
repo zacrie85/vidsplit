@@ -101,7 +101,7 @@ export function PilihWarna({
   );
 }
 
-export function ChipPilihan<T extends string>({
+export function ChipPilihan<T extends string | number>({
   pilihan,
   nilai,
   onChange,
