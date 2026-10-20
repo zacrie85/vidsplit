@@ -20,6 +20,7 @@ import path from "node:path";
 import { createRequire } from "node:module";
 import os from "node:os";
 import { dirWork, pilihFfmpeg } from "./ffmpeg";
+import { balapanWaktu } from "./subtitle";
 
 /** Nama berkas model MDX-Net yang dibundel (assets/vokal-ai → resources/vokal-ai). */
 export const NAMA_MODEL_AI = "Kim_Vocal_2.onnx";
@@ -30,6 +31,8 @@ const DIM_F = 3072; // model memakai 3072 dari 3073 bin
 const DIM_T = 256;
 const SEGMENT = 256;
 const CHUNK = HOP * (SEGMENT - 1); // 261120
+/** v0.58.0 — batas waktu SATU inferensi chunk (normal 1–5 dtk di CPU). */
+const MS_RUN_CHUNK = 120_000;
 const TRIM = N_FFT >> 1; // 3072
 const GEN_SIZE = CHUNK - 2 * TRIM; // 254976
 const OVERLAP = 0.25;
@@ -113,7 +116,13 @@ async function muatSesi(m: OrtModul, modelPath: string): Promise<unknown> {
       enableMemPattern: false,
       graphOptimizationLevel: "all",
       intraOpNumThreads: Math.max(2, Math.min(4, os.cpus().length || 4)),
-    } as never);
+    } as never).catch((e: unknown) => {
+      // v0.58.0 — kegagalan muat TAK LAGI di-cache permanen: dulu satu gagal
+      // sementara (OOM saat muat) membuat semua pemanggilan berikutnya gagal
+      // terus sampai aplikasi direstart
+      sesiPromise = null;
+      throw e;
+    });
   }
   return sesiPromise;
 }
@@ -416,14 +425,22 @@ async function dekodeStereo44100(
     "-ac", "2", "-ar", "44100", "-f", "f32le", "pipe:1",
   ];
   const bufer: Buffer[] = [];
+  let stderr = "";
   await new Promise<void>((resolve, reject) => {
     const c = spawn(ff.bin, args, { windowsHide: true });
     onSpawn?.(c);
     c.stdout.on("data", (d: Buffer) => bufer.push(d));
-    c.stderr.on("data", () => { /* diam — stderr cuma peringatan */ });
+    c.stderr.on("data", (d: Buffer) => {
+      // v0.58.0 — ekor stderr disimpan: dulu kegagalan decode hanya "kode X"
+      // tanpa diagnosa apa pun
+      stderr += d.toString();
+      if (stderr.length > 500) stderr = stderr.slice(-500);
+    });
     c.on("error", reject);
     c.on("close", (code) =>
-      code === 0 ? resolve() : reject(new Error(`ffmpeg gagal membaca audio (kode ${code})`)),
+      code === 0
+        ? resolve()
+        : reject(new Error(`ffmpeg gagal membaca audio (kode ${code}): ${stderr.trim().slice(-300)}`)),
     );
   });
   const gabung = Buffer.concat(bufer);
@@ -555,7 +572,16 @@ export async function pastikanStemAi(
   const lari: LariModel = async (spek) => {
     if (isBatal?.()) throw new Error("DIBATALKAN");
     const tensor = new ort.Tensor("float32", spek, [1, 4, DIM_F, DIM_T]);
-    const hasil = await sesi.run({ input: tensor });
+    // v0.58.0 — inferensi diberi batas waktu: dulu sesi ORT yang macet membuat
+    // job musik menggantung SELAMANYA (tombol Batalkan tak bisa memutus
+    // inferensi yang sedang berjalan). Sesi macet dibuang (dibuat ulang nanti).
+    const hasil = await balapanWaktu(sesi.run({ input: tensor }), MS_RUN_CHUNK);
+    if (!hasil) {
+      sesiPromise = null;
+      throw new Error(
+        "Mesin AI vokal macet (satu potongan tak selesai dalam 120 dtk) — sesi direset, coba lagi",
+      );
+    }
     const kunciKeluar = Object.keys(hasil)[0];
     return hasil[kunciKeluar].data as Float32Array;
   };

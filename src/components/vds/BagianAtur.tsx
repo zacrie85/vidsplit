@@ -846,10 +846,22 @@ export function PanelSubtitle({
     return () => clearInterval(i);
   }, [pratinjauSibuk]);
   // setelan yang mempengaruhi tampilan subtitle berubah → hasil lama tak lagi valid
+  // v0.58.0 — GANTI VIDEO (fileRel) + warna + mode bahasa + model juga ikut:
+  // dulu pindah pilih video lain membuat klip & transkrip video LAMA tetap tampil
   useEffect(() => {
     setHasil(null);
     setLihatSemua(false);
-  }, [pengaturan.subtitleUkuran, pengaturan.subtitleY, pengaturan.mulaiDetik, pengaturan.akhirDetik]);
+  }, [
+    fileRel,
+    pengaturan.subtitleUkuran,
+    pengaturan.subtitleY,
+    pengaturan.mulaiDetik,
+    pengaturan.akhirDetik,
+    pengaturan.subtitleWarna,
+    pengaturan.subtitleOutlineWarna,
+    pengaturan.subtitleDeteksiBahasa,
+    pengaturan.subtitleCepat,
+  ]);
 
   const jalankanPratinjau = async () => {
     if (pratinjauSibuk || !fileRel) return;

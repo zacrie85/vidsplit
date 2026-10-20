@@ -87,6 +87,12 @@ export default function Halaman() {
   const [sibukFrame, setSibukFrame] = useState(false);
   const [sibukLogo, setSibukLogo] = useState(false);
   const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({ paralel: 2, pakaiGpu: true });
+  // v0.58.0 — simpanan localStorage hanya boleh ditulis SETELAH preferensi lama
+  // selesai dimuat: dulu efek simpan jalan di commit yang sama dgn state default
+  // → simpanan lama sempat DITIMPA default (hilang bila aplikasi tutup mendadak)
+  const termuatSimpan = useRef(false);
+  // v0.58.0 — peringatan kuota penuh cukup SEKALI per sesi (dulu ditelan diam)
+  const kuotaPeringatan = useRef(false);
   // v0.10.0 — sakelar Mode Video / Mode Musik (Studio Musik)
   // v0.25.0 — mode ketiga: Studio Horor (AI Cerita Horor)
   const [mode, setMode] = useState<"video" | "musik" | "horor">("video");
@@ -128,18 +134,29 @@ export default function Halaman() {
         });
       }
     } catch {
-      /* abaikan */
+      /* simpanan rusak — mulai dari default, JANGAN menimpa berkasnya di sini */
+    } finally {
+      termuatSimpan.current = true; // v0.58.0 — buka gerbang penyimpanan
     }
   }, []);
 
   // simpan preferensi (bgId tidak ikut — file sesi lokal)
   useEffect(() => {
-    try {
-      localStorage.setItem(KUNCI_SIMPAN, JSON.stringify({ ...dasar, bgId: "" }));
-      localStorage.setItem(KUNCI_EKSPOR, JSON.stringify(opsiEkspor));
-    } catch {
-      /* abaikan */
-    }
+    if (!termuatSimpan.current) return;
+    // v0.58.0 — DEBOUNCE 400 ms: dulu setiap gerakan slider menulis JSON penuh
+    // serempak (puluhan×/dtk, kerja sinkron main-thread — jank di mesin lemah)
+    const t = setTimeout(() => {
+      try {
+        localStorage.setItem(KUNCI_SIMPAN, JSON.stringify({ ...dasar, bgId: "" }));
+        localStorage.setItem(KUNCI_EKSPOR, JSON.stringify(opsiEkspor));
+      } catch {
+        if (!kuotaPeringatan.current) {
+          kuotaPeringatan.current = true;
+          toast.error("Penyimpanan preferensi penuh — setelan terakhir mungkin tidak tersimpan");
+        }
+      }
+    }, 400);
+    return () => clearTimeout(t);
   }, [dasar, opsiEkspor]);
 
   const videoAktif = daftar[aktif] ?? null;
@@ -581,7 +598,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.57.1
+            v0.58.0
           </span>
           <TombolGantiPassword />
         </div>

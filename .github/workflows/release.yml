@@ -31,7 +31,10 @@ jobs:
         env:
           ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
           NEXT_TELEMETRY_DISABLED: "1"
-        run: npm install --no-audit --no-fund
+        # v0.58.0 — npm ci + package-lock.json: build rilis kini REPRODUCIBLE
+        # (dulu npm install tanpa lockfile — versi dependensi bisa geser antar
+        # rilis tanpa jejak; preseden bug v0.51.0 model hilang)
+        run: npm ci --no-audit --no-fund
 
       - name: Build Next.js (standalone)
         env:

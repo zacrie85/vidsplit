@@ -719,6 +719,23 @@ export function slugify(teks: string): string {
   return slug || "vidsplit";
 }
 
+/**
+ * v0.58.0 — slug UNIK per video dalam satu antrean (fungsi murni — dites unit):
+ * dua video dengan judul sama (atau dua-duanya kosong) dulu menghasilkan nama
+ * part file IDENTIK di folder output bersama → hasil saling menimpa tanpa
+ * peringatan. Judul ke-2 dst. yang bentrok diberi akhiran -2, -3, …
+ * Judul unik → hasil persis slugify() lama (nol perubahan perilaku lama).
+ */
+export function slugUnikDaftar(judul: string[]): string[] {
+  const pemakaian = new Map<string, number>();
+  return judul.map((t) => {
+    const dasar = slugify(t);
+    const c = pemakaian.get(dasar) ?? 0;
+    pemakaian.set(dasar, c + 1);
+    return c === 0 ? dasar : `${dasar}-${c + 1}`;
+  });
+}
+
 /** Font-family CSS utk pratinjau browser (cocokkan dgn @font-face di globals.css;
  *  nama "VDS *" = font sinematik bundel di /fonts). Render final tetap pakai TTF
  *  lewat drawtext fontfile — peta ini hanya agar pratinjau mirip hasil akhir. */

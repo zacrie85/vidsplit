@@ -21,7 +21,12 @@ export function dirWork(rel: string): string {
 /** Hanya izinkan path di dalam work — kecuali mode Electron (file pilihan user) */
 export function pathAman(rel: string): string {
   const p = path.isAbsolute(rel) ? path.resolve(rel) : path.resolve(ROOT_WORK, rel);
-  const dalam = p === ROOT_WORK || p.startsWith(ROOT_WORK + path.sep);
+  // v0.58.0 — Windows PEKA-HURUF: C:\VidSplit\work vs c:\vidsplit\work adalah
+  // path yang sama bagi NTFS — perbandingan lama menolak path sah dgn kapital beda
+  const samakan = (x: string) => (process.platform === "win32" ? x.toLowerCase() : x);
+  const dalam =
+    samakan(p) === samakan(ROOT_WORK) ||
+    samakan(p).startsWith(samakan(ROOT_WORK + path.sep));
   if (!dalam && process.env.VIDSPLIT_ELECTRON !== "1") {
     throw new Error("Path di luar folder kerja tidak diizinkan");
   }
@@ -38,8 +43,22 @@ function cariDiNodeModules(rel: string): string | null {
   return null;
 }
 
-/** Env VIDSPLIT_FFMPEG/FFPROBE → paket static → PATH */
-export async function cariBinary(jenis: "ffmpeg" | "ffprobe"): Promise<string> {
+/** Env VIDSPLIT_FFMPEG/FFPROBE → paket static → PATH.
+ *  v0.58.0 — hasil DI-MEMOIZE per jenis (dulu: tiap probe() spawn `ffprobe -version`
+ *  baru utk fallback PATH — kerja ulang yang mahal di antrean 100 video). */
+const cacheBinary = new Map<string, Promise<string>>();
+export function cariBinary(jenis: "ffmpeg" | "ffprobe"): Promise<string> {
+  const ada = cacheBinary.get(jenis);
+  if (ada) return ada;
+  const janji = cariBinarySekali(jenis).catch((e) => {
+    cacheBinary.delete(jenis); // gagal sementara — boleh dicoba lagi nanti
+    throw e;
+  });
+  cacheBinary.set(jenis, janji);
+  return janji;
+}
+
+async function cariBinarySekali(jenis: "ffmpeg" | "ffprobe"): Promise<string> {
   const envKey = jenis === "ffmpeg" ? "VIDSPLIT_FFMPEG" : "VIDSPLIT_FFPROBE";
   const kandidat: string[] = [];
   const dariEnv = process.env[envKey];
@@ -82,10 +101,12 @@ export interface InfoVideo {
 export async function probe(file: string): Promise<InfoVideo> {
   const bin = await cariBinary("ffprobe");
   const out = await new Promise<string>((resolve, reject) => {
+    // v0.58.0 — ffprobe kini diberi batas 30 dtk: dulu file rusak/di drive lambat
+    // bisa menggantung TANPA BATAS dan menggantung rute API yang memanggilnya
     const c = spawn(
       bin,
       ["-v", "error", "-print_format", "json", "-show_format", "-show_streams", file],
-      { windowsHide: true },
+      { windowsHide: true, timeout: 30_000, killSignal: "SIGKILL" },
     );
     let stdout = "";
     let stderr = "";
@@ -96,7 +117,7 @@ export async function probe(file: string): Promise<InfoVideo> {
       code === 0 ? resolve(stdout) : reject(new Error(`ffprobe gagal: ${stderr.slice(-400)}`)),
     );
   });
-  const j = JSON.parse(out) as {
+  let j: {
     streams?: Array<{
       codec_type: string;
       width?: number;
@@ -107,6 +128,11 @@ export async function probe(file: string): Promise<InfoVideo> {
     }>;
     format?: { duration?: string };
   };
+  try {
+    j = JSON.parse(out);
+  } catch {
+    throw new Error("ffprobe mengembalikan keluaran yang tidak valid");
+  }
   const v = (j.streams || []).find((s) => s.codec_type === "video");
   const a = (j.streams || []).find((s) => s.codec_type === "audio");
   if (!v || !v.width || !v.height) throw new Error("File tidak punya stream video yang valid");
@@ -150,7 +176,10 @@ export function escapePathFilter(p: string): string {
 }
 
 /** Folder font pertama yang benar-benar ada (utk fontsdir libass).
- *  v0.45.0 diekspor — juga dipakai API pratinjau subtitle. */
+ *  v0.45.0 diekspor — juga dipakai API pratinjau subtitle.
+ *  v0.58.0 — bila TIDAK ADA kandidat yang ada, kembalikan "" (pemanggil melewatkan
+ *  opsi fontsdir → libass pakai font bawaan) — dulu path POSIX palsu diteruskan
+ *  tanpa dicek → subtitle bisa jatuh ke font salah secara senyap. */
 export function dirFontsSub(): string {
   const kandidat = [
     process.env.VIDSPLIT_FONTS,
@@ -160,7 +189,7 @@ export function dirFontsSub(): string {
     "/usr/share/fonts/truetype/dejavu",
   ].filter(Boolean) as string[];
   for (const d of kandidat) if (existsSync(d)) return d;
-  return "/usr/share/fonts/truetype/dejavu";
+  return "";
 }
 
 const NAMA_FONT: Record<GayaTeks["font"], string[]> = {
@@ -195,19 +224,32 @@ export function dirFontKandidat(): string[] {
   ].filter(Boolean) as string[];
 }
 
+const cacheFontfile = new Map<string, string>();
 function fontfile(gaya: GayaTeks): string {
+  // v0.58.0 — memoize per gaya font: dulu tiap drawtext di tiap part memindai
+  // ulang ±18 kandidat × 5 folder (existsSync) — kerja ulang murni di event loop
+  const hit = cacheFontfile.get(gaya.font);
+  if (hit !== undefined) return hit;
   const dirs = [
     ...dirFontKandidat(),
     "/usr/share/fonts/truetype/dejavu",
     "C:\\Windows\\Fonts",
   ];
+  let hasil = ""; // biarkan ffmpeg pakai font bawaan
   for (const d of dirs) {
+    let ketemu = false;
     for (const n of NAMA_FONT[gaya.font]) {
       const p = path.join(d, n);
-      if (existsSync(p)) return p;
+      if (existsSync(p)) {
+        hasil = p;
+        ketemu = true;
+        break;
+      }
     }
+    if (ketemu) break;
   }
-  return ""; // biarkan ffmpeg pakai font bawaan
+  cacheFontfile.set(gaya.font, hasil);
+  return hasil;
 }
 
 /** Filter konversi frame video sumber → frame W×H (tanpa label akhir)
@@ -373,6 +415,9 @@ function rantaiTeks(
     }
     s += `:x=(w-text_w)/2:y=${Math.round(y)}`;
     if (ff) s += `:fontfile=${kutipFilter(ff)}`;
+    // v0.58.0 — expansion=none: teks user berisi "%{" dulu membuat parser drawtext
+    // gagal → seluruh part kena galat samar (aplikasi tak memakai fungsi %{...})
+    s += `:expansion=none`;
     return s;
   };
 
@@ -403,6 +448,7 @@ function rantaiTeks(
     d += `:x='${posD.x}':y='${posD.y}'`;
     if (ffD) d += `:fontfile=${kutipFilter(ffD)}`;
     d += `:line_spacing=${(uD * 0.3).toFixed(1)}`;
+    d += `:expansion=none`; // v0.58.0 — teks user dgn %{ tak lagi merusak parser
     bagian.push(`drawtext=textfile=${kutipFilter(fileDeskripsi)}:${d}`);
   }
   if (!bagian.length) return `[cc]null[vout]`;
@@ -437,6 +483,7 @@ function rantaiTeksTemplate(
     if (gayaTeks.outlineLebar > 0) {
       s += `:borderw=${Math.max(1, Math.round(gayaTeks.outlineLebar * skala))}:bordercolor=${warnaFf(gayaTeks.outlineWarna)}`;
     }
+    s += `:expansion=none`; // v0.58.0 — ekspansi teks dimatikan (lihat rantaiTeks)
     return s;
   };
   const bagian: string[] = [];
@@ -659,12 +706,20 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // dan SEBELUM overlay logo — memakai pola filter `subtitles=` yang sudah terbukti
   // di Studio Musik (bundle ffmpeg memiliki libass + fontsdir font bundel).
   const pakaiSub = !!a.fileSub && existsSync(a.fileSub);
+  // v0.58.0 — fontsdir hanya disisipkan bila foldernya BENAR-BENAR ada
+  // (dirFontsSub kini bisa "" — biarkan libass pakai font bawaan sistem)
+  const fdirSub = dirFontsSub();
+  const opsiSub = pakaiSub
+    ? `filename='${escapePathFilter(a.fileSub as string)}'${
+        fdirSub ? `:fontsdir='${escapePathFilter(fdirSub)}'` : ""
+      }`
+    : "";
   if (pakaiLogo) {
     // rantai teks menghasilkan [vtx] (atau [vpre]→subtitles→[vtx]) lalu logo → [vout]
     filterVideo.push(rantaiTeksStr.replace("[vout]", pakaiSub ? "[vpre]" : "[vtx]"));
     if (pakaiSub) {
       filterVideo.push(
-        `[vpre]subtitles=filename='${escapePathFilter(a.fileSub as string)}':fontsdir='${escapePathFilter(dirFontsSub())}',format=yuv420p[vtx]`,
+        `[vpre]subtitles=${opsiSub},format=yuv420p[vtx]`,
       );
     }
     const lebarWm = Math.max(
@@ -684,7 +739,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     filterVideo.push(rantaiTeksStr.replace("[vout]", pakaiSub ? "[vpre]" : "[vout]"));
     if (pakaiSub) {
       filterVideo.push(
-        `[vpre]subtitles=filename='${escapePathFilter(a.fileSub as string)}':fontsdir='${escapePathFilter(dirFontsSub())}',format=yuv420p[vout]`,
+        `[vpre]subtitles=${opsiSub},format=yuv420p[vout]`,
       );
     }
   }
@@ -838,7 +893,12 @@ function fmtWaktu(dtk: number): string {
 function bunuhPohon(c: ChildProcess): void {
   try {
     if (process.platform === "win32" && c.pid) {
-      spawn("taskkill", ["/PID", String(c.pid), "/T", "/F"], { windowsHide: true });
+      const t = spawn("taskkill", ["/PID", String(c.pid), "/T", "/F"], { windowsHide: true });
+      // v0.58.0 — taskkill tak ditemukan/blokir AV TIDAK BOLEH merobohkan proses
+      // Node saat justru sedang membersihkan (dulu: unhandled 'error' event)
+      t.on("error", () => {
+        try { c.kill("SIGKILL"); } catch { /* sudah mati */ }
+      });
     } else {
       c.kill("SIGKILL");
     }
@@ -886,7 +946,11 @@ export async function jalankanFfmpeg(
   // -nostdin HARUS di depan (opsi global); hindari dobel bila pemanggil sudah mengirim
   const argumen = args[0] === "-nostdin" ? args : ["-nostdin", ...args];
   await new Promise<void>((resolve, reject) => {
-    const c = spawn(binFinal, argumen, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+    // v0.58.0 — stdout di-IGNORE (dulu "pipe" tanpa pembaca): build ffmpeg yang
+    // menulis >64 KB ke stdout bisa MACET menunggu pipa penuh → salah dilaporkan
+    // "macet 40 detik" padahal bekerja. Semua pemanggilan menulis ke berkas keluaran,
+    // stdout memang tidak pernah dipakai.
+    const c = spawn(binFinal, argumen, { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
     onSpawn?.(c);
     const mulai = Date.now();
     let stderr = "";
@@ -1059,6 +1123,13 @@ const KANDIDAT_GPU: Record<CodecVideo, Array<{
 };
 
 let cacheUjiGpu: Map<string, boolean> | null = null;
+
+/** v0.58.0 — kosongkan cache uji encoder GPU: dipanggil jobs.ts saat encoder GPU
+ *  GAGAL di runtime (driver reset/jatah sesi habis) supaya video berikutnya
+ *  menguji ulang dan otomatis jatuh ke CPU — dulu hasil positif disetuh selamanya. */
+export function resetUjiGpu(): void {
+  cacheUjiGpu = null;
+}
 
 /** Uji encoder benar-benar jalan (terdaftar ≠ berfungsi — butuh GPU fisiknya) */
 async function ujiEncoder(encoder: string, bin: string): Promise<boolean> {

@@ -3,7 +3,7 @@
 // v0.34.0 — ilustrasi komik kini memakai PUSTAKA GAMBAR HANTU NUSANTARA (assets/hantu,
 // 21 gambar AI offline): gambar hantu/latar dipilih SESUAI cerita tiap potongan 2 dtk.
 import { mkdir, writeFile } from "node:fs/promises";
-import { statSync } from "node:fs";
+import { rmSync, statSync } from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
@@ -502,6 +502,15 @@ async function jalankanRenderKomik(id: string, opsi: OpsiHororMasuk, cerita: Cer
     bersihkanBatal(id);
   } catch (e) {
     ktx.gagal(e);
+  } finally {
+    // v0.58.0 — temp horor (PNG halaman, WAV narasi versi lama+baru, chunk TS
+    // ±ukuran video final) dulu TIDAK PERNAH dihapus sukses/gagal/batal sama
+    // sekali — hasil final ada di folder output, temp aman dibuang di sini
+    try {
+      rmSync(folderTmp, { recursive: true, force: true });
+    } catch {
+      /* abaikan */
+    }
   }
 }
 
@@ -675,5 +684,12 @@ async function jalankanRenderHoror(id: string, opsi: OpsiHororMasuk, cerita: Cer
     bersihkanBatal(id);
   } catch (e) {
     ktx.gagal(e);
+  } finally {
+    // v0.58.0 — temp horor dibuang di semua akhir jalan (lihat catatan di atas)
+    try {
+      rmSync(folderTmp, { recursive: true, force: true });
+    } catch {
+      /* abaikan */
+    }
   }
 }

@@ -13,6 +13,42 @@ let logStream;
 let fileLog;
 let dirKerjaGlobal = null; // folder data aktif — dipakai IPC buka-folder
 
+// v0.58.0 — SATU INSTANSI SAJA: dua jendela VidSplit menulis riwayat.json /
+// folder data yang sama → berkas rusak & job bercampur. Instansi kedua cukup
+// memfokuskan jendela yang sudah ada.
+const kunciSatuInstansi = app.requestSingleInstanceLock();
+if (!kunciSatuInstansi) {
+  app.quit();
+}
+
+// v0.58.0 — kesalahan tak tertangkap di main process dulu membunuh aplikasi
+// TANPA membunuh server Next maupun ffmpeg turunannya (proses yatim di Task
+// Manager). Kini dicatat + ditampilkan, aplikasi tetap bisa ditutup bersih.
+process.on("uncaughtException", (e) => {
+  catat(`uncaughtException: ${e.stack || e.message}`);
+  tampilkanGalat("kesalahan tak terduga", `${e.message}\n\nLog lengkap: ${fileLog}`);
+});
+
+/** v0.58.0 — matikan server + SELURUH pohon prosesnya (server menurunkan ffmpeg;
+ *  kill() biasa di Windows menyisakan ffmpeg yang masih menulis file). */
+function matikanServer() {
+  if (!server || server.killed) return;
+  try {
+    if (process.platform === "win32" && server.pid) {
+      const t = spawn("taskkill", ["/PID", String(server.pid), "/T", "/F"], {
+        windowsHide: true,
+      });
+      t.on("error", () => {
+        try { server.kill(); } catch {}
+      });
+    } else {
+      server.kill();
+    }
+  } catch {
+    try { server?.kill(); } catch {}
+  }
+}
+
 /**
  * Pilih folder data aplikasi:
  * - Mode PORTABLE (exe tunggal, tanpa install): electron-builder menyetel env
@@ -169,6 +205,22 @@ async function buatJendela() {
       nodeIntegration: false,
     },
   });
+  // v0.58.0 — popup dibuka di browser sistem (bukan jendela Electron baru)
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      if (/^https?:/i.test(url)) shell.openExternal(url);
+    } catch {}
+    return { action: "deny" };
+  });
+  // v0.58.0 — navigasi hanya boleh ke server lokal sendiri (spam/drift terlarang)
+  win.webContents.on("will-navigate", (e, url) => {
+    if (!url.startsWith(`http://127.0.0.1:${port}/`)) e.preventDefault();
+  });
+  win.webContents.on("did-fail-load", () => {
+    // v0.58.0 — server internal mati saat jendela masih ada: UI mati diam-diam
+    // dulu; kini pengguna diberi tahu (server exit dialog tetap jalan via 'exit')
+    catat("[jendela] gagal memuat halaman server internal");
+  });
   await win.loadURL(`http://127.0.0.1:${port}/`);
 }
 
@@ -247,6 +299,7 @@ ipcMain.handle("vdsplit:buka-folder-abs", async (_e, p) => {
 });
 
 app.whenReady().then(async () => {
+  if (!kunciSatuInstansi) return; // v0.58.0 — instansi kedua tidak menyala sama sekali
   try {
     nyalakanServer();
     await tungguServer();
@@ -264,9 +317,15 @@ app.whenReady().then(async () => {
   });
 });
 
+// v0.58.0 — instansi kedua: fokuskan jendela instansi pertama
+app.on("second-instance", () => {
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+});
+
 app.on("window-all-closed", () => app.quit());
 app.on("quit", () => {
-  try {
-    server?.kill();
-  } catch {}
+  matikanServer(); // v0.58.0 — pohon proses server + ffmpeg ikut dibersihkan
 });

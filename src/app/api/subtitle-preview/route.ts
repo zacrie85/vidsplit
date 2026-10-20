@@ -9,7 +9,7 @@
 // Body : { file: "upload/xxx.mp4", pengaturan: Partial<Pengaturan> }
 // Return: { ok, klip?, segmen?, bahasa?, diterjemahkan?, jumlahSegmen?,
 //           durasiKlip?, alasan?: "audio"|"model"|"gagal", pesan? }
-import { existsSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import {
@@ -152,6 +152,10 @@ async function kerjakan(
   if (!existsSync(keluar)) {
     const fileAss = path.join(dirWork("tmp"), `pratinjau-${kunci}.ass`);
     writeFileSync(fileAss, ass, "utf8");
+    // v0.58.0 — TULIS ATOMIK via berkas .part: dulu ffmpeg menulis LANGSUNG ke
+    // keluar — render yang gagal/dibunuh meninggalkan mp4 SEPARUH yang lolos
+    // existsSync() → pratinjau rusak tersajikan SELAMANYA dari cache
+    const parsial = `${keluar}.part`;
     try {
       await jalankanFfmpeg(
         [
@@ -161,19 +165,25 @@ async function kerjakan(
           "-t", durasiKlip.toFixed(3),
           "-vf",
           `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},` +
-            `subtitles=filename='${escapePathFilter(fileAss)}':fontsdir='${escapePathFilter(dirFontsSub())}',format=yuv420p`,
+            `subtitles=filename='${escapePathFilter(fileAss)}'${dirFontsSub() ? `:fontsdir='${escapePathFilter(dirFontsSub())}'` : ""},format=yuv420p`,
           "-c:v", "libx264", "-preset", "ultrafast", "-crf", "26",
           "-c:a", "aac", "-b:a", "96k", "-ar", "44100",
           "-movflags", "+faststart",
-          keluar,
+          parsial,
         ],
         durasiKlip,
         undefined,
         ff.bin,
       );
+      if (existsSync(parsial)) renameSync(parsial, keluar); // atomik
     } finally {
       try {
         unlinkSync(fileAss);
+      } catch {
+        /* abaikan */
+      }
+      try {
+        unlinkSync(parsial); // no-op bila sudah rename — jangan sisakan .part
       } catch {
         /* abaikan */
       }

@@ -10,6 +10,7 @@ import {
   jalankanFfmpeg,
   pilihEncoder,
   pilihFfmpeg,
+  resetUjiGpu,
   type InfoVideo,
   type PilihanEncoder,
 } from "./ffmpeg";
@@ -25,15 +26,15 @@ import { buangSalinanKerja, muatSetelanTujuan, salinHasilKeTujuan } from "./tuju
 import { siapkanSequenceNeon } from "./neonRender";
 import { siapkanLatarTemplate } from "./templatRender";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
+import { jadwalkanPangkas } from "./kebersihan";
 import type { SeqNeon } from "./ffmpeg";
 import {
-  durasiEfektif,
-  hitungPart,
   neonDari,
   hitungPartDgnHapus,
   rentangPart,
   rentangPartHapus,
   slugify,
+  slugUnikDaftar,
   templatDari,
   type CodecVideo,
   type Pengaturan,
@@ -96,21 +97,40 @@ export interface InfoJob {
 
 const jobs = new Map<string, InfoJob>();
 
-/** v0.53.0 — tunggu subtitle zona part siap sambil tetap respons terhadap batal:
- *  poling tiap 500 ms supaya tombol Batalkan tidak terasa mati saat menunggu AI. */
+// v0.58.0 — EVIKSI JOB LAMA: Map jobs dulu TIDAK PERNAH menghapus entri —
+// aplikasi desktop yang dibiarkan menyala menumpuk objek job (antrean 100 video,
+// ribuan outputs, log tahap) di RAM selamanya. Hasil tetap bisa diunduh dari
+// Riwayat (riwayat.ts menyimpan salinannya).
+const UMUR_JOB_MS = 6 * 3_600_000;
+const MAKS_JOB = 40;
+export function evictJobLama(sekarang = Date.now()): number {
+  let buang = 0;
+  const selesai = [...jobs.values()]
+    .filter((j) => j.selesaiSemua)
+    .sort((a, b) => a.dibuat - b.dibuat); // terlama dulu
+  for (const j of selesai) {
+    if (sekarang - j.dibuat >= UMUR_JOB_MS && jobs.delete(j.id)) buang += 1;
+  }
+  while (jobs.size > MAKS_JOB) {
+    const terlama = selesai.find((j) => jobs.has(j.id));
+    if (!terlama) break; // semua masih berjalan — jangan disentuh
+    jobs.delete(terlama.id);
+    buang += 1;
+  }
+  return buang;
+}
+
+/** v0.53.0 — tunggu subtitle zona part siap sambil tetap respons terhadap batal.
+ *  v0.58.0 — SATU panggilan tungguCakupan dgn sinyal batal (dulu: race 500 ms
+ *  membuat loop-zombie menumpuk — ribuan loop tidur 400 ms yang tak pernah
+ *  dihentikan memakan CPU/memori persis saat CPU dipenuhi sesi Whisper). */
 async function tungguCakupanDenganBatal(
   latar: TranskripLatar,
   akhirRel: number,
   id: string,
 ): Promise<SegmenSub[]> {
-  for (;;) {
-    if (apakahBatal(id)) throw new Error("DIBATALKAN");
-    const hasil = await Promise.race([
-      latar.tungguCakupan(akhirRel),
-      new Promise<null>((ok) => setTimeout(() => ok(null), 500)),
-    ]);
-    if (hasil) return hasil;
-  }
+  if (apakahBatal(id)) throw new Error("DIBATALKAN");
+  return latar.tungguCakupan(akhirRel, () => apakahBatal(id));
 }
 
 export function ambilJob(id: string): InfoJob | undefined {
@@ -149,6 +169,9 @@ export function mulaiEksporAntrean(
   modeEkspor: "presisi" | "cepat",
 ): string {
   const id = randomBytes(4).toString("hex");
+  // v0.58.0 — beres-beres RAM job lama + pangkas disk (throttled 1×/jam)
+  evictJobLama();
+  jadwalkanPangkas();
   const folder = dirWork(`output/${id}`);
   const dirTmp = dirWork("tmp");
   // v0.57.0 — bawaan maks 4 → 10 atas permintaan user (selama AI latar jalan, tetap dibatasi 1 oleh gerbang v0.56)
@@ -166,6 +189,11 @@ export function mulaiEksporAntrean(
     ),
   );
   const totalPartSemua = nTotalPerVideo.reduce((a, b) => a + b, 0);
+
+  // v0.58.0 — ANTI-TABRAKAN NAMA FILE: dua video dgn judul sama (atau dua-duanya
+  // kosong) dulu menulis nama part IDENTIK ke folder output bersama → hasil
+  // saling menimpa (kehilangan data senyap). Slug ke-2 dst. diberi akhiran -2, -3, …
+  const slugPerVideo = slugUnikDaftar(daftar.map((it) => it.pengaturan.judul));
 
   const job: InfoJob = {
     id,
@@ -231,11 +259,18 @@ export function mulaiEksporAntrean(
       job.outputs = slot.filter((s): s is KeluaranJob => !!s);
     };
     const fraksi = new Map<string, number>(); // "vi:part" → 0..1
+    // v0.58.0 — fraksi part yang sudah BERAKHIR ditumpuk ke dasar: dulu entri
+    // dihapus di .finally() sehingga progresTotal TURUN setiap part selesai
+    // (bar maju-mundur, berakhir 0% padahal ekspor sukses)
+    let dasarSelesai = 0;
 
     const perbaruiProgres = () => {
-      let jumlah = 0;
-      for (const f of fraksi.values()) jumlah += f;
-      job.progresTotal = Math.min(100, Math.round((jumlah / Math.max(1, totalPartSemua)) * 100));
+      let aktif = 0;
+      for (const f of fraksi.values()) aktif += f;
+      job.progresTotal = Math.min(
+        100,
+        Math.round(((dasarSelesai + aktif) / Math.max(1, totalPartSemua)) * 100),
+      );
       let rata = 0;
       if (fraksi.size) {
         for (const f of fraksi.values()) rata += f;
@@ -280,7 +315,7 @@ export function mulaiEksporAntrean(
             ? 1280
             : 1920;
       const fps = Math.min(60, Math.max(15, Math.round(it.info.fps)));
-      const slug = slugify(p.judul);
+      const slug = slugPerVideo[vi] || slugify(p.judul) || "vidsplit";
       const nama = `${slug}-part-${String(n).padStart(2, "0")}.mp4`;
       const keluar = path.join(folder, nama);
       const tag = `${id}-${vi}-${n}`;
@@ -353,6 +388,14 @@ export function mulaiEksporAntrean(
         perbaruiProgres();
       }, ff.bin, (c) => daftarkanProses(id, c))
         .then(() => {
+          slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
+          job.antrean[vi].selesai += 1;
+          segarkanOutput(); // v0.8.0 — part baru selesai → langsung tampak di UI
+        })
+        .finally(() => {
+          // v0.58.0 — pembersihan temp dipindah ke finally: dulu hanya di jalur
+          // sukses — render gagal/batal menetaskan 3-4 berkas yatim per part
+          // di work/tmp yang menumpuk selamanya
           for (const akhiran of ["judul", "part", "deskripsi", "sub"]) {
             try {
               unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
@@ -365,11 +408,8 @@ export function mulaiEksporAntrean(
               /* abaikan */
             }
           }
-          slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
-          job.antrean[vi].selesai += 1;
-          segarkanOutput(); // v0.8.0 — part baru selesai → langsung tampak di UI
-        })
-        .finally(() => {
+          const f = fraksi.get(`${vi}:${n}`);
+          if (f !== undefined) dasarSelesai += f;
           fraksi.delete(`${vi}:${n}`);
           perbaruiProgres();
         });
@@ -411,10 +451,18 @@ export function mulaiEksporAntrean(
           } catch (e) {
             // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
             if (apakahBatal(id)) return;
+            // v0.58.0 — encoder GPU gagal di runtime (driver reset/jatah habis)?
+            // kosongkan cache uji GPU + cache encoder job agar video BERIKUTNYA
+            // otomatis menguji ulang & jatuh ke CPU (dulu: gagal beruntun)
+            const pesan = e instanceof Error ? e.message : String(e);
+            if (/nvenc|qsv|amf/i.test(pesan)) {
+              resetUjiGpu();
+              cacheEnc.clear();
+            }
             // hentikan pengambilan part baru video INI; part berjalan biar selesai
             if (!gagal) {
               gagal = true;
-              job.error = `${it.nama}: ${e instanceof Error ? e.message : String(e)}`;
+              job.error = `${it.nama}: ${pesan}`;
             }
           } finally {
             sedangRender -= 1;
@@ -615,6 +663,7 @@ export function mulaiEksporAntrean(
     job.videoAktif = -1;
     job.partAktif = 0;
     job.selesaiSemua = true;
+    job.progresTotal = 100; // v0.58.0 — progres berakhir PASTI 100 (fraksi berbasis waktu bisa 99)
     catatRiwayat(job); // hasil tetap bisa diunduh ulang dari panel Riwayat
     bersihkanBatal(id);
   })().catch((e) => {

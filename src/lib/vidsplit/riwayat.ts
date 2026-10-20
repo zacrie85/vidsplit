@@ -122,6 +122,12 @@ function cekFile(e: EntriRiwayat): { adaFile: boolean; ukuranAda: number } {
   return { adaFile, ukuranAda };
 }
 
+/** v0.58.0 — id job yang masih tercatat di riwayat (dipakai kebersihan.ts:
+ *  folder output yang TIDAK tercatat & sudah lama = yatim, boleh dipangkas) */
+export function muatIdRiwayat(): Set<string> {
+  return new Set(muat().map((e) => e.id));
+}
+
 /** Daftar riwayat terbaru dulu + status ketersediaan file di disk */
 export function daftarRiwayat(): EntriRiwayatCek[] {
   return muat().map((e) => ({ ...e, ...cekFile(e) }));

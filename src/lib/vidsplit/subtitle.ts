@@ -346,7 +346,11 @@ type ModulTransformers = any;
 
 let modTf: ModulTransformers | null | undefined;
 
-let pipaTerjemah: ModulTransformers | null | undefined;
+/** v0.58.0 — batas waktu pemuatan pipeline/satu panggilan AI non-blok (dulu TANPA
+ *  jaring: pemuatan model / deteksi bahasa / terjemahan yang menghangu membekukan
+ *  ekspor selamanya — watchdog 900 dtk hanya melindungi decode blok mode fokus). */
+const MS_MUAT_MODEL = 300_000; // pemuatan model normal 5–60 dtk
+const MS_TAHAP_AI = 300_000; // deteksi (2× cuplikan 24 dtk) & batch terjemah
 
 /** Muat modul transformers.js sekali; env lokal (tanpa internet). */
 async function muatTransformers(): Promise<ModulTransformers | null> {
@@ -355,14 +359,15 @@ async function muatTransformers(): Promise<ModulTransformers | null> {
     const m = await import("@huggingface/transformers");
     const dir = cariDirModelAi();
     if (!dir) {
-      modTf = null;
-      return modTf;
+      modTf = undefined; // v0.58.0 — jangan cache kegagalan: boleh dicoba lagi (mis. model baru selesai dipasang)
+      return null;
     }
     m.env.allowRemoteModels = false;
     m.env.localModelPath = dir;
     modTf = m;
   } catch {
-    modTf = null;
+    modTf = undefined; // v0.58.0 — gagal sementara (OOM saat impor) tak lagi permanen
+    return null;
   }
   return modTf;
 }
@@ -387,11 +392,28 @@ async function buatPipaAsr(cepat = false): Promise<ModulTransformers | null> {
     /* tanpa info mesin — pakai bawaan onnxruntime */
   }
   try {
-    return await m.pipeline("automatic-speech-recognition", cepat ? ID_MODEL_WHISPER_CEPAT : ID_MODEL_WHISPER, {
-      dtype: "q8",
-      device: "cpu",
-      session_options: opsiSesi,
-    });
+    // v0.58.0 — pemuatan pipeline diberi batas waktu: dulu hang saat muat =
+    // seluruh ekspor berhenti selamanya tanpa pesan
+    const hasil = await balapanWaktu(
+      m.pipeline("automatic-speech-recognition", cepat ? ID_MODEL_WHISPER_CEPAT : ID_MODEL_WHISPER, {
+        dtype: "q8",
+        device: "cpu",
+        session_options: opsiSesi,
+      }),
+      MS_MUAT_MODEL,
+    );
+    if (hasil) return hasil;
+    // null = kehabisan waktu — jatuh ke percobaan model Tepat bila tadi Base
+    if (!cepat) return null;
+    const cadangan = await balapanWaktu(
+      m.pipeline("automatic-speech-recognition", ID_MODEL_WHISPER, {
+        dtype: "q8",
+        device: "cpu",
+        session_options: opsiSesi,
+      }),
+      MS_MUAT_MODEL,
+    );
+    return cadangan;
   } catch {
     // v0.51.2 — model cepat (Base) tak bisa dimuat (berkas tak lengkap/tak
     // dibundel)? JANGAN biarkan subtitle hilang diam-diam — jatuh ke model
@@ -409,32 +431,53 @@ async function buatPipaAsr(cepat = false): Promise<ModulTransformers | null> {
   }
 }
 
-/** Sesi utama (selalu ada) — dimuat sekali lalu dipakai ulang (dipisah per model). */
-const pipaUtama: Record<"tepat" | "cepat", ModulTransformers | null | undefined> = {
+/** Sesi utama (selalu ada) — dimuat sekali lalu dipakai ulang (dipisah per model).
+ *  v0.58.0 — yang di-cache PROMISE-nya (bukan hasil): dua pemanggil serentak
+ *  dulu sama-sama melihat "belum ada" lalu membuat DUA sesi Whisper (±250 MB
+ *  per sesi yang bocor permanen). Kegagalan juga tak lagi di-cache permanen. */
+const pipaUtama: Record<"tepat" | "cepat", Promise<ModulTransformers | null> | undefined> = {
   tepat: undefined,
   cepat: undefined,
 };
-async function ambilPipaAsr(cepat = false): Promise<ModulTransformers | null> {
+function ambilPipaAsr(cepat = false): Promise<ModulTransformers | null> {
   const kunci = cepat ? "cepat" : "tepat";
-  if (pipaUtama[kunci] !== undefined) return pipaUtama[kunci];
-  pipaUtama[kunci] = await buatPipaAsr(cepat);
+  if (!pipaUtama[kunci]) {
+    pipaUtama[kunci] = balapanWaktu(buatPipaAsr(cepat), MS_MUAT_MODEL).then((r) => {
+      if (r === null) pipaUtama[kunci] = undefined; // gagal sementara — boleh coba lagi
+      return r;
+    });
+  }
   return pipaUtama[kunci];
 }
 
-/** Sesi tambahan utk pool paralel — dibuat sekali, dipakai ulang antar video. */
+/** Sesi tambahan utk pool paralel — dibuat sekali, dipakai ulang antar video.
+ *  v0.58.0 — pemperbesar pool DI-DEDUP: dua pemanggil serentak dulu sama-sama
+ *  memasuki while-loop → sesi dobel tersimpan PERMANEN di pipaTambahan (RAM). */
 const pipaTambahan: Record<"tepat" | "cepat", ModulTransformers[]> = { tepat: [], cepat: [] };
+const poolJanji: Record<"tepat" | "cepat", Promise<ModulTransformers[]> | null> = {
+  tepat: null,
+  cepat: null,
+};
 async function ambilPoolAsr(n: number, cepat = false): Promise<ModulTransformers[]> {
   const kunci = cepat ? "cepat" : "tepat";
   const utama = await ambilPipaAsr(cepat);
   if (!utama) return [];
   if (n <= 1) return [utama];
   const tambahan = pipaTambahan[kunci];
-  while (tambahan.length < n - 1) {
-    const p = await buatPipaAsr(cepat);
-    if (!p) break; // memori/lingkungan tak sanggup — turunkan jumlah jalur
-    tambahan.push(p);
+  if (tambahan.length >= n - 1) return [utama, ...tambahan];
+  if (!poolJanji[kunci]) {
+    poolJanji[kunci] = (async () => {
+      while (tambahan.length < n - 1) {
+        const p = await buatPipaAsr(cepat);
+        if (!p) break; // memori/lingkungan tak sanggup — turunkan jumlah jalur
+        tambahan.push(p);
+      }
+      return [utama, ...tambahan];
+    })().finally(() => {
+      poolJanji[kunci] = null;
+    });
   }
-  return [utama, ...tambahan];
+  return poolJanji[kunci];
 }
 
 /**
@@ -454,23 +497,32 @@ export function jumlahPipaParalel(cores: number, ramGb: number): number {
   return 4;
 }
 
-/** Pipeline terjemahan EN→ID — dimuat hanya saat dibutuhkan. */
-async function ambilPipaTerjemah(): Promise<ModulTransformers | null> {
-  if (pipaTerjemah !== undefined) return pipaTerjemah;
-  const m = await muatTransformers();
-  if (!m) {
-    pipaTerjemah = null;
-    return pipaTerjemah;
-  }
-  try {
-    pipaTerjemah = await m.pipeline("translation", ID_MODEL_TERJEMAH, {
-      dtype: "q8",
-      device: "cpu",
+/** Pipeline terjemahan EN→ID — dimuat hanya saat dibutuhkan.
+ *  v0.58.0 — memoize promise (anti-race dobel sesi) + batas waktu muat + kegagalan
+ *  tak lagi di-cache permanen. */
+let pipaTerjemahJanji: Promise<ModulTransformers | null> | null = null;
+function ambilPipaTerjemah(): Promise<ModulTransformers | null> {
+  if (!pipaTerjemahJanji) {
+    pipaTerjemahJanji = balapanWaktu(
+      (async (): Promise<ModulTransformers | null> => {
+        const m = await muatTransformers();
+        if (!m) return null;
+        try {
+          return await m.pipeline("translation", ID_MODEL_TERJEMAH, {
+            dtype: "q8",
+            device: "cpu",
+          });
+        } catch {
+          return null;
+        }
+      })(),
+      MS_MUAT_MODEL,
+    ).then((r) => {
+      if (r === null) pipaTerjemahJanji = null;
+      return r;
     });
-  } catch {
-    pipaTerjemah = null;
   }
-  return pipaTerjemah;
+  return pipaTerjemahJanji;
 }
 
 // ================= ekstraksi audio (ffmpeg → float32 16 kHz mono) =================
@@ -496,8 +548,14 @@ export async function ekstrakAudioF32(
     c.on("close", (code) => (code === 0 ? ok() : gagal(new Error(`ffmpeg gagal: ${stderr.slice(-300)}`))));
   });
   const buf = Buffer.concat(potongan);
-  const f32 = new Float32Array(Math.floor(buf.length / 4));
-  for (let i = 0; i < f32.length; i += 1) f32[i] = buf.readFloatLE(i * 4);
+  const jumlah = Math.floor(buf.length / 4);
+  if (buf.byteOffset % 4 === 0) {
+    // v0.58.0 — view nol-salin: dulu loop readFloatLE per-sampel (±900 juta
+    // pemanggilan utk audio 4 jam) makan detik-detik CPU di event loop
+    return new Float32Array(buf.buffer, buf.byteOffset, jumlah);
+  }
+  const f32 = new Float32Array(jumlah);
+  for (let i = 0; i < jumlah; i += 1) f32[i] = buf.readFloatLE(i * 4);
   return f32;
 }
 
@@ -661,8 +719,15 @@ export async function transkripDiterjemahkan(
     tahap("deteksi bahasa…");
     try {
       const opsiDasar = { chunk_length_s: 30, stride_length_s: 5, return_timestamps: false, task: "transcribe" };
-      const cobaId = await asrUtama(cuplikan, { ...opsiDasar, language: "indonesian" });
-      const cobaEn = await asrUtama(cuplikan, { ...opsiDasar, language: "english" });
+      // v0.58.0 — deteksi bahasa diberi batas waktu (dulu: hang di sini = ekspor beku)
+      const cobaId = await balapanWaktu<ModulTransformers>(
+        asrUtama(cuplikan, { ...opsiDasar, language: "indonesian" }),
+        MS_TAHAP_AI,
+      );
+      const cobaEn = await balapanWaktu<ModulTransformers>(
+        asrUtama(cuplikan, { ...opsiDasar, language: "english" }),
+        MS_TAHAP_AI,
+      );
       const teksId = String(cobaId?.text || "");
       const teksEn = String(cobaEn?.text || "");
       const nilaiId = skorBahasa(teksId).id / Math.max(1, skorBahasa(teksId).total);
@@ -786,7 +851,9 @@ export async function transkripDiterjemahkan(
       const batch = segmen.slice(i, i + BATCH_TERJEMAH);
       let keluar: Array<{ translation_text?: string }> = [];
       try {
-        keluar = await penerjemah(batch.map((s) => s.t));
+        // v0.58.0 — batch terjemahan diberi batas waktu: hang = teks asli dipakai
+        // (fallback aman), ekspor tidak pernah beku di tengah penerjemahan
+        keluar = (await balapanWaktu(penerjemah(batch.map((s) => s.t)), MS_TAHAP_AI)) ?? [];
       } catch {
         keluar = [];
       }
@@ -952,8 +1019,11 @@ export interface TranskripLatar {
    * dirender tanpa teks, sama seperti perilaku "AI gagal tidak menggagalkan
    * ekspor"). Mode "deteksi" selalu menunggu hasil penuh (teks Inggris baru
    * jadi Indonesia setelah semua blok beres).
+   * v0.58.0 — isBatal opsional: loop memeriksanya tiap putaran (maks 400 ms)
+   * lalu melempar "DIBATALKAN" — SATU loop tunggu per part, tanpa race 500 ms
+   * yang dulu menumpuk loop-zombie.
    */
-  tungguCakupan: (sampaiDtk: number) => Promise<SegmenSub[]>;
+  tungguCakupan: (sampaiDtk: number, isBatal?: () => boolean) => Promise<SegmenSub[]>;
   /**
    * v0.56.0 — true bila transkrip latar sudah BERAKHIR (sukses/gagal) atau
    * langsung kena cache. Dipakai jobs.ts utk menahan render paralel: selama AI
@@ -1011,7 +1081,10 @@ export async function mulaiTranskripLatar(
     // cache kena — segmen penuh tersedia SEKETIKA, render tak pernah menunggu
     return {
       janji: Promise.resolve(tersimpan),
-      tungguCakupan: async () => tersimpan.segmen,
+      tungguCakupan: async (_t: number, isBatal?: () => boolean) => {
+        if (isBatal?.()) throw new Error("DIBATALKAN");
+        return tersimpan.segmen;
+      },
       apakahTuntas: () => true,
     };
   }
@@ -1046,7 +1119,10 @@ export async function mulaiTranskripLatar(
     return bersihSegmenHalusinasi(gabungSegmenBlok(daftar));
   };
 
-  const tungguCakupan = async (sampaiDtk: number): Promise<SegmenSub[]> => {
+  const tungguCakupan = async (
+    sampaiDtk: number,
+    isBatal?: () => boolean,
+  ): Promise<SegmenSub[]> => {
     const t = Math.max(0, sampaiDtk);
     // mode "deteksi": teks Inggris diterjemahkan SETELAH semua blok — segmen
     // bertahap belum berbahasa akhir → tunggu hasil penuh (perilaku lama).
@@ -1055,6 +1131,8 @@ export async function mulaiTranskripLatar(
       return hasil?.segmen ?? [];
     }
     for (;;) {
+      // v0.58.0 — sinyal batal diperiksa tiap putaran (bangun tiap ≤400 ms)
+      if (isBatal?.()) throw new Error("DIBATALKAN");
       if (tuntas) return segmenSaatIni();
       if (!zona.length) {
         // ekstraksi audio masih berjalan — atau mesin gagal sebelum zona terbentuk
@@ -1113,10 +1191,12 @@ export async function mulaiTranskripLatar(
 
 /** detik → waktu ASS "H:MM:SS.cc" */
 export function kebabAssSub(t: number): string {
-  const j = Math.max(0, t);
-  const jam = Math.floor(j / 3600);
-  const menit = Math.floor((j % 3600) / 60);
-  const detik = j % 60;
+  // v0.58.0 — FLOOR ke sentidetik: dulu 59.995 dibulatkan toFixed → "0:00:60.00"
+  // (waktu tak valid utk libass → teks bisa melompat), jendela 10 ms per menit
+  const total = Math.floor(Math.max(0, t) * 100) / 100;
+  const jam = Math.floor(total / 3600);
+  const menit = Math.floor((total % 3600) / 60);
+  const detik = total % 60;
   return `${jam}:${String(menit).padStart(2, "0")}:${detik.toFixed(2).padStart(5, "0")}`;
 }
 

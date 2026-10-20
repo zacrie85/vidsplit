@@ -29,6 +29,22 @@ export function Preview({
   const [jeda, setJeda] = useState(true);
   const [bisu, setBisu] = useState(false);
 
+  // v0.58.0 — ganti video / mode: kembalikan posisi ke 0 & putar ulang.
+  // Dulu: slider & hitungan Part masih menunjuk posisi video LAMA, dan karena
+  // tiap mode merender elemen <video> di cabang JSX berbeda, elemen baru TIDAK
+  // pernah diperintah play (effect [jeda] tak jalan krn nilainya tak berubah)
+  // → video beku tapi ikon menampilkan "Pause".
+  useEffect(() => {
+    setT(0);
+    const id = setTimeout(() => {
+      refV.current?.play().catch(() => {
+        /* autoplay ditolak browser — user tekan play manual */
+      });
+    }, 0);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [srcUrl, pengaturan.mode]);
+
   // nomor part saat ini — 0–20 dtk = Part 1, 21–40 = Part 2, dst
   const partKini = useMemo(() => {
     if (totalPart <= 0) return 1;

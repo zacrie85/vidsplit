@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import type { InfoJob } from "@/lib/vidsplit/jobs";
 import type { SetelanTujuan } from "@/lib/vidsplit/tujuan";
-import { durasiEfektif, slugify, type Pengaturan } from "@/lib/vidsplit/types";
+import { hitungPartDgnHapus, slugify, type Pengaturan } from "@/lib/vidsplit/types";
 import { BarisSlider, Kartu, fmtUkuran } from "./bits";
 import { PanelTujuan } from "./PanelTujuan";
 
@@ -53,14 +53,23 @@ export function PanelEkspor({
   const [batalKirim, setBatalKirim] = useState(false);
   const [setelanTujuan, setSetelanTujuan] = useState<SetelanTujuan | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // v0.58.0 — pengaman poling: respons >800 ms dulu MENUMPUK request (respons LAMA
+  // bisa menimpa progres BARU → bar mundur) dan kegagalan jaring ditelan diam
+  // (status macet "Sedang merender…" selamanya tanpa pesan apa pun)
+  const polingSibuk = useRef(false);
+  const gagalBeruntun = useRef(0);
+
+  const hentikanPoling = () => {
+    if (timer.current) {
+      clearInterval(timer.current);
+      timer.current = null;
+    }
+  };
 
   // polling status job
   useEffect(() => {
     if (!job || job.selesaiSemua || job.error) {
-      if (timer.current) {
-        clearInterval(timer.current);
-        timer.current = null;
-      }
+      hentikanPoling();
       if (job?.selesaiSemua) {
         // beri tahu panel Riwayat agar menyegarkan daftarnya
         try {
@@ -97,21 +106,38 @@ export function PanelEkspor({
     }
     if (!timer.current) {
       timer.current = setInterval(async () => {
+        if (polingSibuk.current) return; // respons sebelumnya belum tiba — jangan tumpuk
+        polingSibuk.current = true;
         try {
           const r = await fetch(`/api/job?id=${job.id}`, { cache: "no-store" });
           const j = (await r.json()) as { ok: boolean; job?: InfoJob };
-          if (j.ok && j.job) setJob(j.job);
+          if (j.ok && j.job) {
+            gagalBeruntun.current = 0;
+            setJob(j.job);
+          } else {
+            // job tak dikenal server (restart/eviksi) — bukan galat jaring, berhenti saja
+            gagalBeruntun.current += 1;
+            if (gagalBeruntun.current >= 5) {
+              hentikanPoling();
+              toast.error(
+                "Proses ekspor tidak ditemukan di server (aplikasi mungkin direstart) — hasil yang sudah jadi tetap ada di Riwayat",
+              );
+            }
+          }
         } catch {
-          /* biarkan dicoba lagi */
+          gagalBeruntun.current += 1;
+          if (gagalBeruntun.current >= 5) {
+            hentikanPoling();
+            toast.error(
+              "Koneksi ke server terputus saat ekspor — periksa jendela VidSplit; hasil sejauh ini tetap aman",
+            );
+          }
+        } finally {
+          polingSibuk.current = false;
         }
       }, 800);
     }
-    return () => {
-      if (timer.current) {
-        clearInterval(timer.current);
-        timer.current = null;
-      }
-    };
+    return hentikanPoling;
   }, [job]);
 
   const ekspor = async () => {
@@ -145,11 +171,17 @@ export function PanelEkspor({
         id: j.id,
         antrean: daftar.map((v) => ({
           nama: v.nama,
+          // v0.58.0 — estimasi part kini MENGHORMATI zona hapus (Potong & Hapus
+          // Bagian) — sama dgn hitungan server, angka tidak lagi loncat saat
+          // data server tiba
           total: Math.max(
             1,
-            Math.ceil(
-              durasiEfektif(v.durasi, v.pengaturan.mulaiDetik, v.pengaturan.akhirDetik) /
-                Math.max(1, v.pengaturan.durasiPart),
+            hitungPartDgnHapus(
+              v.durasi,
+              v.pengaturan.durasiPart,
+              v.pengaturan.mulaiDetik,
+              v.pengaturan.akhirDetik,
+              v.pengaturan.zonaHapus || [],
             ),
           ),
           selesai: 0,
