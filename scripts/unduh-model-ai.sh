@@ -53,5 +53,21 @@ for f in \
   unduh "$T" "$f"
 done
 
+# v2.0.0 — ZOOM PEMBICARA OTOMATIS: YOLOv8n PERSON-ONLY (±12 MB, unduh sekali,
+# lalu 100% offline permanen — dipakai deteksi orang utk kamera otomatis)
+if [[ " ${MODEL_LIST[*]} " == *" yolo-pembicara "* ]]; then
+  echo "=== Deteksi orang (YOLOv8n-person ONNX, ±12 MB): deepghs/yolo-person ==="
+  if [ -s "$TUJUAN/yolo-pembicara.onnx" ]; then
+    echo "  ✓ sudah ada: yolo-pembicara.onnx"
+  else
+    mkdir -p "$TUJUAN"
+    echo "  ↓ unduh: deepghs/yolo-person/yolov8n-person/model.onnx"
+    curl -fsSL --retry 3 --retry-delay 3 -o "$TUJUAN/yolo-pembicara.onnx" \
+      "https://huggingface.co/deepghs/yolo-person/resolve/main/yolov8n-person/model.onnx" \
+      || curl -fsSL --retry 3 --retry-delay 3 -o "$TUJUAN/yolo-pembicara.onnx" \
+        "https://huggingface.co/SpotLab/YOLOv8Detection/resolve/3005c6751fb19cdeb6b10c066185908faf66a097/yolov8n.onnx"
+  fi
+fi
+
 echo "=== SELESAI — isi assets/ai-models: ==="
 find "$TUJUAN" -type f -printf "%-72p %10s byte\n" | sort

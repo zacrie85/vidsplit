@@ -7,6 +7,34 @@ import { rapikanTemplat, type SetelanTemplat } from "./templatLayar";
  *  kotak tengah, deskripsi & Part di kotak bawah, latar gradasi (sketsa user). */
 export type ModeKonversi = "blur" | "crop" | "warna" | "asli" | "template";
 export type Resolusi = "1080" | "720";
+
+/* ============ v2.0.0 — SPLIT PER ADEGAN & JUMLAH PART OTOMATIS ============ */
+
+/** v2.0.0 — cara memecah part: "durasi" = per batas durasi (perilaku lama),
+ *  "adegan" = video DIANALISIS 100% offline (piksel + histogram, ambang adaptif
+ *  median+MAD) → part terpecah TEPAT di pergantian adegan film. */
+export type ModeSplit = "durasi" | "adegan";
+
+/** v2.0.0 — resolusi output eksplisit. "auto" = perilaku lama (mengikuti field
+ *  `resolusi` 720/1080). Lainnya = dikunci ke resolusi pilihan user; rasio
+ *  vertikal 9:16 otomatis dibalik sesuai konvensi TikTok/Shorts (4K = 2160×3840). */
+export type ResolusiOutput = "auto" | "720p" | "1080p" | "2k" | "4k";
+
+/** v2.0.0 — ZOOM PEMBICARA OTOMATIS (100% offline, model YOLO ±12 MB unduh
+ *  sekali): "mati" = tanpa zoom; "geser" = GESER HALUS (kamera meluncur ke
+ *  pembicara baru); "fade" = FADE (gambar lama melebur/dissolve ke yang baru);
+ *  "langsung" = LANGSUNG (cut instan ala TV). */
+export type ModePembicara = "mati" | "geser" | "fade" | "langsung";
+
+/** v2.0.0 — kecepatan pindah fokus saat pembicara berganti (GESER HALUS) */
+export type LajuPindah = "cepat" | "normal" | "lambat";
+
+/** durasi pindah fokus (detik, pada waktu HASIL) per laju */
+export const DURASI_PINDAH: Record<LajuPindah, number> = { cepat: 0.35, normal: 0.8, lambat: 1.6 };
+/** durasi crossfade FADE antar segmen fokus (detik) */
+export const DURASI_FADE = 0.45;
+/** maks segmen fokus utk rantai xfade FADE — lebih dari ini jatuh ke GESER */
+export const MAKS_SEGMEN_FADE = 60;
 export type CodecVideo = "h264" | "h265";
 export type PosisiLogo = "kiri-atas" | "kanan-atas" | "kiri-bawah" | "kanan-bawah";
 export type PosisiTeks = "atas" | "tengah" | "bawah";
@@ -126,6 +154,25 @@ export interface Pengaturan {
   /** v0.57.0 — zona yang DIHAPUS dari pemecahan part (Potong & Hapus Bagian)
    *  — absen pada simpanan lama = tanpa zona (perilaku lama) */
   zonaHapus: ZonaHapus[];
+  /** v2.0.0 — cara memecah part: per durasi (lama) atau per adegan (AI offline) */
+  modeSplit: ModeSplit;
+  /** v2.0.0 — JUMLAH PART OTOMATIS: >0 → video dibagi MERATA menjadi N part
+   *  (durasi part = durasi efektif ÷ N); 0 = mati, ikuti durasiPart manual */
+  jumlahPartOtomatis: number;
+  /** v2.0.0 — resolusi output eksplisit 720p/1080p/2K/4K (auto = ikuti `resolusi`) */
+  resolusiOutput: ResolusiOutput;
+  /** v2.0.0 — ZOOM PEMBICARA OTOMATIS (AI offline): mati/geser/fade/langsung */
+  zoomPembicara: ModePembicara;
+  /** v2.0.0 — kecepatan pindah fokus (cepat/normal/lambat) */
+  lajuPindah: LajuPindah;
+  /** v2.0.0 — saat senyap: "tetap" di pembicara terakhir | "semua" tampilkan frame penuh */
+  senyapPembicara: "tetap" | "semua";
+  /** v2.0.0 — backsound musik pilihan sendiri (MP3/WAV/M4A) */
+  backsoundAktif: boolean;
+  /** v2.0.0 — path file musik: relatif work/upload (web) atau ABSOLUT (dialog Electron) */
+  backsoundFile: string;
+  /** v2.0.0 — volume backsound 0–150 % (bawaan 80) */
+  backsoundVolume: number;
   /** codec video hasil — h265 menghasilkan file jauh lebih kecil */
   codec: CodecVideo;
   /** v0.39.0 — teks deskripsi bebas yang dibakar ke dalam video ("" = tanpa deskripsi).
@@ -221,6 +268,17 @@ export const pengaturanDefault: Pengaturan = {
   kecepatanVideo: 1,
   transisiPart: "" as TransisiPart,
   zonaHapus: [] as ZonaHapus[],
+  // v2.0.0 — split per durasi (lama), jumlah otomatis mati, resolusi auto,
+  // zoom pembicara mati, backsound mati (semua perilaku lama dgn default ini)
+  modeSplit: "durasi" as ModeSplit,
+  jumlahPartOtomatis: 0,
+  resolusiOutput: "auto" as ResolusiOutput,
+  zoomPembicara: "mati" as ModePembicara,
+  lajuPindah: "normal" as LajuPindah,
+  senyapPembicara: "tetap" as "tetap" | "semua",
+  backsoundAktif: false,
+  backsoundFile: "",
+  backsoundVolume: 80,
   mulaiDetik: 0,
   akhirDetik: 0,
   codec: "h264",
@@ -294,6 +352,17 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   else hasil.kecepatanVideo = rapikanKecepatan(hasil.kecepatanVideo);
   if (hasil.zonaHapus === undefined || !Array.isArray(hasil.zonaHapus))
     hasil.zonaHapus = [];
+  // v2.0.0 — simpanan lama tanpa fitur V2: isi bawaan agar tak pernah undefined
+  if (hasil.modeSplit === undefined) hasil.modeSplit = "durasi";
+  if (hasil.jumlahPartOtomatis === undefined) hasil.jumlahPartOtomatis = 0;
+  if (hasil.resolusiOutput === undefined) hasil.resolusiOutput = "auto";
+  if (hasil.zoomPembicara === undefined) hasil.zoomPembicara = "mati";
+  if (hasil.lajuPindah === undefined) hasil.lajuPindah = "normal";
+  if (hasil.senyapPembicara === undefined) hasil.senyapPembicara = "tetap";
+  if (hasil.backsoundAktif === undefined) hasil.backsoundAktif = false;
+  if (hasil.backsoundFile === undefined) hasil.backsoundFile = "";
+  if (hasil.backsoundVolume === undefined) hasil.backsoundVolume = 80;
+  else hasil.backsoundVolume = Math.min(150, Math.max(0, Number(hasil.backsoundVolume) || 0));
   return hasil;
 }
 
@@ -443,6 +512,170 @@ export function rentangPartHapus(
   return [mulaiDetik, 0.5];
 }
 
+/* ============ v2.0.0 — JUMLAH PART OTOMATIS ============ */
+
+/**
+ * v2.0.0 — Rapikan JUMLAH PART OTOMATIS dari input user (fungsi murni — dites unit).
+ * n > 0 → dibulatkan, clamp 1..MAKS; MAKS = floor(durasiEfektif) (biar tiap part
+ * minimal ±1 dtk) dan ≤ 1000 (jaring aman angka ekstrem). n ≤ 0 / NaN / kosong
+ * → 0 (mati — ikuti durasiPart manual). Video < 1 dtk → 0 (tidak bermakna).
+ */
+export function rapikanJumlahPart(n: unknown, durasiEfektif: number): number {
+  const x = Math.floor(Number(n));
+  if (!Number.isFinite(x) || x <= 0) return 0;
+  if (!(durasiEfektif >= 1)) return 0;
+  const maks = Math.min(1000, Math.floor(durasiEfektif));
+  return Math.max(1, Math.min(maks, x));
+}
+
+/**
+ * v2.0.0 — Durasi part yang BENAR-BENAR dipakai (fungsi murni — dites unit):
+ * jumlahPartOtomatis aktif → durasi part = PANJANG TOTAL YANG DIPROSES ÷ jumlah
+ * (tanpa zona) / ÷ jumlah dgn zona juga (part mengisi potongan dgn durasi sama,
+ * potongan terakhir bisa lebih pendek — persis perilaku split biasa).
+ * Jumlah mati → durasiPart manual seperti lama (nol perubahan).
+ */
+export function durasiPartDipakai(
+  p: { jumlahPartOtomatis?: number; durasiPart: number },
+  durasiVideo: number,
+  mulaiDetik = 0,
+  akhirDetik = 0,
+  zonas: ZonaHapus[] = [],
+): number {
+  const n = Math.floor(Number(p.jumlahPartOtomatis) || 0);
+  if (n <= 0) return Math.max(1, p.durasiPart);
+  const efektif = durasiEfektif(durasiVideo, mulaiDetik, akhirDetik);
+  let panjang = efektif;
+  if (zonas && zonas.length) {
+    const pot = potonganEfektif(durasiVideo, mulaiDetik, akhirDetik, zonas);
+    panjang = pot.reduce((a, z) => a + (z.akhir - z.mulai), 0);
+  }
+  return Math.max(1, panjang / n);
+}
+
+/**
+ * v2.0.0 — Hitung part MENGHORMATI jumlah otomatis (murni — dites unit).
+ * Tanpa zona = hitungPart lama dgn durasi part efektif; dgn zona = per potongan.
+ */
+export function hitungPartV2(
+  durasiVideo: number,
+  p: { jumlahPartOtomatis?: number; durasiPart: number },
+  mulaiDetik = 0,
+  akhirDetik = 0,
+  zonas: ZonaHapus[] = [],
+): number {
+  const n = Math.floor(Number(p.jumlahPartOtomatis) || 0);
+  if (n <= 0) return hitungPartDgnHapus(durasiVideo, p.durasiPart, mulaiDetik, akhirDetik, zonas);
+  return Math.max(1, hitungPartDgnHapus(durasiVideo, durasiPartDipakai(p, durasiVideo, mulaiDetik, akhirDetik, zonas), mulaiDetik, akhirDetik, zonas));
+}
+
+/**
+ * v2.0.0 — Posisi lagu KONTINU antar part (murni — dites unit): offset (detik,
+ * pada waktu HASIL) tempat backsound mulai diputar utk part ke-n.
+ * = Σ (durasi sumber part k<n + intro per part) ÷ kecepatan — zona hapus ikut
+ * dilewati (lagu berjalan di atas hasil akhir, bagian yang dihapus tak memutar
+ * lagu). Part pertama → 0.
+ */
+export function offsetBacksound(
+  n: number,
+  durasiVideo: number,
+  durasiPart: number,
+  mulaiDetik: number,
+  akhirDetik: number,
+  zonas: ZonaHapus[],
+  pakaiIntro: boolean,
+  durasiIntro: number,
+  kecepatan: number,
+): number {
+  const kec = Math.max(0.1, kecepatan || 1);
+  let sumberDetik = 0;
+  if (n <= 1) return 0;
+  for (let k = 1; k < Math.floor(n); k++) {
+    const [m, d] =
+      zonas && zonas.length
+        ? rentangPartHapus(k, durasiVideo, durasiPart, mulaiDetik, akhirDetik, zonas)
+        : rentangPart(k, durasiVideo, durasiPart, mulaiDetik, akhirDetik);
+    sumberDetik += d;
+    if (pakaiIntro) sumberDetik += Math.max(0, durasiIntro);
+  }
+  return Math.max(0, sumberDetik / kec);
+}
+
+/* ============ v2.0.0 — RESOLUSI OUTPUT ============ */
+
+/** Pemetaan resolusi output (LANDSCAPE dasar — vertikal dibalik di dimensiOutput) */
+export const RESOLUSI_OUTPUT_PX: Record<Exclude<ResolusiOutput, "auto">, [number, number]> = {
+  "720p": [1280, 720],
+  "1080p": [1920, 1080],
+  "2k": [2560, 1440],
+  "4k": [3840, 2160],
+};
+
+/** Label ramah resolusi (vertikal 9:16 sesuai konvensi TikTok/Shorts) */
+export function labelResolusiOutput(r: ResolusiOutput): string {
+  if (r === "auto") return "Auto (ikuti skala lama)";
+  const [w, h] = RESOLUSI_OUTPUT_PX[r];
+  const nama: Record<string, string> = { "720p": "720p HD", "1080p": "1080p FULL HD", "2k": "2K QHD", "4k": "4K ULTRA HD" };
+  return `${nama[r]} — ${h} × ${w}`;
+}
+
+/**
+ * v2.0.0 — Dimensi render akhir (murni — dites unit). Mode "asli" tetap ikut
+ * sumber (digenapkan). Mode vertikal: resolusiOutput ≠ auto → kunci ke px
+ * pilihan user DIBALIK (4K vertikal = 2160×3840); auto → perilaku lama
+ * (resolusi 720/1080).
+ */
+export function dimensiOutput(
+  mode: ModeKonversi,
+  resolusi: Resolusi,
+  resolusiOutput: ResolusiOutput,
+  lebarSumber: number,
+  tinggiSumber: number,
+): { W: number; H: number } {
+  if (mode === "asli") {
+    return {
+      W: Math.max(2, (lebarSumber || 2) - ((lebarSumber || 2) % 2)),
+      H: Math.max(2, (tinggiSumber || 2) - ((tinggiSumber || 2) % 2)),
+    };
+  }
+  const r = (resolusiOutput || "auto") as ResolusiOutput;
+  if (r !== "auto" && RESOLUSI_OUTPUT_PX[r]) {
+    const [wl, hl] = RESOLUSI_OUTPUT_PX[r];
+    return { W: hl, H: wl }; // dibalik: vertikal 9:16 (4K = 2160×3840)
+  }
+  return resolusi === "720" ? { W: 720, H: 1280 } : { W: 1080, H: 1920 };
+}
+
+/**
+ * v2.0.0 — H.264 level sesuai standar utk resolusi/fps (murni — dites unit):
+ * ≥2K → "5.1"; 4K (3840×2160) → "5.1" bila ≤30 fps, "5.2" bila lebih (60 fps).
+ * Resolusi kecil → null (biarkan encoder pilih otomatis seperti lama).
+ */
+export function levelH264(lebar: number, tinggi: number, fps: number): string | null {
+  const w = Math.max(lebar, 0);
+  const h = Math.max(tinggi, 0);
+  const maksSisi = Math.max(w, h);
+  const f = Math.max(1, fps || 30);
+  if (maksSisi >= 3840) return f > 30 ? "5.2" : "5.1";
+  if (maksSisi >= 2560) return "5.1";
+  return null;
+}
+
+/**
+ * v2.0.0 — Bitrate target dari KOMPRES PINTAR (murni — dites unit): target MB
+ * untuk total file (video+audio) dgn durasi tertentu → kbps video.
+ * Audio 192 kbps dikurangkan dulu. target ≤ 0 / durasi ≤ 0 → null (mati).
+ * Plafon aman 100 Mbps (4K). Lantai 200 kbps agar tak absurd.
+ */
+export function bitrateKbpsTarget(targetMb: number, durasiDetik: number): number | null {
+  const mb = Number(targetMb);
+  const d = Number(durasiDetik);
+  if (!Number.isFinite(mb) || mb <= 0 || !Number.isFinite(d) || d <= 0) return null;
+  const totalKbps = (mb * 8 * 1024) / d;
+  const video = totalKbps - 192;
+  return Math.round(Math.min(100_000, Math.max(200, video)));
+}
+
 /** v0.38.0 — salinan SELEKTIF utk tombol "Terapkan pengaturan video #N ke SEMUA video".
  *  Yang mengikuti video sumber HANYA 3 kartu ini:
  *   • kartu 1 — Cara ubah ke vertikal (mode, warna latar, posisi potong, zoom
@@ -478,6 +711,17 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     kecepatanVideo: sumber.kecepatanVideo,
     transisiPart: sumber.transisiPart,
     zonaHapus: (sumber.zonaHapus || []).map((z) => ({ ...z })),
+    // v2.0.0 — mode split, jumlah otomatis, resolusi output, zoom pembicara &
+    // backsound ikut diterapkan ke semua video (sesuai kartu 1 & 3 + panel baru)
+    modeSplit: sumber.modeSplit,
+    jumlahPartOtomatis: sumber.jumlahPartOtomatis,
+    resolusiOutput: sumber.resolusiOutput,
+    zoomPembicara: sumber.zoomPembicara,
+    lajuPindah: sumber.lajuPindah,
+    senyapPembicara: sumber.senyapPembicara,
+    backsoundAktif: sumber.backsoundAktif,
+    backsoundFile: sumber.backsoundFile,
+    backsoundVolume: sumber.backsoundVolume,
     // kartu 3 — Tulisan Part otomatis (v0.41.0: ukuran huruf TETAP milik target)
     kataPart: sumber.kataPart,
     durasiPart: sumber.durasiPart,

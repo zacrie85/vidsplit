@@ -11,6 +11,7 @@ import {
   Download,
   FileArchive,
   Loader2,
+  Merge,
   Rocket,
   Square,
   Timer,
@@ -19,7 +20,7 @@ import {
 } from "lucide-react";
 import type { InfoJob } from "@/lib/vidsplit/jobs";
 import type { SetelanTujuan } from "@/lib/vidsplit/tujuan";
-import { hitungPartDgnHapus, slugify, type Pengaturan } from "@/lib/vidsplit/types";
+import { hitungPartV2, slugify, type Pengaturan } from "@/lib/vidsplit/types";
 import { BarisSlider, Kartu, fmtUkuran } from "./bits";
 import { PanelTujuan } from "./PanelTujuan";
 
@@ -52,6 +53,9 @@ export function PanelEkspor({
   const [mulai, setMulai] = useState(false);
   const [batalKirim, setBatalKirim] = useState(false);
   const [setelanTujuan, setSetelanTujuan] = useState<SetelanTujuan | null>(null);
+  // v2.0.0 — GABUNG VIDEO + KOMPRES PINTAR
+  const [menggabung, setMenggabung] = useState(false);
+  const [targetMb, setTargetMb] = useState<string>("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
   // v0.58.0 — pengaman poling: respons >800 ms dulu MENUMPUK request (respons LAMA
   // bisa menimpa progres BARU → bar mundur) dan kegagalan jaring ditelan diam
@@ -163,6 +167,8 @@ export function PanelEkspor({
             pengaturan: v.pengaturan,
           })),
           modeEkspor,
+          // v2.0.0 — KOMPRES PINTAR: target ukuran MB (kosong = bebas)
+          ...(Number(targetMb) > 0 ? { targetMb: Number(targetMb) } : {}),
         }),
       });
       const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
@@ -176,9 +182,9 @@ export function PanelEkspor({
           // data server tiba
           total: Math.max(
             1,
-            hitungPartDgnHapus(
+            hitungPartV2(
               v.durasi,
-              v.pengaturan.durasiPart,
+              v.pengaturan,
               v.pengaturan.mulaiDetik,
               v.pengaturan.akhirDetik,
               v.pengaturan.zonaHapus || [],
@@ -211,6 +217,61 @@ export function PanelEkspor({
 
   const totalProgres = job ? job.progresTotal : 0;
   const berjalan = !!job && !job.selesaiSemua;
+
+  /** v2.0.0 — GABUNG VIDEO: semua video di Kotak Video → SATU MP4 utuh */
+  const gabung = async () => {
+    if (daftar.length < 2) {
+      toast.error("GABUNG VIDEO butuh minimal 2 video di Kotak Video");
+      return;
+    }
+    setMenggabung(true);
+    try {
+      const r = await fetch("/api/gabung", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          daftar: daftar.map((v) => ({
+            file: v.file,
+            nama: v.nama,
+            bg: v.pengaturan.bgId || undefined,
+            logo: v.pengaturan.logoId || undefined,
+            pengaturan: v.pengaturan,
+          })),
+          modeEkspor,
+          ...(Number(targetMb) > 0 ? { targetMb: Number(targetMb) } : {}),
+        }),
+      });
+      const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
+      if (!j.ok || !j.id) throw new Error(j.error || "GABUNG VIDEO gagal dimulai");
+      setJob({
+        id: j.id,
+        antrean: daftar.map((v) => ({
+          nama: v.nama,
+          total: 1,
+          selesai: 0,
+          status: "menunggu" as const,
+        })),
+        videoAktif: -1,
+        partAktif: 0,
+        progresPart: 0,
+        progresTotal: 0,
+        outputs: [],
+        error: null,
+        adaGagal: false,
+        selesaiSemua: false,
+        batalDiminta: false,
+        dibatalkan: false,
+        dibuat: Date.now(),
+        akselerasi: "mendeteksi…",
+        paralel: 1,
+      });
+      toast.info("GABUNG VIDEO dimulai — urutan atas ke bawah, satu file utuh di akhir");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "GABUNG VIDEO gagal");
+    } finally {
+      setMenggabung(false);
+    }
+  };
 
   /** tombol Batalkan: minta server membunuh ffmpeg yang sedang merender */
   const batalkan = async () => {
@@ -350,6 +411,40 @@ export function PanelEkspor({
           ? "Sedang merender…"
           : `Mulai ekspor & split (${daftar.length} video berurutan)`}
       </button>
+
+      {/* v2.0.0 — GABUNG VIDEO → SATU FILE: kebalikan split */}
+      <button
+        type="button"
+        onClick={gabung}
+        disabled={berjalan || menggabung || daftar.length < 2}
+        className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-400/60 bg-emerald-400/10 py-2.5 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {berjalan || menggabung ? <Loader2 className="h-4 w-4 animate-spin" /> : <Merge className="h-4 w-4" />}
+        {berjalan || menggabung
+          ? "Sedang menggabung…"
+          : `GABUNG VIDEO → SATU FILE (${daftar.length} video, urutan atas ke bawah)`}
+      </button>
+
+      {/* v2.0.0 — KOMPRES PINTAR: target ukuran MB (opsional) */}
+      <div className="mt-2 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
+        <label className="block">
+          <span className="mb-1 block text-xs text-slate-400">
+            KOMPRES PINTAR — target ukuran hasil (MB, kosong = bebas)
+          </span>
+          <input
+            type="number"
+            min={0}
+            placeholder="mis. 45 → hasil ±45 MB per part / segmen"
+            value={targetMb}
+            onChange={(e) => setTargetMb(e.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
+          />
+        </label>
+        <p className="mt-1 text-[11px] text-slate-500">
+          Bila diisi, bitrate video dihitung dari durasi tiap video (audio 192 kbps
+          dikurangi) dan mengutamakan target ini di atas kualitas bawaan.
+        </p>
+      </div>
 
       {berjalan && (
         <button

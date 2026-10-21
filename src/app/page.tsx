@@ -22,11 +22,13 @@ import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import {
   PanelBackground,
+  PanelBacksound,
   PanelDeskripsi,
   PanelFrame,
   PanelJudul,
   PanelMode,
   PanelPart,
+  PanelPembicara,
   PanelRingkasan,
   PanelSubtitle,
   PanelWatermark,
@@ -39,6 +41,7 @@ import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
 import {
   BATAS_VIDEO,
   formatDurasi,
+  hitungPartV2,
   judulDariNama,
   migrasiSimpanan,
   pengaturanDefault,
@@ -572,9 +575,56 @@ export default function Halaman() {
     );
   };
 
+  // v2.0.0 — UNGGAH BACKSOUND (web): POST /api/upload?kind=backsound → path relatif
+  const [sibukBacksound, setSibukBacksound] = useState(false);
+  const unggahBacksound = async (f: File) => {
+    if (!videoAktif) return;
+    setSibukBacksound(true);
+    try {
+      const r = await fetch(`/api/upload?kind=backsound&nama=${encodeURIComponent(f.name)}`, {
+        method: "POST",
+        body: f,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; ukuran?: number; error?: string };
+      if (!j.ok || !j.file) throw new Error(j.error || "Unggah backsound gagal");
+      perbaruiAktif((p) => ({ ...p, backsoundFile: j.file as string, backsoundAktif: true }));
+      toast.success(`Backsound "${f.name}" dipasang ke video #${aktif + 1} — jangan lupa PAKAI`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unggah backsound gagal");
+    } finally {
+      setSibukBacksound(false);
+    }
+  };
+  // v2.0.0 — mode desktop: dialog natif Electron pilih MP3 (path absolut, tanpa unggah)
+  const pilihAudioDesktop = async () => {
+    if (typeof window === "undefined" || !window.vdsplitDesktop || !videoAktif) return;
+    try {
+      const dipilih = await window.vdsplitDesktop.pilih("audio");
+      if (!dipilih || !dipilih.length) return;
+      const it = dipilih[0];
+      perbaruiAktif((p) => ({ ...p, backsoundFile: it.path, backsoundAktif: true }));
+      toast.success(`Backsound "${it.nama}" dipasang ke video #${aktif + 1}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal memilih backsound");
+    }
+  };
+
   const totalDurasi = daftar.reduce((a, v) => a + v.info.durasi, 0);
+  // v2.0.0 — hitungan part MENGHORMATI jumlah otomatis & zona hapus (mode adegan
+  // = 1 sementara, dipastikan saat ekspor oleh analisis adegan)
   const totalPart = daftar.reduce(
-    (a, v) => a + Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart))),
+    (a, v) =>
+      a +
+      (v.pengaturan.modeSplit === "adegan"
+        ? 1
+        : hitungPartV2(
+            v.info.durasi,
+            v.pengaturan,
+            v.pengaturan.mulaiDetik,
+            v.pengaturan.akhirDetik,
+            v.pengaturan.zonaHapus || [],
+          )),
     0,
   );
 
@@ -598,7 +648,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v0.58.0
+            v2.0.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -809,12 +859,20 @@ export default function Halaman() {
                   durasi={videoAktif.info.durasi}
                   lebar={videoAktif.info.lebar}
                   tinggi={videoAktif.info.tinggi}
-                  totalPart={Math.max(
-                    1,
-                    Math.ceil(
-                      videoAktif.info.durasi / Math.max(1, videoAktif.pengaturan.durasiPart),
-                    ),
-                  )}
+                  totalPart={
+                    videoAktif.pengaturan.modeSplit === "adegan"
+                      ? 0 // jumlah adegan dipastikan saat ekspor (analisis AI)
+                      : Math.max(
+                          1,
+                          hitungPartV2(
+                            videoAktif.info.durasi,
+                            videoAktif.pengaturan,
+                            videoAktif.pengaturan.mulaiDetik,
+                            videoAktif.pengaturan.akhirDetik,
+                            videoAktif.pengaturan.zonaHapus || [],
+                          ),
+                        )
+                  }
                 />
               </Kartu>
               <PanelEkspor
@@ -859,6 +917,20 @@ export default function Halaman() {
                 nomorVideo={aktif + 1}
                 durasiVideo={videoAktif.info.durasi}
                 onTerapkanUkuran={() => terapkanUkuranSemua("part")}
+              />
+              {/* v2.0.0 — ZOOM PEMBICARA OTOMATIS + BACKSOUND MUSIK SENDIRI */}
+              <PanelPembicara
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+              />
+              <PanelBacksound
+                pengaturan={videoAktif.pengaturan}
+                onChange={gantiPengaturanAktif}
+                nomorVideo={aktif + 1}
+                onUnggahAudio={(f) => void unggahBacksound(f)}
+                onPilihAudioDesktop={diDesktop ? pilihAudioDesktop : undefined}
+                unggahSibuk={sibukBacksound}
               />
               <PanelDeskripsi
                 pengaturan={videoAktif.pengaturan}

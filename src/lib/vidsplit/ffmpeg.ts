@@ -1,11 +1,12 @@
 // VidSplit — integrasi ffmpeg/ffprobe: cari binary, probe, susun filter graph, eksekusi
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { teksSiapGambar } from "./bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import type { CodecVideo, GayaTeks, ModeKonversi, Pengaturan } from "./types";
 import { DURASI_TRANSISI, rapikanKecepatan } from "./types";
+import { rantaiPembicara, type Keyframe } from "./pembicara";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
   ? path.resolve(process.env.VIDSPLIT_WORK)
@@ -278,7 +279,10 @@ function rantaiUtama(
     // W/H = dimensi sumber yang sudah digenapkan (dari jobs.ts); scale ke ukuran
     // yang sama tidak mengubah apa pun, hanya mengamankan sumber berdimensi ganjil
     // agar tetap valid utk yuv420p (libx264 menolak lebar/tinggi ganjil).
-    return `[0:v]scale=${W}:${H},${ekor}[mv]`;
+    // v2.0.0 — bila rasio sumber ≠ target W:H (GABUNG VIDEO menyamakan semua
+    // segmen / resolusi terkunci dgn mode asli) → scale decrease + pad hitam
+    // (bukan distorsi). Rasio sama = persis perilaku lama (nol regresi).
+    return `[0:v]scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,${ekor}`;
   }
   if (mode === "crop") {
     // posisiPotong 0=kiri, 50=tengah, 100=kanan — geser jendela potong secara horizontal
@@ -542,6 +546,21 @@ export interface ArgPart {
   neon?: SeqNeon | null;
   /** v0.46.0 — PNG latar template halaman (path absolut) atau null */
   templatBg?: string | null;
+  /** v2.0.0 — backsound musik (path absolut) atau null — diputar LOOP mulai dari
+   *  offsetBacksound (posisi lagu kontinu antar part), volume 0–150 % */
+  fileBacksound?: string | null;
+  /** v2.0.0 — volume backsound 0–1.5 (dari persen ÷ 100) */
+  volumeBacksound?: number;
+  /** v2.0.0 — posisi lagu saat part ini mulai (detik, waktu HASIL) */
+  offsetBacksound?: number;
+  /** v2.0.0 — keyframe ZOOM PEMBICARA (JSON work/tmp) atau null — rantai video
+   *  diganti crop dinamis mengikuti pembicara aktif (geser/fade/langsung) */
+  filePembicara?: string | null;
+  /** v2.0.0 — dimensi SUMBER video (utk crop pembicara 9:16) */
+  sumberLebar?: number;
+  sumberTinggi?: number;
+  /** v2.0.0 — bitrate target KOMPRES PINTAR (kbps) — null = ikuti CRF/CQ */
+  bitrateKbps?: number | null;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -625,6 +644,40 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ? ["-framerate", String(neonS?.fps ?? 25), "-stream_loop", "-1", "-i", path.join(neonS?.dir ?? "", "f%04d.png")]
     : [];
 
+  // v2.0.0 — input backsound SELALU PALING AKHIR (indeks dihitung dari sisa input)
+  const pakaiBacksound =
+    !!a.fileBacksound && existsSync(a.fileBacksound) && (a.volumeBacksound ?? 0) > 0;
+  const inputBacksound: string[] = pakaiBacksound
+    ? ["-stream_loop", "-1", "-t", ((a.offsetBacksound ?? 0) + total + 1).toFixed(3), "-i", a.fileBacksound as string]
+    : [];
+  const idxBacksound = pakaiBacksound
+    ? (pakaiNeon ? idxNeon + 1 : pakaiFrame ? idxFrame + 1 : pakaiTemplat ? idxTemplat + 1 : dasarBerikut)
+    : -1;
+
+  // v2.0.0 — ZOOM PEMBICARA: keyframe dari file JSON (analisis latar) → rantai
+  // video khusus menggantikan rantaiUtama (crop dinamis pembicara aktif). Gagal
+  // baca/rantai tak bisa dibangun → jatuh ke rantai lama (perilaku aman).
+  let rantaiPembicaraStr: string | null = null;
+  if (a.filePembicara && existsSync(a.filePembicara) && a.sumberLebar && a.sumberTinggi) {
+    try {
+      const kf = JSON.parse(readFileSync(a.filePembicara, "utf8")) as Keyframe[];
+      if (Array.isArray(kf) && kf.length && p.zoomPembicara !== "mati") {
+        const hasil = rantaiPembicara(
+          kf,
+          { w: a.sumberLebar, h: a.sumberTinggi },
+          { W, H },
+          p.zoomPembicara === "fade" ? "fade" : p.zoomPembicara === "langsung" ? "langsung" : "geser",
+          p.lajuPindah === "cepat" ? "cepat" : p.lajuPindah === "lambat" ? "lambat" : "normal",
+          fps,
+          a.durasi,
+        );
+        if (hasil) rantaiPembicaraStr = hasil.filter.replace(/\[vz\]$/, "[cc]");
+      }
+    } catch {
+      rantaiPembicaraStr = null;
+    }
+  }
+
   // audio: hening selama intro + audio sumber ter-trim
   const inputAudio: string[] = [];
   const filterAudio: string[] = [];
@@ -651,9 +704,43 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     mapAudio = ["-map", "1:a"];
   }
 
+  // v2.0.0 — BACKSOUND MUSIK SENDIRI: diputar LOOP otomatis (lagu lebih pendek
+  // dari video), posisi KONTINU antar part (offset), volume 0–150 %. Input musik
+  // di-loop dgn -stream_loop -1 lalu atrim start=offset → posisi lagu kontinu.
+  if (pakaiBacksound) {
+    const vol = Math.min(1.5, Math.max(0.01, (a.volumeBacksound ?? 0.8) / 100));
+    const off = Math.max(0, a.offsetBacksound ?? 0);
+    filterAudio.push(
+      `[${idxBacksound}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,` +
+        (off > 0.01 ? `atrim=start=${off.toFixed(3)},asetpts=PTS-STARTPTS,` : "") +
+        `volume=${vol.toFixed(3)}[bsv]`,
+    );
+    // bila video punya audio asli → campur dgn amix TANPA normalisasi (volume
+    // asli tetap 1.0); tanpa audio asli → backsound jadi satu-satunya track
+    // (video tanpa suara tetap diekspor DENGAN audio) ✓ permintaan user
+    const dasarAudio = pakaiBg ? (a.adaAudio ? "[aout]" : "[2:a]") : a.adaAudio ? "[aout]" : "[1:a]";
+    if (a.adaAudio || pakaiBg) {
+      filterAudio.push(`${dasarAudio}[bsv]amix=inputs=2:duration=first:normalize=0[amixv]`);
+      mapAudio = ["-map", "[amixv]"];
+    } else {
+      mapAudio = ["-map", "[bsv]"];
+    }
+  }
+
   // video: intro bg (opsional) + video utama → concat → frame hiasan → neon → teks
+  // v2.0.0 — bila rantai pembicara tersedia → menggantikan rantaiUtama ([cc])
   const filterVideo: string[] = [];
-  if (pakaiTemplat) {
+  if (rantaiPembicaraStr && !pakaiBg && !pakaiTemplat) {
+    // zoom pembicara: hasil langsung [cc] (tanpa intro bg — podca/raycast vertikal)
+    filterVideo.push(rantaiPembicaraStr);
+  } else if (rantaiPembicaraStr && pakaiBg) {
+    // intro bg tetap jalan di depan, lalu konten pembicara
+    filterVideo.push(
+      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
+    );
+    filterVideo.push(rantaiPembicaraStr);
+    filterVideo.push(`[bgv][cc]concat=n=2:v=1:a=0[cc]`);
+  } else if (pakaiTemplat) {
     // v0.46.0 MODE TEMPLATE — video pas DI DALAM jendela kotak tengah:
     // (1) video contain di kotak + pad putih, (2) diletakkan di posisi kotak pada
     // kanvas penuh, (3) latar PNG (gradasi + kotak putih, jendela transparan)
@@ -789,6 +876,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ...inputTemplat,
     ...inputFrame,
     ...inputNeon,
+    ...inputBacksound,
     "-filter_complex",
     filter,
     "-map",
@@ -1074,50 +1162,84 @@ export interface PilihanEncoder {
   codecArgs: string[];
 }
 
-/** argumen codec CPU dari preset/crf/mode ekspor */
-export function codecCpu(preset: string, crf: number, codec: CodecVideo = "h264"): string[] {
+/** argumen codec CPU dari preset/crf/mode ekspor.
+ *  v2.0.0 — level H.264 5.1/5.2 utk 2K/4K (sesuai standar) + bitrate KOMPRES
+ *  PINTAR (kbps) — bila bitrate diberikan, CRF diganti CRF-TERBATAS
+ *  (crf + maxrate/bufsize) supaya kualitas tetap baik dgn ukuran terkunci. */
+export function codecCpu(
+  preset: string,
+  crf: number,
+  codec: CodecVideo = "h264",
+  level: string | null = null,
+  bitrateKbps: number | null = null,
+): string[] {
+  const lvl = level ? ["-level", level] : [];
+  const br = bitrateKbps && bitrateKbps > 0
+    ? ["-maxrate", `${Math.round(bitrateKbps)}k`, "-bufsize", `${Math.round(bitrateKbps * 2)}k`]
+    : [];
   return codec === "h265"
-    ? ["-c:v", "libx265", "-preset", preset, "-crf", String(crf), "-tag:v", "hvc1"]
-    : ["-c:v", "libx264", "-preset", preset, "-crf", String(crf)];
+    ? ["-c:v", "libx265", "-preset", preset, "-crf", String(crf), "-tag:v", "hvc1", ...lvl, ...br]
+    : ["-c:v", "libx264", "-preset", preset, "-crf", String(crf), ...lvl, ...br];
 }
 
 const KANDIDAT_GPU: Record<CodecVideo, Array<{
   encoder: string;
   nama: string;
-  codecArgs: (crf: number) => string[];
+  /** level=true → encoder ini menerima opsi -level string (nvenc) */
+  codecArgs: (crf: number, level: string | null, bitrateKbps: number | null) => string[];
 }>> = {
   h264: [
     {
       encoder: "h264_nvenc",
       nama: "NVIDIA NVENC H.264 (GPU)",
-      codecArgs: (crf) => ["-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0"],
+      codecArgs: (crf, level, br) => [
+        "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0",
+        ...(level ? ["-level", level] : []),
+        ...(br && br > 0 ? ["-maxrate", `${Math.round(br)}k`, "-bufsize", `${Math.round(br * 2)}k`] : []),
+      ],
     },
     {
       encoder: "h264_qsv",
       nama: "Intel Quick Sync H.264 (GPU)",
-      codecArgs: (crf) => ["-c:v", "h264_qsv", "-preset", "faster", "-global_quality", String(crf)],
+      codecArgs: (crf, _level, br) => [
+        "-c:v", "h264_qsv", "-preset", "faster", "-global_quality", String(crf),
+        ...(br && br > 0 ? ["-maxrate", `${Math.round(br)}k`, "-bufsize", `${Math.round(br * 2)}k`] : []),
+      ],
     },
     {
       encoder: "h264_amf",
       nama: "AMD AMF H.264 (GPU)",
-      codecArgs: (crf) => ["-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf)],
+      codecArgs: (crf, _level, br) => [
+        "-c:v", "h264_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf),
+        ...(br && br > 0 ? ["-maxrate", `${Math.round(br)}k`, "-bufsize", `${Math.round(br * 2)}k`] : []),
+      ],
     },
   ],
   h265: [
     {
       encoder: "hevc_nvenc",
       nama: "NVIDIA NVENC H.265 (GPU)",
-      codecArgs: (crf) => ["-c:v", "hevc_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0", "-tag:v", "hvc1"],
+      codecArgs: (crf, level, br) => [
+        "-c:v", "hevc_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", String(crf), "-b:v", "0", "-tag:v", "hvc1",
+        ...(level ? ["-level", level] : []),
+        ...(br && br > 0 ? ["-maxrate", `${Math.round(br)}k`, "-bufsize", `${Math.round(br * 2)}k`] : []),
+      ],
     },
     {
       encoder: "hevc_qsv",
       nama: "Intel Quick Sync H.265 (GPU)",
-      codecArgs: (crf) => ["-c:v", "hevc_qsv", "-preset", "faster", "-global_quality", String(crf), "-tag:v", "hvc1"],
+      codecArgs: (crf, _level, br) => [
+        "-c:v", "hevc_qsv", "-preset", "faster", "-global_quality", String(crf), "-tag:v", "hvc1",
+        ...(br && br > 0 ? ["-maxrate", `${Math.round(br)}k`, "-bufsize", `${Math.round(br * 2)}k`] : []),
+      ],
     },
     {
       encoder: "hevc_amf",
       nama: "AMD AMF H.265 (GPU)",
-      codecArgs: (crf) => ["-c:v", "hevc_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf), "-tag:v", "hvc1"],
+      codecArgs: (crf, _level, br) => [
+        "-c:v", "hevc_amf", "-quality", "balanced", "-rc", "cqp", "-qp_i", String(crf), "-qp_p", String(crf), "-tag:v", "hvc1",
+        ...(br && br > 0 ? ["-maxrate", `${Math.round(br)}k`, "-bufsize", `${Math.round(br * 2)}k`] : []),
+      ],
     },
   ],
 };
@@ -1159,25 +1281,29 @@ async function ujiEncoder(encoder: string, bin: string): Promise<boolean> {
   return hasil;
 }
 
-/** Pilih encoder: GPU bila diminta & tersedia, selain itu CPU. Hasilnya di-cache. */
+/** Pilih encoder: GPU bila diminta & tersedia, selain itu CPU. Hasilnya di-cache.
+ *  v2.0.0 — level (H.264 5.1/5.2 utk 2K/4K) + bitrateKbps (KOMPRES PINTAR).
+ *  Cache kini PER-KUNCI (encoder beda level/bitrate = hasil beda). */
 export async function pilihEncoder(
   pakaiGpu: boolean,
   preset: string,
   crf: number,
   bin: string,
   codec: CodecVideo = "h264",
+  level: string | null = null,
+  bitrateKbps: number | null = null,
 ): Promise<PilihanEncoder> {
   if (pakaiGpu) {
     for (const k of KANDIDAT_GPU[codec]) {
       if (await ujiEncoder(k.encoder, bin)) {
-        return { nama: k.nama, gpu: true, codecArgs: k.codecArgs(crf) };
+        return { nama: k.nama, gpu: true, codecArgs: k.codecArgs(crf, level, bitrateKbps) };
       }
     }
   }
   return {
     nama: codec === "h265" ? "CPU (libx265)" : "CPU (libx264)",
     gpu: false,
-    codecArgs: codecCpu(preset, crf, codec),
+    codecArgs: codecCpu(preset, crf, codec, level, bitrateKbps),
   };
 }
 

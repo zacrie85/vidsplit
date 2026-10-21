@@ -14,11 +14,14 @@ import { adalahVideoMusik } from "@/lib/vidsplit/musik";
 
 export const runtime = "nodejs";
 
-const BATAS: Record<"video" | "bg" | "logo" | "audio", number> = {
+const BATAS: Record<"video" | "bg" | "logo" | "audio" | "backsound", number> = {
   video: 20 * 1024 * 1024 * 1024, // 20 GB
   bg: 25 * 1024 * 1024, // 25 MB
   logo: 25 * 1024 * 1024, // 25 MB
   audio: 500 * 1024 * 1024, // 500 MB — v0.10.0 Studio Musik
+  // v2.0.0 — backsound musik pilihan sendiri (MP3/WAV/M4A) — nama ASLI dijaga
+  // (berbeda dgn kind=audio yang menimpa musik.mp3)
+  backsound: 500 * 1024 * 1024, // 500 MB
 };
 const BATAS_AUDIO_VIDEO = 2 * 1024 * 1024 * 1024; // v0.18.0 — sumber video utk Mode Musik
 
@@ -51,18 +54,20 @@ async function ekstrakAudioVideo(
 
 export async function POST(req: NextRequest) {
   const jenisRaw = req.nextUrl.searchParams.get("kind") || "";
-  const kind: "video" | "bg" | "logo" | "audio" =
+  const kind: "video" | "bg" | "logo" | "audio" | "backsound" =
     jenisRaw === "bg" ? "bg"
       : jenisRaw === "logo" ? "logo"
         : jenisRaw === "audio" ? "audio"
-          : "video";
+          : jenisRaw === "backsound" ? "backsound"
+            : "video";
   const namaMentah = req.nextUrl.searchParams.get("nama") || "";
   const nama = (
     namaMentah.replace(/[^\p{L}\p{N}._-]+/gu, "_").slice(-80) ||
     (kind === "video" ? "video.mp4"
       : kind === "logo" ? "logo.png"
         : kind === "audio" ? "musik.mp3"
-          : "bg.png")
+          : kind === "backsound" ? "backsound.mp3"
+            : "bg.png")
   ).replace(/^\.+/, "_");
   // v0.18.0 — sumber video utk Mode Musik: batas lebih longgar (2 GB), audio diekstrak nanti
   const sumberVideo = kind === "audio" && adalahVideoMusik(nama);
@@ -88,6 +93,7 @@ export async function POST(req: NextRequest) {
                 ? "Video musik melebihi batas 2 GB"
                 : "Musik melebihi batas 500 MB",
               bg: "Background melebihi batas 25 MB",
+              backsound: "Berkas backsound melebihi batas 500 MB",
             };
             throw new Error(pesan[kind]);
           }

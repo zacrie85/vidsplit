@@ -16,11 +16,12 @@ jobs:
       - name: Ambil kode
         uses: actions/checkout@v4
 
-      - name: Unduh model AI subtitle otomatis (Whisper small + base + opus-mt EN→ID, q8)
+      - name: Unduh model AI subtitle otomatis (Whisper small + base + opus-mt EN→ID, q8) + YOLO pembicara (v2.0.0)
         shell: bash
         # v0.51.2 — WAJIB dua-duanya: dulu hanya whisper-small, sehingga pilihan
         # "Cepat (Base)" gagal diam-diam → video diekspor tanpa subtitle
-        run: bash scripts/unduh-model-ai.sh whisper-small whisper-base
+        # v2.0.0 — yolo-pembicara: model deteksi orang ZOOM PEMBICARA (±12 MB)
+        run: bash scripts/unduh-model-ai.sh whisper-small whisper-base yolo-pembicara
 
       - name: Pasang Node.js 22
         uses: actions/setup-node@v4

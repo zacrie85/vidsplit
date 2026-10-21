@@ -32,27 +32,35 @@ import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/ne
 import { PRESET_GRADASI } from "@/lib/vidsplit/templatLayar";
 import {
   durasiEfektif,
+  durasiPartDipakai,
   hitungPart,
+  hitungPartV2,
   formatDurasi,
   FONT_CSS,
   FONT_DASAR,
   INFO_FONT,
   labelPosisiLogo,
   labelPosisiPotong,
+  labelResolusiOutput,
   labelZoomBlur,
   labelZoomPotong,
   LANGKAH_KECEPATAN,
   POSISI_LOGO_PRESET,
   potonganEfektif,
+  rapikanJumlahPart,
   uraiWaktu,
   type CodecVideo,
   type GayaTeks,
+  type LajuPindah,
   type ModeKonversi,
+  type ModePembicara,
+  type ModeSplit,
   type NamaFont,
   type PosisiLogo,
   type PosisiTeks,
   type Pengaturan,
   type Resolusi,
+  type ResolusiOutput,
   type TransisiPart,
   type ZonaHapus,
   urlBingkai,
@@ -350,7 +358,7 @@ export function PanelMode({
         </div>
       )}
       <div className="mt-3 border-t border-slate-700/50 pt-3">
-        <p className="mb-1 text-xs text-slate-400">Resolusi hasil</p>
+        <p className="mb-1 text-xs text-slate-400">Resolusi output</p>
         {pengaturan.mode === "asli" ? (
           <p className="rounded-lg bg-slate-800/70 px-3 py-2 text-xs text-slate-300">
             Mengikuti resolusi asli video
@@ -362,14 +370,27 @@ export function PanelMode({
             .
           </p>
         ) : (
-          <ChipPilihan<Resolusi>
-            pilihan={[
-              { v: "1080", label: "1080 × 1920", hint: "kualitas penuh" },
-              { v: "720", label: "720 × 1280", hint: "render lebih cepat" },
-            ]}
-            nilai={pengaturan.resolusi}
-            onChange={(v) => set("resolusi", v)}
-          />
+          <>
+            {/* v2.0.0 — RESOLUSI OUTPUT: AUTO = perilaku lama (mengikuti skala 720/1080);
+                pilihan lain = kunci resolusi (9:16 otomatis dibalik sesuai konvensi
+                TikTok/Shorts — 4K vertikal = 2160×3840); bitrate menyesuaikan otomatis */}
+            <ChipPilihan<ResolusiOutput>
+              pilihan={[
+                { v: "auto", label: "AUTO", hint: "ikuti skala lama (720/1080)" },
+                { v: "720p", label: "720p HD", hint: "720 × 1280" },
+                { v: "1080p", label: "1080p FULL HD", hint: "1080 × 1920" },
+                { v: "2k", label: "2K QHD", hint: "1440 × 2560" },
+                { v: "4k", label: "4K ULTRA HD", hint: "2160 × 3840 — sangat tajam, render paling lama" },
+              ]}
+              nilai={pengaturan.resolusiOutput}
+              onChange={(v) => set("resolusiOutput", v)}
+            />
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              {pengaturan.resolusiOutput === "auto"
+                ? "AUTO: mengikuti resolusi lama di bawah (1080 / 720)."
+                : `${labelResolusiOutput(pengaturan.resolusiOutput)} — semua mode, semua video, EKSPOR & SPLIT, BATCH & GABUNG dikunci ke resolusi ini. Judul, subtitle, frame, watermark & zoom ikut membesar proporsional; bitrate menyesuaikan otomatis (4K ≈ 4× 1080p); H.264 level 5.1/5.2 otomatis.`}
+            </p>
+          </>
         )}
       </div>
       <div className="mt-3 border-t border-slate-700/50 pt-3">
@@ -608,7 +629,19 @@ export function PanelPart({
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
   const spanEfektif = durasiEfektif(durasiVideo, pengaturan.mulaiDetik, pengaturan.akhirDetik);
-  const nPart = hitungPart(spanEfektif, pengaturan.durasiPart);
+  // v2.0.0 — hitungan part V2: jumlah otomatis (N merata) + zona hapus + adegan
+  const jumlahAktif = Math.floor(Number(pengaturan.jumlahPartOtomatis) || 0) > 0;
+  const durasiPartEff = durasiPartDipakai(
+    pengaturan,
+    durasiVideo,
+    pengaturan.mulaiDetik,
+    pengaturan.akhirDetik,
+    pengaturan.zonaHapus || [],
+  );
+  const nPart = pengaturan.modeSplit === "adegan"
+    ? null // jumlah part ditentukan hasil analisis adegan (teks khusus di bawah)
+    : hitungPartV2(durasiVideo, pengaturan, pengaturan.mulaiDetik, pengaturan.akhirDetik, pengaturan.zonaHapus || []);
+  const nPartLama = hitungPart(spanEfektif, pengaturan.durasiPart);
   const adaTrim = pengaturan.mulaiDetik > 0 || pengaturan.akhirDetik > 0;
 
   return (
@@ -617,6 +650,56 @@ export function PanelPart({
       deskripsi={`Video #${nomorVideo}: berganti sendiri tiap batas durasi set — split mengikuti batas ini`}
       ikon={<Scissors className="h-4 w-4" />}
     >
+      {/* v2.0.0 — MODE SPLIT: per durasi (lama) / per adegan (AI offline) */}
+      <div className="mb-3">
+        <p className="mb-1 text-xs text-slate-400">Cara memecah part</p>
+        <ChipPilihan<ModeSplit>
+          pilihan={[
+            { v: "durasi", label: "Per durasi", hint: "potong tepat di batas set (lama)" },
+            { v: "adegan", label: "Per adegan (AI)", hint: "analisis 100% offline — potong TEPAT di pergantian adegan film" },
+          ]}
+          nilai={pengaturan.modeSplit}
+          onChange={(v) => set("modeSplit", v)}
+        />
+        {pengaturan.modeSplit === "adegan" && (
+          <p className="mt-1.5 rounded-lg bg-fuchsia-400/10 px-3 py-2 text-[11px] text-fuchsia-200">
+            Mode per adegan: video dianalisis (piksel + histogram, ambang adaptif
+            median+MAD) saat ekspor mulai — part terpecah TEPAT di pergantian adegan,
+            bukan per durasi. Kolom durasi &amp; preset di bawah diabaikan di mode ini.
+          </p>
+        )}
+      </div>
+      {/* v2.0.0 — JUMLAH PART OTOMATIS: tulis N → dibagi merata */}
+      <div className="mb-3 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3">
+        <p className="text-xs font-medium text-sky-200">JUMLAH PART OTOMATIS</p>
+        <p className="mb-2 text-[11px] text-slate-400">
+          Tulis saja berapa part yang kamu mau — video dibagi MERATA otomatis
+          (60 menit ÷ 10 = 10 part × 6 menit). Setelan tetap aktif utk video berikutnya.
+        </p>
+        <input
+          type="number"
+          min={0}
+          max={1000}
+          value={pengaturan.jumlahPartOtomatis || ""}
+          placeholder="kosongkan = pakai durasi manual"
+          onChange={(e) => {
+            const v = e.target.value === "" ? 0 : Math.floor(Number(e.target.value) || 0);
+            set("jumlahPartOtomatis", rapikanJumlahPart(v, spanEfektif) || 0);
+          }}
+          className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-sky-400/70"
+        />
+        {jumlahAktif && pengaturan.modeSplit !== "adegan" && (
+          <p className="mt-2 rounded-lg bg-sky-400/10 px-3 py-2 text-xs font-medium text-sky-200">
+            SPLIT OTOMATIS {Math.floor(Number(pengaturan.jumlahPartOtomatis))} PART ×{" "}
+            {durasiPartEff.toFixed(0)} DTK
+          </p>
+        )}
+        {jumlahAktif && (pengaturan.modeSplit === "adegan" || pengaturan.durasiPart !== durasiPartEff) && (
+          <p className="mt-1 text-[11px] text-slate-500">
+            Kosongkan angka / isi durasi manual / klik preset 20–60 dtk → kembali ke cara lama.
+          </p>
+        )}
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-xs text-slate-400">Kata part</span>
@@ -629,14 +712,19 @@ export function PanelPart({
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs text-slate-400">Durasi tiap part (detik)</span>
+          <span className="mb-1 block text-xs text-slate-400">Durasi tiap part (detik){jumlahAktif ? " — otomatis" : ""}</span>
           <input
             type="number"
             min={5}
             max={3600}
-            value={pengaturan.durasiPart}
-            onChange={(e) => set("durasiPart", Number(e.target.value) || 20)}
-            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+            value={jumlahAktif ? Math.max(1, Math.round(durasiPartEff)) : pengaturan.durasiPart}
+            onChange={(e) => {
+              // mengisi durasi manual mematikan jumlah otomatis (kunci dua arah)
+              const v = Number(e.target.value) || 20;
+              onChange({ ...pengaturan, durasiPart: v, jumlahPartOtomatis: 0 });
+            }}
+            disabled={jumlahAktif}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70 disabled:opacity-60"
           />
         </label>
       </div>
@@ -648,22 +736,35 @@ export function PanelPart({
             { v: "45", label: "45 detik" },
             { v: "60", label: "60 detik" },
           ]}
-          nilai={String(pengaturan.durasiPart)}
-          onChange={(v) => set("durasiPart", Number(v))}
+          nilai={String(jumlahAktif ? Math.max(1, Math.round(durasiPartEff)) : pengaturan.durasiPart)}
+          onChange={(v) => onChange({ ...pengaturan, durasiPart: Number(v), jumlahPartOtomatis: 0 })}
         />
       </div>
       <p className="mt-2 rounded-lg bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-        {adaTrim ? (
+        {pengaturan.modeSplit === "adegan" ? (
           <>
-            Rentang {formatDurasi(pengaturan.mulaiDetik)}–{formatDurasi(pengaturan.akhirDetik)} ({formatDurasi(spanEfektif)}) ÷{" "}
-            {pengaturan.durasiPart} dtk = <b>{nPart} part</b>
+            Mode <b>per adegan</b>: jumlah part = jumlah adegan yang terdeteksi saat ekspor
+            (analisis otomatis, teks &amp; batas adegan mengikuti film).
+          </>
+        ) : nPart !== null ? (
+          <>
+            {adaTrim ? (
+              <>
+                Rentang {formatDurasi(pengaturan.mulaiDetik)}–{formatDurasi(pengaturan.akhirDetik)} ({formatDurasi(spanEfektif)}) ÷{" "}
+                {durasiPartEff.toFixed(0)} dtk = <b>{nPart} part</b>
+              </>
+            ) : (
+              <>
+                Video {formatDurasi(durasiVideo)} ÷ {durasiPartEff.toFixed(0)} dtk = <b>{nPart} part</b>
+              </>
+            )}{" "}
+            — nanti otomatis di-split jadi {nPart} file.
           </>
         ) : (
           <>
-            Video {formatDurasi(durasiVideo)} ÷ {pengaturan.durasiPart} dtk = <b>{nPart} part</b>
+            Video {formatDurasi(durasiVideo)} → ±{nPartLama} part (estimasi per durasi)
           </>
-        )}{" "}
-        — nanti otomatis di-split jadi {nPart} file.
+        )}
       </p>
       <GayaEditor
         gaya={pengaturan.gayaPart}
@@ -683,6 +784,217 @@ export function PanelPart({
           onChange={(v) => set("posisiTeks", v)}
         />
       </div>
+    </Kartu>
+  );
+}
+
+/* ============ 3b — ZOOM PEMBICARA OTOMATIS (v2.0.0) ============ */
+
+export function PanelPembicara({
+  pengaturan,
+  onChange,
+  nomorVideo,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  const aktif = pengaturan.zoomPembicara !== "mati";
+  const [model, setModel] = useState<{ ada: boolean; ukuranMb: number } | null>(null);
+  const [mengunduh, setMengunduh] = useState(false);
+  const [pesan, setPesan] = useState("");
+
+  useEffect(() => {
+    let hidup = true;
+    fetch("/api/model-pembicara", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j: { ok: boolean; ada?: boolean; ukuranMb?: number }) => {
+        if (hidup && j.ok) setModel({ ada: !!j.ada, ukuranMb: j.ukuranMb || 0 });
+      })
+      .catch(() => null);
+    return () => {
+      hidup = false;
+    };
+  }, []);
+
+  const unduh = async () => {
+    setMengunduh(true);
+    setPesan("");
+    try {
+      const r = await fetch("/api/model-pembicara", { method: "POST" });
+      const j = (await r.json()) as { ok: boolean; ada?: boolean; ukuranMb?: number; error?: string };
+      if (!j.ok) throw new Error(j.error || "Unduhan gagal");
+      setModel({ ada: !!j.ada, ukuranMb: j.ukuranMb || 0 });
+      setPesan("Model siap — kini 100% offline permanen");
+    } catch (e) {
+      setPesan(e instanceof Error ? e.message : "Unduhan gagal");
+    } finally {
+      setMengunduh(false);
+    }
+  };
+
+  return (
+    <Kartu
+      judul="3b. Zoom pembicara otomatis (AI)"
+      deskripsi={`Video #${nomorVideo}: kamera otomatis meng-zoom orang yang sedang bicara — podcast jadi konten vertikal`}
+      ikon={<MonitorPlay className="h-4 w-4" />}
+    >
+      <ChipPilihan<ModePembicara>
+        pilihan={[
+          { v: "mati", label: "Mati", hint: "tanpa zoom (lama)" },
+          { v: "geser", label: "GESER HALUS", hint: "kamera meluncur ke pembicara baru" },
+          { v: "fade", label: "FADE", hint: "gambar lama melebur (dissolve) ke baru" },
+          { v: "langsung", label: "LANGSUNG (CUT)", hint: "pindah instan ala potongan kamera TV" },
+        ]}
+        nilai={pengaturan.zoomPembicara}
+        onChange={(v) => set("zoomPembicara", v)}
+      />
+      {aktif && (
+        <>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-xs text-slate-400">Kecepatan pindah fokus</p>
+              <ChipPilihan<LajuPindah>
+                pilihan={[
+                  { v: "cepat", label: "CEPAT" },
+                  { v: "normal", label: "NORMAL" },
+                  { v: "lambat", label: "LAMBAT" },
+                ]}
+                nilai={pengaturan.lajuPindah}
+                onChange={(v) => set("lajuPindah", v)}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-xs text-slate-400">Saat senyap</p>
+              <ChipPilihan<"tetap" | "semua">
+                pilihan={[
+                  { v: "tetap", label: "Tetap di pembicara" },
+                  { v: "semua", label: "Tampilkan semua" },
+                ]}
+                nilai={pengaturan.senyapPembicara}
+                onChange={(v) => set("senyapPembicara", v)}
+              />
+            </div>
+          </div>
+          <p className="mt-2 rounded-lg bg-emerald-400/10 px-3 py-2 text-[11px] text-emerald-200">
+            Tiga sinyal digabung 100% OFFLINE: AI deteksi orang (model ±12 MB, unduh
+            sekali) + gerakan mulut/wajah + kapan ada suara. Hasil vertikal 9:16 siap
+            Reels/TikTok/Shorts — resolusi mengikuti Resolusi output (kartu 1). Mode
+            cadangan 2-bagian (kiri/kanan) otomatis bila AI sulit mengenali (kartun /
+            rekaman layar). Berlaku juga di BATCH &amp; GABUNG VIDEO.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            {model?.ada ? (
+              <span className="rounded-lg bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-200">
+                ✓ Model terpasang ({model.ukuranMb} MB) — offline permanen
+              </span>
+            ) : (
+              <button
+                type="button"
+                onClick={unduh}
+                disabled={mengunduh}
+                className="rounded-lg border border-sky-400/50 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-200 hover:bg-sky-400/20 disabled:opacity-60"
+              >
+                {mengunduh ? "Mengunduh model…" : "⬇ Unduh model AI deteksi orang (±12 MB, sekali ini saja)"}
+              </button>
+            )}
+            {pesan && <span className="text-[11px] text-slate-400">{pesan}</span>}
+          </div>
+        </>
+      )}
+    </Kartu>
+  );
+}
+
+/* ============ 3c — BACKSOUND MUSIK SENDIRI (v2.0.0) ============ */
+
+export function PanelBacksound({
+  pengaturan,
+  onChange,
+  nomorVideo,
+  onUnggahAudio,
+  onPilihAudioDesktop,
+  unggahSibuk,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+  /** unggah file audio via HTTP (web) → path relatif work/upload */
+  onUnggahAudio: (f: File) => void;
+  /** mode desktop: dialog natif Electron → path absolut */
+  onPilihAudioDesktop?: () => void;
+  unggahSibuk?: boolean;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  const nama = (pengaturan.backsoundFile || "").split(/[\\/]/).pop() || "";
+  return (
+    <Kartu
+      judul="3c. Backsound musik sendiri"
+      deskripsi={`Video #${nomorVideo}: pakai MP3/WAV/M4A pilihanmu sebagai musik latar — bukan cuma skor AI`}
+      ikon={<Sparkles className="h-4 w-4" />}
+    >
+      <button
+        type="button"
+        onClick={() => set("backsoundAktif", !pengaturan.backsoundAktif)}
+        disabled={!pengaturan.backsoundFile}
+        className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
+          pengaturan.backsoundAktif && pengaturan.backsoundFile
+            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+            : "border-slate-700 bg-slate-800/60 text-slate-400"
+        } disabled:cursor-not-allowed`}
+      >
+        <span className="flex items-center gap-1.5">
+          <Zap className="h-3.5 w-3.5" /> PAKAI backsound ini
+        </span>
+        <span className="font-medium">
+          {pengaturan.backsoundFile ? (pengaturan.backsoundAktif ? "Aktif" : "Mati") : "pilih file dulu"}
+        </span>
+      </button>
+      <div className="mt-2">
+        <JatuhBerkas
+          terima="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+          hint="Taruh MP3/WAV/M4A di sini atau klik untuk memilih"
+          sibuk={unggahSibuk}
+          onFile={onUnggahAudio}
+          bukaDialog={onPilihAudioDesktop}
+        />
+      </div>
+      {pengaturan.backsoundFile && (
+        <div className="mt-2 rounded-lg bg-slate-800/60 px-3 py-2">
+          <p className="truncate text-xs text-slate-200">🎵 {nama}</p>
+          <div className="mt-1.5">
+            <BarisSlider
+              label="VOLUME BACKSOUND"
+              nilai={pengaturan.backsoundVolume}
+              min={0}
+              max={150}
+              onChange={(n) => set("backsoundVolume", n)}
+              fmt={(n) => `${n}%`}
+            />
+          </div>
+          <audio
+            controls
+            loop
+            src={`/api/file?p=${encodeURIComponent(pengaturan.backsoundFile)}`}
+            className="mt-2 h-8 w-full"
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <p className="text-[11px] text-slate-500">
+              Diputar berulang otomatis bila lagu lebih pendek; posisi lagu kontinu antar part. Ikut EKSPOR &amp; SPLIT, BATCH, GABUNG. Video tanpa suara asli tetap punya audio.
+            </p>
+            <button
+              type="button"
+              onClick={() => set("backsoundFile", "")}
+              className="shrink-0 rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/10"
+            >
+              Hapus
+            </button>
+          </div>
+        </div>
+      )}
     </Kartu>
   );
 }

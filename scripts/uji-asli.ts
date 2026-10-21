@@ -82,9 +82,11 @@ function bangun(p: Pengaturan, W: number, H: number, bg: string | null = null) {
 console.log("A) asli landscape 640x360 — tanpa bg:");
 {
   const { filter, total } = bangun(buat({}), 640, 360);
-  cek("utama: [0:v]scale=640:360 langsung (tanpa force rasio)", /\[0:v\]scale=640:360,fps=/.test(filter));
+  // v2.0.0 — asli kini decrease+pad (SEATARA dgn scale langsung saat rasio sama;
+  // lebih aman saat GABUNG menyamakan dimensi antar video dgn rasio beda)
+  cek("utama: decrease (tanpa distorsi)", /\[0:v\]scale=640:360:force_original_aspect_ratio=decrease/.test(filter));
   cek("tanpa crop 9:16", !/crop=640:360/.test(filter), "tidak boleh ada crop");
-  cek("tanpa pad", !/pad=/.test(filter));
+  cek("pad penjaga (kosong saat rasio sama)", /pad=640:360:\(ow-iw\)\/2:\(oh-ih\)\/2:color=black/.test(filter));
   cek("tanpa boxblur", !/boxblur/.test(filter));
   cek("teks tetap digambar (drawtext)", /drawtext/.test(filter));
   // skala teks = sisi terpendek: min(640,360)/1080 = 1/3 → judul 64 → 21.3
@@ -95,7 +97,7 @@ console.log("A) asli landscape 640x360 — tanpa bg:");
 console.log("B) asli vertikal 1080x1920 — skala teks identik perilaku lama:");
 {
   const { filter } = bangun(buat({}), 1080, 1920);
-  cek("utama: [0:v]scale=1080:1920", /\[0:v\]scale=1080:1920,fps=/.test(filter));
+  cek("utama: decrease 1080:1920", /\[0:v\]scale=1080:1920:force_original_aspect_ratio=decrease/.test(filter));
   cek("fontsize 64.0 (skala = 1, regresi vertikal)", /fontsize=64\.0/.test(filter));
 }
 
@@ -103,7 +105,7 @@ console.log("C) asli + background intro — bg mengisi frame seukuran sumber:");
 {
   const { filter, total } = bangun(buat({ bgId: "bg" }), 640, 360, "/home/z/my-project/vidsplit/work/sample/bg-kuning.png");
   cek("bg: scale increase ke 640x360", /\[1:v\]scale=640:360:force_original_aspect_ratio=increase/.test(filter));
-  cek("utama tetap tanpa konversi rasio", /\[0:v\]scale=640:360,fps=/.test(filter));
+  cek("utama tetap tanpa konversi rasio (decrease)", /\[0:v\]scale=640:360:force_original_aspect_ratio=decrease/.test(filter));
   cek("concat bg+utama", /concat=n=2:v=1:a=0/.test(filter));
   cek("total = intro + durasi", total === 4, `total=${total}`);
 }

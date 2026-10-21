@@ -228,13 +228,22 @@ ipcMain.handle("vdsplit:pilih", async (_e, jenis) => {
   const opsi =
     jenis === "bg" || jenis === "logo"
       ? { filters: [{ name: "Gambar", extensions: ["png", "jpg", "jpeg", "webp"] }] }
-      : {
-          filters: [
-            { name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v", "ts"] },
-            { name: "Semua file", extensions: ["*"] },
-          ],
-          properties: ["openFile", "multiSelections"], // antrean: boleh pilih banyak video
-        };
+      : jenis === "audio"
+        ? {
+            // v2.0.0 — BACKSOUND musik pilihan sendiri (MP3/WAV/M4A)
+            filters: [
+              { name: "Audio", extensions: ["mp3", "wav", "m4a", "aac", "ogg", "flac"] },
+              { name: "Semua file", extensions: ["*"] },
+            ],
+            properties: ["openFile"],
+          }
+        : {
+            filters: [
+              { name: "Video", extensions: ["mp4", "mov", "mkv", "avi", "webm", "m4v", "ts"] },
+              { name: "Semua file", extensions: ["*"] },
+            ],
+            properties: ["openFile", "multiSelections"], // antrean: boleh pilih banyak video
+          };
   const r = await dialog.showOpenDialog(win, { properties: ["openFile"], ...opsi });
   if (r.canceled || !r.filePaths.length) return [];
   return r.filePaths.map((p) => {

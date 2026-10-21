@@ -12,7 +12,7 @@ import {
   durasiEfektif,
   INFO_FONT,
   neonDari,
-  hitungPartDgnHapus,
+  hitungPartV2,
   pengaturanDefault,
   templatDari,
   type NamaFont,
@@ -63,6 +63,19 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   // v0.57.0 — maks 10 (dulu 4) atas permintaan user
   p.prosesParalel = clamp(p.prosesParalel, 1, 10, 2);
   p.pakaiGpu = p.pakaiGpu !== false;
+  // v2.0.0 — SPLIT PER ADEGAN + JUMLAH PART OTOMATIS
+  p.modeSplit = p.modeSplit === "adegan" ? "adegan" : "durasi";
+  p.jumlahPartOtomatis = clamp(Math.floor(Number(p.jumlahPartOtomatis) || 0), 0, 1000, 0);
+  // v2.0.0 — RESOLUSI OUTPUT 720p/1080p/2K/4K
+  if (!["auto", "720p", "1080p", "2k", "4k"].includes(p.resolusiOutput)) p.resolusiOutput = "auto";
+  // v2.0.0 — ZOOM PEMBICARA OTOMATIS
+  if (!["mati", "geser", "fade", "langsung"].includes(p.zoomPembicara)) p.zoomPembicara = "mati";
+  if (!["cepat", "normal", "lambat"].includes(p.lajuPindah)) p.lajuPindah = "normal";
+  p.senyapPembicara = p.senyapPembicara === "semua" ? "semua" : "tetap";
+  // v2.0.0 — BACKSOUND MUSIK SENDIRI
+  p.backsoundAktif = p.backsoundAktif === true;
+  p.backsoundFile = typeof p.backsoundFile === "string" ? p.backsoundFile.slice(0, 500) : "";
+  p.backsoundVolume = clamp(p.backsoundVolume, 0, 150, 80);
   // v0.46.0 — frame hiasan + neon + template (clamp aman dgn modul murni)
   p.frameId = typeof p.frameId === "string" ? p.frameId.slice(0, 300) : "";
   const neon = neonDari(p);
@@ -114,6 +127,8 @@ export async function POST(req: NextRequest) {
     }
 
     const modeEkspor = body.modeEkspor === "cepat" ? "cepat" : "presisi";
+    // v2.0.0 — KOMPRES PINTAR: target MB global (opsional, per antrean)
+    const targetMb = Math.min(100_000, Math.max(0, Number((body as { targetMb?: number }).targetMb) || 0));
 
     // resolve & probe semua video terlebih dahulu (cepat — ffprobe hanya baca header)
     const items: ItemEkspor[] = [];
@@ -170,6 +185,8 @@ export async function POST(req: NextRequest) {
       if (!(info.durasi > 0.5)) throw new Error(`${label}: durasi tidak terbaca / terlalu pendek`);
 
       const pgh = rapikanPengaturan(mentah[i].pengaturan);
+      // v2.0.0 — suntikkan target MB KOMPRES PINTAR ke pengaturan video ini
+      if (targetMb > 0) (pgh as Pengaturan & { targetMb?: number }).targetMb = targetMb;
       // rentang trim: clip ke durasi nyata + validasi urutan mulai < akhir
       pgh.mulaiDetik = Math.min(pgh.mulaiDetik, Math.max(0, info.durasi - 1));
       if (pgh.akhirDetik > 0) {
@@ -205,16 +222,19 @@ export async function POST(req: NextRequest) {
     }
 
     // v0.57.0 — hitungan part utk UI menghormati zona hapus (Potong & Hapus Bagian)
+    // v2.0.0 — MENGHORMATI jumlah part otomatis (N part merata)
     const totalPart = items.reduce(
       (a, it) =>
         a +
-        hitungPartDgnHapus(
-          it.info.durasi,
-          it.pengaturan.durasiPart,
-          it.pengaturan.mulaiDetik,
-          it.pengaturan.akhirDetik,
-          it.pengaturan.zonaHapus || [],
-        ),
+        (it.pengaturan.modeSplit === "adegan"
+          ? 1 // dipastikan setelah analisis adegan di jobs.ts
+          : hitungPartV2(
+              it.info.durasi,
+              it.pengaturan,
+              it.pengaturan.mulaiDetik,
+              it.pengaturan.akhirDetik,
+              it.pengaturan.zonaHapus || [],
+            )),
       0,
     );
     const id = mulaiEksporAntrean(items, modeEkspor);

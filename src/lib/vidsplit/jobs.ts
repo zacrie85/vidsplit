@@ -1,13 +1,14 @@
 // VidSplit — manajer job ekspor ANTREAN: video diproses berurutan dari atas ke bawah,
 // di dalam tiap video part dirender paralel (pool 1-4 ffmpeg), progres dipolling API
 import { randomBytes } from "node:crypto";
-import { readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
 import {
   bangunArgumenPart,
   dirWork,
   jalankanFfmpeg,
+  pathAman,
   pilihEncoder,
   pilihFfmpeg,
   resetUjiGpu,
@@ -28,14 +29,29 @@ import { siapkanLatarTemplate } from "./templatRender";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import { jadwalkanPangkas } from "./kebersihan";
 import type { SeqNeon } from "./ffmpeg";
+import { analisisAdegan, potonganAdegan, type PotonganAdegan } from "./adegan";
+import {
+  PembicaraLatar,
+  cadanganDuaBagian,
+  ekstrakStereoEnergi,
+  type Keyframe,
+} from "./pembicara";
 import {
   neonDari,
+  bitrateKbpsTarget,
+  dimensiOutput,
+  durasiEfektif,
   hitungPartDgnHapus,
+  hitungPartV2,
+  levelH264,
+  offsetBacksound,
+  rapikanKecepatan as rapikanKecepatanLocal,
   rentangPart,
   rentangPartHapus,
   slugify,
   slugUnikDaftar,
   templatDari,
+  durasiPartDipakai,
   type CodecVideo,
   type Pengaturan,
 } from "./types";
@@ -178,17 +194,21 @@ export function mulaiEksporAntrean(
   const paralel = Math.min(10, Math.max(1, Math.round(daftar[0]?.pengaturan.prosesParalel || 2)));
 
   // v0.57.0 — hitung part MENGHORMATI zona hapus (Potong & Hapus Bagian):
-  // tanpa zona = rumus lama PERSIS; dgn zona = tiap potongan dipecah mandiri
+  // tanpa zona = rumus lama PERSIS; dgn zona = tiap potongan dipecah mandiri.
+  // v2.0.0 — hitungPartV2 juga MENGHORMATI JUMLAH PART OTOMATIS (N part merata)
+  // dan SPLIT PER ADEGAN diberi estimasi sementara (total dipastikan setelah
+  // analisis — job.antrean[vi].total diperbarui sebelum part pertama dirender).
   const nTotalPerVideo = daftar.map((it) =>
-    hitungPartDgnHapus(
-      it.info.durasi,
-      it.pengaturan.durasiPart,
-      it.pengaturan.mulaiDetik,
-      it.pengaturan.akhirDetik,
-      it.pengaturan.zonaHapus || [],
-    ),
+    it.pengaturan.modeSplit === "adegan"
+      ? 1 // estimasi — total sejati dari hasil analisis adegan
+      : hitungPartV2(
+          it.info.durasi,
+          it.pengaturan,
+          it.pengaturan.mulaiDetik,
+          it.pengaturan.akhirDetik,
+          it.pengaturan.zonaHapus || [],
+        ),
   );
-  const totalPartSemua = nTotalPerVideo.reduce((a, b) => a + b, 0);
 
   // v0.58.0 — ANTI-TABRAKAN NAMA FILE: dua video dgn judul sama (atau dua-duanya
   // kosong) dulu menulis nama part IDENTIK ke folder output bersama → hasil
@@ -236,19 +256,26 @@ export function mulaiEksporAntrean(
     }
     const preset = modeEkspor === "cepat" ? "ultrafast" : "medium";
     const crf = modeEkspor === "cepat" ? 23 : 20;
-    // encoder per codec (H.264/H.265): hasil uji GPU di-cache per codec, jadi murah
-    // dipanggil ulang — video dengan codec berbeda tetap memakai encoder masing-masing
-    const cacheEnc = new Map<CodecVideo, PilihanEncoder>();
-    const ambilEnc = async (p: Pengaturan): Promise<PilihanEncoder> => {
+    // v2.0.0 — KOMPRES PINTAR: target MB global → bitrate kbps per video (durasi beda)
+    const targetMb = (daftar[0]?.pengaturan as Pengaturan & { targetMb?: number }).targetMb || 0;
+    // encoder per (codec, level, bitrate): hasil uji GPU di-cache per kunci
+    const cacheEnc = new Map<string, PilihanEncoder>();
+    const ambilEnc = async (p: Pengaturan, W: number, H: number, fps: number, durasi: number): Promise<PilihanEncoder> => {
       const codec: CodecVideo = p.codec === "h265" ? "h265" : "h264";
-      let e = cacheEnc.get(codec);
+      // level H.264 sesuai standar utk 2K/4K (termasuk 4K 60fps → 5.2)
+      const level = codec === "h264" ? levelH264(W, H, fps) : null;
+      const br = targetMb > 0 ? bitrateKbpsTarget(targetMb, durasi) : null;
+      const kunci = `${codec}|${level ?? ""}|${br ?? ""}`;
+      let e = cacheEnc.get(kunci);
       if (!e) {
-        e = await pilihEncoder(p.pakaiGpu !== false, preset, crf, ff.bin, codec);
-        cacheEnc.set(codec, e);
+        e = await pilihEncoder(p.pakaiGpu !== false, preset, crf, ff.bin, codec, level, br);
+        cacheEnc.set(kunci, e);
       }
       return e;
     };
-    job.akselerasi = (await ambilEnc(daftar[0].pengaturan)).nama;
+    const it0 = daftar[0];
+    const d0 = dimensiOutput(it0.pengaturan.mode, it0.pengaturan.resolusi, it0.pengaturan.resolusiOutput, it0.info.lebar, it0.info.tinggi);
+    job.akselerasi = (await ambilEnc(it0.pengaturan, d0.W, d0.H, it0.info.fps, it0.info.durasi)).nama;
 
     // v0.8.0 — outputs diisi LANGSUNG saat tiap part selesai (bukan menunggu SEMUA
     // video tuntas): slot menyimpan urutan antrean, segarkanOutput() menyalin isi slot
@@ -263,13 +290,16 @@ export function mulaiEksporAntrean(
     // dihapus di .finally() sehingga progresTotal TURUN setiap part selesai
     // (bar maju-mundur, berakhir 0% padahal ekspor sukses)
     let dasarSelesai = 0;
+    // v2.0.0 — total part kini DINAMIS (split per adegan memastikan jumlahnya
+    // setelah analisis) → dihitung dari antrean setiap pembaruan
+    const totalPartKini = () => job.antrean.reduce((a, v) => a + Math.max(1, v.total), 0);
 
     const perbaruiProgres = () => {
       let aktif = 0;
       for (const f of fraksi.values()) aktif += f;
       job.progresTotal = Math.min(
         100,
-        Math.round(((dasarSelesai + aktif) / Math.max(1, totalPartSemua)) * 100),
+        Math.round(((dasarSelesai + aktif) / Math.max(1, totalPartKini())) * 100),
       );
       let rata = 0;
       if (fraksi.size) {
@@ -280,40 +310,39 @@ export function mulaiEksporAntrean(
       job.partAktif = fraksi.size;
     };
 
-    /** render SATU part dari video ke-vi */
+    /** render SATU part dari video ke-vi — v2.0.0: konteks adegan/backsound/pembicara */
     const renderSatu = async (
       vi: number,
       it: ItemEkspor,
       n: number,
       subLatar: TranskripLatar | null,
       aset46: { neon: SeqNeon | null; templatBg: string | null },
+      konteks: {
+        potonganAdgn: PotonganAdegan[];
+        durasiPartEff: number;
+        backsoundAbs: string | null;
+        filePembicara: string | null;
+      },
     ) => {
       if (apakahBatal(id)) throw new Error("DIBATALKAN");
       const p = it.pengaturan;
-      const enc = await ambilEnc(p);
-      if (!job.akselerasi.includes(enc.nama)) {
-        job.akselerasi = `${job.akselerasi} + ${enc.nama}`;
-      }
       // v0.57.0 — rentang part melompati zona hapus bila ada (part TIDAK
-      // PERNAH berisi bagian yang dihapus); tanpa zona = jalur lama PERSIS
+      // PERNAH berisi bagian yang dihapus); tanpa zona = jalur lama PERSIS.
+      // v2.0.0 — SPLIT PER ADEGAN: part ke-n = potongan adegan ke-n (tepat di
+      // pergantian adegan); jumlah otomatis: durasiPart = durasi efektif ÷ N.
       const [mulai, durasi] =
-        p.zonaHapus && p.zonaHapus.length
-          ? rentangPartHapus(n, it.info.durasi, p.durasiPart, p.mulaiDetik, p.akhirDetik, p.zonaHapus)
-          : rentangPart(n, it.info.durasi, p.durasiPart, p.mulaiDetik, p.akhirDetik);
-      // v0.7.0 mode "asli": pertahankan ukuran ASLI video — hanya digenapkan agar
-      // valid utk yuv420p (libx264 menolak dimensi ganjil); mode lain tetap 9:16
-      const W =
-        p.mode === "asli"
-          ? Math.max(2, it.info.lebar - (it.info.lebar % 2))
-          : p.resolusi === "720"
-            ? 720
-            : 1080;
-      const H =
-        p.mode === "asli"
-          ? Math.max(2, it.info.tinggi - (it.info.tinggi % 2))
-          : p.resolusi === "720"
-            ? 1280
-            : 1920;
+        konteks.potonganAdgn.length
+          ? (() => {
+              const pot = konteks.potonganAdgn[Math.min(Math.max(1, n), konteks.potonganAdgn.length) - 1];
+              return [pot.mulai, Math.max(0.5, pot.akhir - pot.mulai)] as [number, number];
+            })()
+          : p.zonaHapus && p.zonaHapus.length
+            ? rentangPartHapus(n, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik, p.zonaHapus)
+            : rentangPart(n, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik);
+      const kec2 = rapikanKecepatanLocal(p.kecepatanVideo);
+      // v0.7.0 mode "asli" — v2.0.0: dimensiOutput (resolusi 720p/1080p/2K/4K
+      // terkunci dgn 9:16 dibalik; auto = perilaku lama; asli = sumber genap)
+      const { W, H } = dimensiOutput(p.mode, p.resolusi, p.resolusiOutput, it.info.lebar, it.info.tinggi);
       const fps = Math.min(60, Math.max(15, Math.round(it.info.fps)));
       const slug = slugPerVideo[vi] || slugify(p.judul) || "vidsplit";
       const nama = `${slug}-part-${String(n).padStart(2, "0")}.mp4`;
@@ -322,6 +351,21 @@ export function mulaiEksporAntrean(
       // v0.44.0 — bangun berkas .ass subtitle utk part ini (bila subtitle aktif
       // dan hasil analisis suara tersedia); waktu segmen RELATIF RENTANG TRIM
       const pakaiBg = !!it.bgAbs;
+      // v2.0.0 — BACKSOUND: posisi lagu KONTINU antar part (offset fungsi murni
+      // dgn zona/intro/kecepatan ikut), volume 0–150 %
+      const offsetBs = konteks.backsoundAbs
+        ? offsetBacksound(
+            n,
+            it.info.durasi,
+            konteks.durasiPartEff,
+            p.mulaiDetik,
+            p.akhirDetik,
+            p.zonaHapus || [],
+            pakaiBg,
+            p.durasiIntro,
+            kec2,
+          )
+        : 0;
       // v0.53.0 — transkrip berjalan DI LATAR: tunggu sampai blok audio zona
       // part ini selesai dianalisis (umumnya sudah lama selesai krn render lebih
       // lambat dr transkrip). Blok zona gagal? part tetap dirender tanpa teks.
@@ -358,6 +402,10 @@ export function mulaiEksporAntrean(
           }
         }
       }
+      const enc = await ambilEnc(p, W, H, fps, (pakaiBg ? p.durasiIntro + durasi : durasi) / kec2);
+      if (!job.akselerasi.includes(enc.nama)) {
+        job.akselerasi = `${job.akselerasi} + ${enc.nama}`;
+      }
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
         bg: it.bgAbs,
@@ -377,6 +425,13 @@ export function mulaiEksporAntrean(
         partTxt: `${p.kataPart || "Part"} ${n}`,
         deskripsiTxt: p.deskripsi || "",
         fileSub,
+        // v2.0.0 — backsound + zoom pembicara
+        fileBacksound: konteks.backsoundAbs,
+        volumeBacksound: p.backsoundVolume,
+        offsetBacksound: offsetBs,
+        filePembicara: konteks.filePembicara,
+        sumberLebar: it.info.lebar,
+        sumberTinggi: it.info.tinggi,
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -416,7 +471,11 @@ export function mulaiEksporAntrean(
     };
 
     /** render semua part satu video — pool paralel; antrean video BERURUTAN.
-     *  Bila video ini gagal, tandai gagal lalu antrean LANJUT ke video berikutnya. */
+     *  Bila video ini gagal, tandai gagal lalu antrean LANJUT ke video berikutnya.
+     *  v2.0.0 — SPLIT PER ADEGAN: analisis dijalankan SEBELUM render (tahap UI
+     *  "Analisis adegan…"), total part dipastikan, part = potongan adegan;
+     *  ZOOM PEMBICARA: analisis AI LATAR — part menunggu keyframe.
+     *  KOMPRES PINTAR targetMb diteruskan via pengaturan (route menyuntikkan). */
     const renderVideo = async (
       vi: number,
       it: ItemEkspor,
@@ -425,7 +484,124 @@ export function mulaiEksporAntrean(
     ) => {
       job.videoAktif = vi;
       job.antrean[vi].status = "proses";
-      const nTotal = nTotalPerVideo[vi];
+      const p = it.pengaturan;
+
+      // ---------- v2.0.0 — SPLIT PER ADEGAN (sinkron, sebelum part pertama) ----------
+      let potonganAdgn: PotonganAdegan[] = [];
+      if (p.modeSplit === "adegan") {
+        const t0 = Date.now();
+        job.antrean[vi].tahap = "Analisis adegan…";
+        const pemantau = setInterval(() => {
+          job.antrean[vi].tahap = `Analisis adegan… ${Math.round((Date.now() - t0) / 1000)} dtk`;
+        }, 1000);
+        try {
+          const batas = await analisisAdegan(
+            it.srcAbs,
+            ff.bin,
+            it.info.durasi,
+            p.mulaiDetik,
+            p.akhirDetik,
+            p.zonaHapus || [],
+          );
+          potonganAdgn = potonganAdegan(
+            batas,
+            it.info.durasi,
+            p.mulaiDetik,
+            p.akhirDetik,
+            p.zonaHapus || [],
+          );
+          // total part = jumlah potongan adegan SEBELUM part dirender (bar akurat)
+          job.antrean[vi].total = Math.max(1, potonganAdgn.length);
+        } catch (e) {
+          // analisis gagal → jatuh ke pemecahan per durasi (perilaku aman)
+          job.antrean[vi].total = hitungPartV2(
+            it.info.durasi, p, p.mulaiDetik, p.akhirDetik, p.zonaHapus || [],
+          );
+          if (!job.peringatanSubtitle) {
+            job.peringatanSubtitle = `${it.nama}: analisis adegan gagal (${e instanceof Error ? e.message : String(e)}) — pemecahan per durasi dipakai`;
+          }
+        } finally {
+          clearInterval(pemantau);
+          delete job.antrean[vi].tahap;
+        }
+      }
+      const durasiPartEff = durasiPartDipakai(p, it.info.durasi, p.mulaiDetik, p.akhirDetik, p.zonaHapus || []);
+
+      // ---------- v2.0.0 — ZOOM PEMBICARA (AI LATAR + cadangan stereo) ----------
+      let latarPembicara: PembicaraLatar | null = null;
+      let filePembicara: string | null = null;
+      if (p.zoomPembicara !== "mati") {
+        latarPembicara = new PembicaraLatar(it.srcAbs, ff.bin, {
+          mulai: p.mulaiDetik,
+          durasi: durasiEfektif(it.info.durasi, p.mulaiDetik, p.akhirDetik),
+          lebarSumber: it.info.lebar,
+          tinggiSumber: it.info.tinggi,
+          senyap: p.senyapPembicara === "semua" ? "semua" : "tetap",
+          onTahap: (t) => { job.antrean[vi].tahap = `AI pembicara: ${t}`; },
+          pakaiCadanganStereo: true,
+        });
+        try {
+          let kf: Keyframe[] = await latarPembicara.tunggu(() => apakahBatal(id));
+          // cadangan 2-BAGIAN: AI tak mengenali → energi stereo L/R (kiri/kanan)
+          if (latarPembicara.cadangan && it.info.adaAudio) {
+            job.antrean[vi].tahap = "AI pembicara: mode cadangan 2 bagian (kiri/kanan)…";
+            try {
+              const { L, R, langkahDtk } = await ekstrakStereoEnergi(
+                it.srcAbs, ff.bin, p.mulaiDetik,
+                durasiEfektif(it.info.durasi, p.mulaiDetik, p.akhirDetik),
+              );
+              kf = cadanganDuaBagian(L, R, langkahDtk, p.senyapPembicara === "semua" ? "semua" : "tetap");
+              // stereo SEIMBANG (mono/lahirdi tengah) → kamera tengah statis
+              if (kf.length === 1 && Math.abs(kf[0].cx - 0.25) < 0.001) {
+                const seimbang = L.every((l, i) => Math.abs(l - (R[i] ?? 0)) < 1e-6);
+                if (seimbang) kf = [{ t: 0, cx: 0.5 }];
+              }
+            } catch {
+              kf = [{ t: 0, cx: 0.5 }]; // kamera tengah (tetap vertikal)
+            }
+          }
+          if (kf.length) {
+            filePembicara = path.join(dirTmp, `${id}-${vi}-pembicara.json`);
+            try {
+              writeFileSync(filePembicara, JSON.stringify(kf), "utf8");
+            } catch {
+              filePembicara = null;
+            }
+          }
+        } catch (e) {
+          // bukan DIBATALKAN → lanjut tanpa zoom (peringatan); DIBATALKAN di-lempar
+          if (!(e instanceof Error) || e.message !== "DIBATALKAN") {
+            if (!job.peringatanSubtitle) {
+              job.peringatanSubtitle = `${it.nama}: zoom pembicara dilewati (${e instanceof Error ? e.message : String(e)})`;
+            }
+          }
+        } finally {
+          delete job.antrean[vi].tahap;
+        }
+        if (apakahBatal(id)) {
+          job.antrean[vi].status = "dibatalkan";
+          return;
+        }
+      }
+
+      // ---------- v2.0.0 — BACKSOUND: resolve path sekali per video ----------
+      let backsoundAbs: string | null = null;
+      if (p.backsoundAktif && p.backsoundFile) {
+        try {
+          const c = pathAman(p.backsoundFile);
+          if (existsSync(c)) backsoundAbs = c;
+          else if (!job.peringatanSubtitle) {
+            job.peringatanSubtitle = `${it.nama}: berkas backsound tidak ditemukan — musik dilewati`;
+          }
+        } catch {
+          if (!job.peringatanSubtitle) {
+            job.peringatanSubtitle = `${it.nama}: path backsound tidak diizinkan — musik dilewati`;
+          }
+        }
+      }
+      const konteks = { potonganAdgn, durasiPartEff, backsoundAbs, filePembicara };
+
+      const nTotal = Math.max(1, job.antrean[vi].total);
       let berikut = 1;
       let gagal = false;
       let sedangRender = 0; // jumlah ffmpeg aktif utk video ini
@@ -447,7 +623,7 @@ export function mulaiEksporAntrean(
           if (n > nTotal || gagal) return;
           sedangRender += 1;
           try {
-            await renderSatu(vi, it, n, subLatar, aset46);
+            await renderSatu(vi, it, n, subLatar, aset46, konteks);
           } catch (e) {
             // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
             if (apakahBatal(id)) return;
@@ -566,10 +742,11 @@ export function mulaiEksporAntrean(
       const aset46: { neon: SeqNeon | null; templatBg: string | null } = { neon: null, templatBg: null };
       try {
         const pgh = it.pengaturan;
-        // v0.47.0 — dimensi target ekspor video ini (rumus sama dgn renderSatu)
-        // → menentukan varian rasio frame bawaan (916 potret / 169 lanskap)
-        const Wt = pgh.mode === "asli" ? Math.max(2, it.info.lebar - (it.info.lebar % 2)) : pgh.resolusi === "720" ? 720 : 1080;
-        const Ht = pgh.mode === "asli" ? Math.max(2, it.info.tinggi - (it.info.tinggi % 2)) : pgh.resolusi === "720" ? 1280 : 1920;
+        // v2.0.0 — dimensi target ekspor video ini via dimensiOutput (resolusi
+        // 720p/1080p/2K/4K terkunci dgn 9:16 dibalik; auto = perilaku lama)
+        const dT = dimensiOutput(pgh.mode, pgh.resolusi, pgh.resolusiOutput, it.info.lebar, it.info.tinggi);
+        const Wt = dT.W;
+        const Ht = dT.H;
         const lanskap = Wt > Ht;
         // frame hiasan (resolve path bawaan/unggahan — varian rasio yang pas)
         if (!it.frameAbs && pgh.frameId) it.frameAbs = siapkanBingkai(pgh.frameId, lanskap);
@@ -678,4 +855,328 @@ export function mulaiEksporAntrean(
   });
 
   return id;
+}
+
+/* ================= v2.0.0 — GABUNG VIDEO → SATU FILE ================= */
+
+/**
+ * GABUNG VIDEO (kebalikan split): SEMUA video di Kotak Video (urutan atas→bawah)
+ * menjadi SATU MP4 utuh — timestamp menyambung MULUS:
+ *   1. tiap video dirender SATU SEGMEN sesuai pengaturannya (mode vertikal,
+ *      judul per film + subtitle + frame + backsound + zoom pembicara tetap ikut)
+ *      ke dimensi/fps SAMA (dari pengaturan video PERTAMA);
+ *   2. concat DEMUXER dgn -c copy → streaming tulis langsung ke disk (RAM datar),
+ *      tanpa re-encode, cepat & bebas kehabisan memori walau antrean berjam-jam.
+ * Zona hapus & jumlah part otomatis tidak relevan di mode gabung (segmen penuh).
+ */
+export function mulaiGabungAntrean(
+  daftar: ItemEkspor[],
+  modeEkspor: "presisi" | "cepat",
+): string {
+  if (daftar.length < 2) {
+    throw new Error("GABUNG VIDEO butuh minimal 2 video di Kotak Video");
+  }
+  const id = randomBytes(4).toString("hex");
+  evictJobLama();
+  jadwalkanPangkas();
+  const folder = dirWork(`output/${id}`);
+  const dirTmp = dirWork("tmp");
+  // segmen dirender BERURUTAN (satu ffmpeg per waktu — concat butuh semua lengkap)
+  const paralel = 1;
+
+  // dimensi & fps target konsisten utk SEMUA segmen (dari video pertama)
+  const it0 = daftar[0];
+  const dT = dimensiOutput(it0.pengaturan.mode, it0.pengaturan.resolusi, it0.pengaturan.resolusiOutput, it0.info.lebar, it0.info.tinggi);
+  const W = dT.W;
+  const H = dT.H;
+  const fpsTarget = Math.min(60, Math.max(15, Math.round(it0.info.fps)));
+  const durasiTotal = daftar.reduce((a, it) => a + durasiEfektif(it.info.durasi, it.pengaturan.mulaiDetik, it.pengaturan.akhirDetik), 0);
+
+  const job: InfoJob = {
+    id,
+    antrean: daftar.map((it) => ({
+      nama: it.nama,
+      total: 1,
+      selesai: 0,
+      status: "menunggu" as StatusVideo,
+    })),
+    videoAktif: -1,
+    partAktif: 0,
+    progresPart: 0,
+    progresTotal: 0,
+    outputs: [],
+    error: null,
+    adaGagal: false,
+    selesaiSemua: false,
+    batalDiminta: false,
+    dibatalkan: false,
+    dibuat: Date.now(),
+    akselerasi: "mendeteksi…",
+    paralel,
+  };
+  jobs.set(id, job);
+
+  (async () => {
+    const ff = await pilihFfmpeg();
+    const butuhTeks = daftar.some(
+      (it) =>
+        !!(it.pengaturan.judul || "").trim() ||
+        !!(it.pengaturan.deskripsi || "").trim(),
+    );
+    if (butuhTeks && !ff.drawtext) {
+      throw new Error(
+        `ffmpeg yang terpilih (${ff.bin}) tidak mendukung filter drawtext (libfreetype), padahal ada tulisan judul. Pasang ffmpeg lengkap atau arahkan VIDSPLIT_FFMPEG ke ffmpeg yang punya libfreetype.`,
+      );
+    }
+    const preset = modeEkspor === "cepat" ? "ultrafast" : "medium";
+    const crf = modeEkspor === "cepat" ? 23 : 20;
+    const targetMb = (daftar[0]?.pengaturan as Pengaturan & { targetMb?: number }).targetMb || 0;
+    const br = targetMb > 0 ? bitrateKbpsTarget(targetMb, durasiTotal) : null;
+    const codec: CodecVideo = it0.pengaturan.codec === "h265" ? "h265" : "h264";
+    const level = codec === "h264" ? levelH264(W, H, fpsTarget) : null;
+    const enc = await pilihEncoder(it0.pengaturan.pakaiGpu !== false, preset, crf, ff.bin, codec, level, br);
+    job.akselerasi = enc.nama;
+
+    let dasarSelesai = 0;
+    const perbarui = (f: number) => {
+      job.progresTotal = Math.min(99, Math.round(((dasarSelesai + f) / daftar.length) * 100));
+    };
+
+    // --- tahap 1: render SATU SEGMEN per video (judul per film + sub tetap ikut) ---
+    const segmen: string[] = [];
+    const dirSeg = dirWork(`gabung/${id}`);
+    for (let vi = 0; vi < daftar.length; vi++) {
+      if (apakahBatal(id)) break;
+      const it = daftar[vi];
+      job.videoAktif = vi;
+      job.antrean[vi].status = "proses";
+      const p = it.pengaturan;
+      const mulai = p.mulaiDetik;
+      const durasi = durasiEfektif(it.info.durasi, p.mulaiDetik, p.akhirDetik);
+      const kec = rapikanKecepatanLocal(p.kecepatanVideo);
+
+      // subtitle AI (latar) — pola split; segmen tunggal menunggu tuntas penuh
+      let subLatar: TranskripLatar | null = null;
+      if (p.subtitleAktif && it.info.adaAudio) {
+        const mulaiAi = Date.now();
+        const pemantau = setInterval(() => {
+          if (!job.antrean[vi].tahap) {
+            job.antrean[vi].tahap = `AI: analisis suara… ${Math.round((Date.now() - mulaiAi) / 1000)} dtk`;
+          }
+        }, 1000);
+        try {
+          subLatar = await mulaiTranskripLatar(it.srcAbs, p.mulaiDetik, p.akhirDetik, it.info.durasi, ff.bin, {
+            onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; },
+            modeBahasa: p.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+            modelCepat: p.subtitleCepat === true,
+            apakahBerhenti: () => apakahBatal(id),
+          });
+        } catch {
+          subLatar = null;
+        }
+        if (!subLatar) clearInterval(pemantau);
+        else void subLatar.janji.finally(() => clearInterval(pemantau));
+      }
+
+      // zoom pembicara (latar) — tiap film dianalisis sendiri
+      let filePembicara: string | null = null;
+      if (p.zoomPembicara !== "mati") {
+        const latar = new PembicaraLatar(it.srcAbs, ff.bin, {
+          mulai: p.mulaiDetik,
+          durasi,
+          lebarSumber: it.info.lebar,
+          tinggiSumber: it.info.tinggi,
+          senyap: p.senyapPembicara === "semua" ? "semua" : "tetap",
+          onTahap: (t) => { job.antrean[vi].tahap = `AI pembicara: ${t}`; },
+          pakaiCadanganStereo: true,
+        });
+        try {
+          let kf: Keyframe[] = await latar.tunggu(() => apakahBatal(id));
+          if (latar.cadangan && it.info.adaAudio) {
+            try {
+              const { L, R, langkahDtk } = await ekstrakStereoEnergi(it.srcAbs, ff.bin, p.mulaiDetik, durasi);
+              kf = cadanganDuaBagian(L, R, langkahDtk, p.senyapPembicara === "semua" ? "semua" : "tetap");
+            } catch {
+              kf = [{ t: 0, cx: 0.5 }];
+            }
+          }
+          if (kf.length) {
+            filePembicara = path.join(dirTmp, `${id}-${vi}-pembicara.json`);
+            writeFileSync(filePembicara, JSON.stringify(kf), "utf8");
+          }
+        } catch {
+          /* lanjut tanpa zoom */
+        } finally {
+          delete job.antrean[vi].tahap;
+        }
+      }
+
+      // backsound
+      let backsoundAbs: string | null = null;
+      if (p.backsoundAktif && p.backsoundFile) {
+        try {
+          const c = pathAman(p.backsoundFile);
+          if (existsSync(c)) backsoundAbs = c;
+        } catch { /* dilewati */ }
+      }
+
+      // subtitle .ass (segmen penuh)
+      let fileSub: string | null = null;
+      if (subLatar) {
+        const segmenSub = await subLatar.tungguCakupan(durasi, () => apakahBatal(id)).catch(() => []);
+        if (segmenSub && segmenSub.length) {
+          const ass = bangunAssSubtitle({
+            segmen: segmenSub,
+            mulaiPartRel: 0,
+            durasiPart: durasi,
+            offsetIntro: it.bgAbs ? p.durasiIntro : 0,
+            W,
+            H,
+            ukuran: p.subtitleUkuran,
+            yPersen: p.subtitleY,
+            warna: p.subtitleWarna,
+            warnaOutline: p.subtitleOutlineWarna,
+          });
+          if (ass) {
+            fileSub = path.join(dirTmp, `${id}-${vi}-sub.ass`);
+            writeFileSync(fileSub, ass, "utf8");
+          }
+        }
+        await subLatar.janji.catch(() => null);
+      }
+
+      // aset frame/neon/templat
+      const aset46: { neon: SeqNeon | null; templatBg: string | null } = { neon: null, templatBg: null };
+      try {
+        const lanskap = W > H;
+        if (!it.frameAbs && p.frameId) it.frameAbs = siapkanBingkai(p.frameId, lanskap);
+        if (it.frameAbs && (p.frameWarna || p.frameWarna2)) {
+          it.frameAbs = await siapkanBingkaiWarna(it.frameAbs, p.frameWarna || "", p.frameWarna2 || "", ff.bin);
+        }
+        const neon = neonDari(p);
+        if (neon.aktif) {
+          const rect = p.mode === "template" ? kotakKePx(TATA_TEMPLATE.video, W, H) : { x: 0, y: 0, w: W, h: H };
+          const seq = await siapkanSequenceNeon(rect.w, rect.h, neon);
+          aset46.neon = { ...seq, x: rect.x, y: rect.y, w: rect.w, h: rect.h };
+        }
+        if (p.mode === "template") {
+          aset46.templatBg = await siapkanLatarTemplate(W, H, templatDari(p));
+        }
+      } catch {
+        aset46.neon = null;
+        aset46.templatBg = null;
+      }
+
+      const namaSeg = `seg-${String(vi + 1).padStart(2, "0")}.mp4`;
+      const keluar = path.join(dirSeg, namaSeg);
+      const tag = `${id}-gab-${vi}`;
+      const { args, total } = bangunArgumenPart({
+        src: it.srcAbs,
+        bg: it.bgAbs,
+        logo: it.logoAbs,
+        frameAbs: it.frameAbs ?? null,
+        neon: aset46.neon,
+        templatBg: aset46.templatBg,
+        pengaturan: p,
+        n: 1,
+        mulai,
+        durasi,
+        W,
+        H,
+        fps: fpsTarget,
+        adaAudio: it.info.adaAudio,
+        judulTxt: p.judul || "",
+        partTxt: "", // GABUNG: tanpa kata Part — judul per film tetap tampil
+        deskripsiTxt: p.deskripsi || "",
+        fileSub,
+        fileBacksound: backsoundAbs,
+        volumeBacksound: p.backsoundVolume,
+        offsetBacksound: backsoundAbs ? durasiHasilSebelumGabung(daftar, vi) : 0,
+        filePembicara,
+        sumberLebar: it.info.lebar,
+        sumberTinggi: it.info.tinggi,
+        dirTmp,
+        tag,
+        codecArgs: enc.codecArgs,
+        keluar,
+      });
+      await jalankanFfmpeg(args, total, (f) => perbarui((vi + f) / daftar.length), ff.bin, (c) => daftarkanProses(id, c));
+      segmen.push(namaSeg);
+      job.antrean[vi].selesai = 1;
+      dasarSelesai = vi + 1;
+      perbarui(0);
+      job.antrean[vi].status = "selesai";
+    }
+
+    if (apakahBatal(id)) {
+      for (const v of job.antrean) {
+        if (v.status === "menunggu" || v.status === "proses") v.status = "dibatalkan";
+      }
+      job.dibatalkan = true;
+      job.error = null;
+    } else {
+      // --- tahap 2: concat demuxer -c copy → tulis MENGALIR ke disk (RAM datar) ---
+      const listTxt = segmen.map((s) => `file '${s.replace(/'/g, "'\\''")}'`).join("\n");
+      const fileList = path.join(dirSeg, "list.txt");
+      writeFileSync(fileList, listTxt + "\n", "utf8");
+      const slug = slugify(daftar[0].pengaturan.judul || daftar[0].nama) || "vidsplit";
+      const namaHasil = `gabung-${slug}.mp4`;
+      const keluarHasil = path.join(folder, namaHasil);
+      job.videoAktif = daftar.length;
+      await jalankanFfmpeg(
+        ["-f", "concat", "-safe", "0", "-i", fileList, "-c", "copy", "-movflags", "+faststart", keluarHasil],
+        5,
+        undefined,
+        ff.bin,
+        (c) => daftarkanProses(id, c),
+        { absolutMs: 300_000, diamAwalMs: 300_000 },
+      );
+      job.outputs = [{ video: "gabung", file: namaHasil, ukuran: statSync(keluarHasil).size }];
+      job.progresTotal = 99;
+      for (const v of job.antrean) if (v.status === "menunggu") v.status = "selesai";
+    }
+
+    // simpan otomatis ke folder tujuan (pola split)
+    const setelan = muatSetelanTujuan();
+    if (setelan.otomatis && setelan.folder && job.outputs.length) {
+      job.menyalin = true;
+      try {
+        const hasil = await salinHasilKeTujuan(job, setelan.folder);
+        job.folderTersimpan = hasil.folder;
+      } catch (e) {
+        job.peringatanSalin = `Gagal menyalin ke folder tujuan: ${e instanceof Error ? e.message : String(e)}`;
+      } finally {
+        job.menyalin = false;
+      }
+    }
+
+    job.videoAktif = -1;
+    job.selesaiSemua = true;
+    job.progresTotal = 100;
+    catatRiwayat(job);
+    bersihkanBatal(id);
+  })().catch((e) => {
+    job.error = e instanceof Error ? e.message : String(e);
+    job.selesaiSemua = true;
+    for (const v of job.antrean) {
+      if (v.status === "menunggu" || v.status === "proses") v.status = "gagal";
+    }
+    job.adaGagal = true;
+    catatRiwayat(job);
+    bersihkanBatal(id);
+  });
+
+  return id;
+}
+
+/** Σ durasi HASIL segmen sebelum index vi (posisi lagu kontinu antar segmen) */
+function durasiHasilSebelumGabung(daftar: ItemEkspor[], vi: number): number {
+  let sumber = 0;
+  for (let k = 0; k < vi; k++) {
+    const p = daftar[k].pengaturan;
+    sumber += durasiEfektif(daftar[k].info.durasi, p.mulaiDetik, p.akhirDetik);
+    if (daftar[k].bgAbs) sumber += Math.max(0, p.durasiIntro);
+  }
+  const kec = rapikanKecepatanLocal(daftar[0].pengaturan.kecepatanVideo);
+  return Math.max(0, sumber / Math.max(0.1, kec));
 }
