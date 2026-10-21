@@ -33,6 +33,9 @@ unduh() { # unduh <repo> <file>
 }
 
 for WHISPER in "${MODEL_LIST[@]}"; do
+  # v2.0.0 — "yolo-pembicara" BUKAN Whisper (diproses blok khusus di bawah);
+  # dulu masuk loop Whisper → onnx-community/yolo-pembicara/config.json → 401
+  [ "$WHISPER" = "yolo-pembicara" ] && continue
   echo "=== Whisper ASR: onnx-community/$WHISPER ==="
   W="onnx-community/$WHISPER"
   for f in \
