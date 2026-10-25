@@ -81,6 +81,9 @@ interface OpsiEkspor {
   thumbnailAktif: boolean;
   thumbnailKata: "Part" | "Bagian" | "Episode";
   thumbnailFormat: "jpg" | "png";
+  /** v2.3.0 — cakupan frame & gaya bingkai cover */
+  thumbnailMode: "per-part" | "satu";
+  thumbnailGaya: "modern" | "klasik" | "futuristik";
 }
 
 export default function Halaman() {
@@ -100,6 +103,9 @@ export default function Halaman() {
     thumbnailAktif: false,
     thumbnailKata: "Part",
     thumbnailFormat: "jpg",
+    // v2.3.0 — bawaan: perilaku lama (tiap part beda frame) + gaya modern
+    thumbnailMode: "per-part",
+    thumbnailGaya: "modern",
   });
   // v0.58.0 — simpanan localStorage hanya boleh ditulis SETELAH preferensi lama
   // selesai dimuat: dulu efek simpan jalan di commit yang sama dgn state default
@@ -149,6 +155,10 @@ export default function Halaman() {
           thumbnailAktif: o.thumbnailAktif === true,
           thumbnailKata: o.thumbnailKata === "Bagian" || o.thumbnailKata === "Episode" ? o.thumbnailKata : "Part",
           thumbnailFormat: o.thumbnailFormat === "png" ? "png" : "jpg",
+          // v2.3.0 — cakupan & gaya: nilai lama tanpa field → bawaan (per-part/modern)
+          thumbnailMode: o.thumbnailMode === "satu" ? "satu" : "per-part",
+          thumbnailGaya:
+            o.thumbnailGaya === "klasik" || o.thumbnailGaya === "futuristik" ? o.thumbnailGaya : "modern",
         });
       }
     } catch {
@@ -661,7 +671,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v2.2.1
+            v2.3.0
           </span>
           <TombolGantiPassword />
         </div>

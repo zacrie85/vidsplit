@@ -10,14 +10,87 @@
 // posisi frame (intro + thumbnail) kini DIPETAKAN ke rentang MENIT 1–3 video
 // (detikRentangCover) → seek selalu dekat awal video, cepat di semua format &
 // panjang video; frame juga langsung diskalakan saat ekstraksi (mode W,H).
-import type { OpsiThumbnail } from "./types";
+// v2.3.0 — SATU COVER UNTUK SEMUA PART + GAYA BINGKAI (permintaan user:
+// "1 gambar saja dari setiap video untuk cover semua splitan" + "pilihan klasik
+// modern dan futuristik"): (1) mode gambar — input = file frame PNG/JPG (tanpa
+// -ss, ekstraksi bersama cukup 1× per video); (2) preset GAYA_COVER — modern
+// (bawaan, rantai lama PERSIS), klasik (bingkai emas + Cinzel Decorative),
+// futuristik (neon cyan/magenta + bracket sudut + Anton/Monoton).
+import type { GayaThumbnail, NamaFont, OpsiThumbnail } from "./types";
 
 /** Kunci drawtext: nilai teks SELALU lewat textfile (aman unicode/koma) */
+
+/** v2.3.0 — preset GAYA BINGKAI cover: font, warna, dan hiasan per gaya.
+ *  Semua nilai dihitung × skala (sisi terpendek/1080) saat digambar.
+ *  "modern" HARUS memunculkan rantai lama PERSIS (nol regresi visual). */
+export interface GayaCover {
+  fontJudul: NamaFont;
+  fontLabel: NamaFont;
+  /** warna teks judul & label (fontcolor drawtext) */
+  warnaJudul: string;
+  warnaLabel: string;
+  /** tebal border teks (px @1080); 0 = tanpa border */
+  tebalBorderJudul: number;
+  tebalBorderLabel: number;
+  warnaBorderJudul: string;
+  warnaBorderLabel: string;
+  /** kotak belakang judul & label (drawbox color@alpha) */
+  boxJudul: string;
+  boxLabel: string;
+  /** hiasan tambahan: "" = tanpa (modern), "emas" = bingkai ganda klasik,
+   *  "neon" = garis aksen + 8 bracket sudut futuristik */
+  hiasan: "" | "emas" | "neon";
+}
+
+export const GAYA_COVER: Record<GayaThumbnail, GayaCover> = {
+  modern: {
+    fontJudul: "tebal",
+    fontLabel: "tebal",
+    warnaJudul: "white",
+    warnaLabel: "#fbbf24",
+    tebalBorderJudul: 3,
+    tebalBorderLabel: 4,
+    warnaBorderJudul: "black",
+    warnaBorderLabel: "black",
+    boxJudul: "black@0.45",
+    boxLabel: "black@0.55",
+    hiasan: "",
+  },
+  klasik: {
+    fontJudul: "cinzeldec",
+    fontLabel: "cinzeldec",
+    warnaJudul: "#f5e6c8",
+    warnaLabel: "#f5d061",
+    tebalBorderJudul: 3,
+    tebalBorderLabel: 3,
+    warnaBorderJudul: "black",
+    warnaBorderLabel: "black",
+    boxJudul: "black@0.55",
+    boxLabel: "black@0.6",
+    hiasan: "emas",
+  },
+  futuristik: {
+    fontJudul: "anton",
+    fontLabel: "monoton",
+    warnaJudul: "white",
+    warnaLabel: "#22d3ee",
+    tebalBorderJudul: 3,
+    tebalBorderLabel: 0, // Monoton sudah bergaya outline — border gelap justru menutupi
+    warnaBorderJudul: "#22d3ee",
+    warnaBorderLabel: "black",
+    boxJudul: "black@0.6",
+    boxLabel: "#020617@0.78",
+    hiasan: "neon",
+  },
+};
+
 export interface ArgThumbnail {
-  /** path video SUMBER (absolut) */
-  src: string;
-  /** detik (waktu sumber) frame yang diambil */
-  detik: number;
+  /** path video SUMBER (absolut) — wajib bila `gambar` kosong */
+  src?: string;
+  /** detik (waktu sumber) frame yang diambil — wajib bila `gambar` kosong */
+  detik?: number;
+  /** v2.3.0 — path gambar frame bersama (mode "satu"); diisi → tanpa -ss */
+  gambar?: string;
   /** isi judul — SUDAH dibungkus multi-baris (dilakukan pemanggil) */
   judulTxt: string;
   /** isi label — mis. "Part 3" (dibesar-besarkan saat digambar) */
@@ -30,8 +103,12 @@ export interface ArgThumbnail {
   /** ukuran huruf dasar px pada sisi terpendek 1080 */
   ukuranJudul: number;
   ukuranLabel: number;
-  /** file font TTF (boleh "" → font bawaan ffmpeg) */
+  /** file font TTF JUDUL (boleh "" → font bawaan ffmpeg) */
   fontfile: string;
+  /** v2.3.0 — file font TTF LABEL (kosong = ikut `fontfile` judul) */
+  fontLabel?: string;
+  /** v2.3.0 — gaya bingkai (kosong = "modern" = rantai lama persis) */
+  gaya?: GayaThumbnail;
   keluar: string;
   /** "jpg" (bawaan, -q:v 2) atau "png" */
   format: "jpg" | "png";
@@ -146,8 +223,11 @@ export function labelThumbnail(opsi: Pick<OpsiThumbnail, "kata">, n: number): st
   return `${kata} ${String(Math.max(1, Math.floor(n))).padStart(2, "0")}`;
 }
 
-/** Susun argumen ffmpeg: 1 frame sumber → scale cover W×H → kotak+judul+label.
- *  Memakai -filter_complex (bukan -vf) karena rantai menghasilkan label [out]. */
+/** Susun argumen ffmpeg: 1 frame sumber (atau GAMBAR frame bersama v2.3.0) →
+ *  scale cover W×H → kotak+judul+label dgn gaya pilihan. Memakai -filter_complex
+ *  (bukan -vf) karena rantai menghasilkan label [out].
+ *  NOL REGRESI: tanpa `gaya` (atau gaya "modern") + tanpa `gambar` → argumen
+ *  PERSIS sama dgn v2.1.0–v2.2.1 (dites string-sajar di uji-v230 & uji-v210). */
 export function bangunArgumenThumbnail(a: ArgThumbnail): string[] {
   const W = Math.max(2, Math.round(a.W / 2) * 2);
   const H = Math.max(2, Math.round(a.H / 2) * 2);
@@ -155,45 +235,85 @@ export function bangunArgumenThumbnail(a: ArgThumbnail): string[] {
   const uJ = Math.max(12, a.ukuranJudul * skala);
   const uL = Math.max(12, a.ukuranLabel * skala);
   const amanFilter = (p: string) => p.replaceAll("\\", "/").replaceAll(":", "\\:").replaceAll("'", "\\'");
+  const gy = GAYA_COVER[a.gaya ?? "modern"];
   const ff = a.fontfile ? `:fontfile=${amanFilter(a.fontfile)}` : "";
-  // judul: kotak gelap semi transparan + teks putih, posisi atas (blok naik dgn jumlah baris)
+  const fl = (a.fontLabel || a.fontfile) ? `:fontfile=${amanFilter(a.fontLabel || a.fontfile)}` : "";
+  // tebal border teks: 0 = tanpa border (param borderw/bordercolor tak ditulis)
+  const bwJ = gy.tebalBorderJudul > 0 ? Math.max(1, Math.round(gy.tebalBorderJudul * skala)) : 0;
+  const bwL = gy.tebalBorderLabel > 0 ? Math.max(1, Math.round(gy.tebalBorderLabel * skala)) : 0;
+  // judul: kotak gelap semi transparan + teks, posisi atas (blok naik dgn jumlah baris)
   const barisJ = Math.max(1, a.judulTxt.split("\n").length);
   const yJudul = Math.round(H * 0.055);
+  const hBoxJ = Math.round(barisJ * uJ * 1.35 + uJ * 0.5);
   const rantai = [
     `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1`,
     // kotak judul: drawbox selebar frame, tinggi = jumlah baris × tinggi baris
-    `drawbox=x=0:y=${yJudul}:w=${W}:h=${Math.round(barisJ * uJ * 1.35 + uJ * 0.5)}:color=black@0.45:t=fill`,
+    `drawbox=x=0:y=${yJudul}:w=${W}:h=${hBoxJ}:color=${gy.boxJudul}:t=fill`,
     `drawtext=textfile='${amanFilter(a.fileJudul)}'` +
-      `:fontsize=${uJ.toFixed(1)}:fontcolor=white:borderw=${Math.max(1, Math.round(3 * skala))}` +
-      `:bordercolor=black:x=(w-text_w)/2:y=${yJudul + Math.round(uJ * 0.25)}` +
+      `:fontsize=${uJ.toFixed(1)}:fontcolor=${gy.warnaJudul}` +
+      (bwJ > 0 ? `:borderw=${bwJ}:bordercolor=${gy.warnaBorderJudul}` : "") +
+      `:x=(w-text_w)/2:y=${yJudul + Math.round(uJ * 0.25)}` +
       `:line_spacing=${(uJ * 0.3).toFixed(1)}:expansion=none${ff}`,
   ];
   // v2.1.0 — label opsional ("" = tanpa label, mis. thumbnail GABUNG)
+  let yLabel = 0;
   if (a.labelTxt.trim()) {
+    yLabel = Math.round(H * 0.76);
     rantai.push(
-      // label: kotak gelap + teks besar kuning di bawah (78% tinggi)
-      `drawbox=x=0:y=${Math.round(H * 0.76)}:w=${W}:h=${Math.round(uL * 1.6)}:color=black@0.55:t=fill`,
+      // label: kotak gelap + teks besar di bawah (78% tinggi)
+      `drawbox=x=0:y=${yLabel}:w=${W}:h=${Math.round(uL * 1.6)}:color=${gy.boxLabel}:t=fill`,
       `drawtext=textfile='${amanFilter(a.fileLabel)}'` +
-        `:fontsize=${uL.toFixed(1)}:fontcolor=#fbbf24:borderw=${Math.max(1, Math.round(4 * skala))}` +
-        `:bordercolor=black:x=(w-text_w)/2:y=${Math.round(H * 0.76) + Math.round(uL * 0.3)}` +
-        `:expansion=none${ff}`,
+        `:fontsize=${uL.toFixed(1)}:fontcolor=${gy.warnaLabel}` +
+        (bwL > 0 ? `:borderw=${bwL}:bordercolor=${gy.warnaBorderLabel}` : "") +
+        `:x=(w-text_w)/2:y=${yLabel + Math.round(uL * 0.3)}` +
+        `:expansion=none${fl}`,
+    );
+  }
+  // v2.3.0 — hiasan per gaya (digambar TERAKHIR agar bersih di atas teks)
+  if (gy.hiasan === "emas") {
+    // bingkai ganda emas mengelilingi frame + garis emas tipis di bawah kotak judul
+    const tebal = Math.max(2, Math.round(5 * skala));
+    const jarak = Math.round(16 * skala);
+    rantai.push(
+      `drawbox=x=0:y=0:w=${W}:h=${H}:color=#d4af37@0.9:t=${tebal}`,
+      `drawbox=x=${jarak}:y=${jarak}:w=${W - jarak * 2}:h=${H - jarak * 2}:color=#d4af37@0.45:t=${Math.max(1, Math.round(2 * skala))}`,
+      `drawbox=x=0:y=${yJudul + hBoxJ}:w=${W}:h=${Math.max(2, Math.round(2 * skala))}:color=#d4af37@0.75:t=fill`,
+    );
+  } else if (gy.hiasan === "neon") {
+    // garis aksen neon: cyan di bawah kotak judul, magenta di atas kotak label
+    const garis = Math.max(2, Math.round(2 * skala));
+    rantai.push(
+      `drawbox=x=0:y=${yJudul + hBoxJ}:w=${W}:h=${garis}:color=#22d3ee@0.9:t=fill`,
+    );
+    if (a.labelTxt.trim()) {
+      rantai.push(
+        `drawbox=x=0:y=${yLabel - garis}:w=${W}:h=${garis}:color=#e879f9@0.9:t=fill`,
+      );
+    }
+    // 8 bracket sudut (2 garis per sudut) — kesan HUD sci-fi
+    const s = Math.round(64 * skala); // panjang bracket
+    const t = Math.max(2, Math.round(3 * skala)); // tebal garis
+    rantai.push(
+      // kiri-atas
+      `drawbox=x=0:y=0:w=${s}:h=${t}:color=#22d3ee@0.9:t=fill`,
+      `drawbox=x=0:y=0:w=${t}:h=${s}:color=#22d3ee@0.9:t=fill`,
+      // kanan-atas
+      `drawbox=x=${W - s}:y=0:w=${s}:h=${t}:color=#22d3ee@0.9:t=fill`,
+      `drawbox=x=${W - t}:y=0:w=${t}:h=${s}:color=#22d3ee@0.9:t=fill`,
+      // kiri-bawah
+      `drawbox=x=0:y=${H - t}:w=${s}:h=${t}:color=#22d3ee@0.9:t=fill`,
+      `drawbox=x=0:y=${H - s}:w=${t}:h=${s}:color=#22d3ee@0.9:t=fill`,
+      // kanan-bawah
+      `drawbox=x=${W - s}:y=${H - t}:w=${s}:h=${t}:color=#22d3ee@0.9:t=fill`,
+      `drawbox=x=${W - t}:y=${H - s}:w=${t}:h=${s}:color=#22d3ee@0.9:t=fill`,
     );
   }
   rantai.push("format=yuv420p[out]");
-  const args = [
-    "-y",
-    "-hide_banner",
-    "-ss",
-    Math.max(0, a.detik).toFixed(3),
-    "-i",
-    a.src,
-    "-frames:v",
-    "1",
-    "-filter_complex",
-    rantai.join(","),
-    "-map",
-    "[out]",
-  ];
+  // v2.3.0 — input gambar (mode SATU COVER) → tanpa -ss; input video → seek cepat
+  const args: string[] = ["-y", "-hide_banner"];
+  if (a.gambar) args.push("-i", a.gambar);
+  else args.push("-ss", Math.max(0, a.detik ?? 0).toFixed(3), "-i", a.src ?? "");
+  args.push("-frames:v", "1", "-filter_complex", rantai.join(","), "-map", "[out]");
   if (a.format === "png") args.push("-pred", "mixed");
   else args.push("-q:v", "2");
   args.push(a.keluar);

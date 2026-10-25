@@ -22,6 +22,7 @@ import {
   bersihkanNamaJudul,
   detikFrameIntro,
   detikFrameThumbnail,
+  GAYA_COVER,
   labelIntro,
   labelThumbnail,
 } from "./thumbnail";
@@ -209,6 +210,30 @@ export function mulaiEksporAntrean(
   // v0.57.0 — bawaan maks 4 → 10 atas permintaan user (selama AI latar jalan, tetap dibatasi 1 oleh gerbang v0.56)
   const paralel = Math.min(10, Math.max(1, Math.round(daftar[0]?.pengaturan.prosesParalel || 2)));
 
+  // v2.3.0 — SATU COVER UNTUK SEMUA PART (mode "satu"): janji file frame
+  // bersama PER VIDEO (diekstrak SEKALI — seek pertama yang butuh; part lain
+  // menunggu janji yang sama) → 1 seek per video, semua cover seragam.
+  // Dideklarasi di badan fungsi (bukan di dalam IIFE) agar blok .catch() —
+  // yang berada DI LUAR IIFE — tetap bisa membersihkannya.
+  const janjiFrameSatu = new Map<number, Promise<string | null>>();
+  const bersihkanFrameSatu = () => {
+    for (const j of janjiFrameSatu.values()) {
+      j.then((f) => {
+        if (f) {
+          try {
+            unlinkSync(f);
+          } catch {
+            /* abaikan */
+          }
+        }
+      }).catch(() => {});
+    }
+  };
+  // v2.3.0 — janji semua komposisi thumbnail: akhir job HARUS menunggu SEMUA
+  // selesai sebelum membuang frame bersama (dulu frame terhapus sementara
+  // komposisi part lain masih berjalan → sebagian thumbnail hilang senyap)
+  const janjiThumb: Promise<unknown>[] = [];
+
   // v0.57.0 — hitung part MENGHORMATI zona hapus (Potong & Hapus Bagian):
   // tanpa zona = rumus lama PERSIS; dgn zona = tiap potongan dipecah mandiri.
   // v2.0.0 — hitungPartV2 juga MENGHORMATI JUMLAH PART OTOMATIS (N part merata)
@@ -307,7 +332,9 @@ export function mulaiEksporAntrean(
 
     /** v2.1.0 — THUMBNAIL OTOMATIS satu part: frame dari SUMBER (bersih tanpa
      *  tulisan terbakar) + judul dr NAMA FILE + label Part/Bagian/Episode.
-     *  Gagal thumbnail TIDAK menggagalkan job (null → dilewati senyap). */
+     *  Gagal thumbnail TIDAK menggagalkan job (null → dilewati senyap).
+     *  v2.3.0 — + `vi` & `detikSatu`: mode "satu" memakai SATU gambar bersama
+     *  per video (diekstraksi 1× via janjiFrameSatu) + gaya bingkai pilihan. */
     const buatThumbnailPart = async (
       it: ItemEkspor,
       n: number,
@@ -318,13 +345,38 @@ export function mulaiEksporAntrean(
       slug: string,
       tag: string,
       thumb: OpsiThumbnail,
+      vi: number,
+      detikSatu: number,
     ): Promise<KeluaranJob | null> => {
+      // v2.3.0 — file teks dideklarasi di luar try agar finally bisa membersihkannya
+      const fileJ = path.join(dirTmp, `${tag}-thumb-j.txt`);
+      const fileL = path.join(dirTmp, `${tag}-thumb-l.txt`);
       try {
+        const gy = GAYA_COVER[thumb.gaya] ?? GAYA_COVER.modern;
+        // v2.3.0 — mode "satu": frame bersama diambil SEKALI per video; semua
+        // part menyusun cover dr GAMBAR yang sama (tanpa seek ulang video)
+        let gambar = "";
+        if (thumb.mode === "satu") {
+          let janji = janjiFrameSatu.get(vi);
+          if (!janji) {
+            const fileFrame = path.join(dirTmp, `${id}-frame-satu-${vi}.png`);
+            janji = jalankanFfmpeg(
+              bangunArgumenFrameSumber(it.srcAbs, detikSatu, fileFrame, W, H),
+              1,
+              undefined,
+              ff.bin,
+            )
+              .then(() => fileFrame)
+              .catch(() => null);
+            janjiFrameSatu.set(vi, janji);
+          }
+          const hasil = await janji;
+          if (!hasil) return null; // ekstraksi gagal → thumbnail dilewati senyap
+          gambar = hasil;
+        }
         const skala = Math.min(W, H) / 1080;
-        const teksJ = bungkusTeks(bersihkanNamaJudul(it.nama), W * 0.92, Math.max(14, 52 * skala), "tebal");
+        const teksJ = bungkusTeks(bersihkanNamaJudul(it.nama), W * 0.92, Math.max(14, 52 * skala), gy.fontJudul);
         const lbl = labelThumbnail(thumb, n);
-        const fileJ = path.join(dirTmp, `${tag}-thumb-j.txt`);
-        const fileL = path.join(dirTmp, `${tag}-thumb-l.txt`);
         writeFileSync(fileJ, teksJ, "utf8");
         writeFileSync(fileL, lbl, "utf8");
         const ekst = thumb.format === "png" ? "png" : "jpg";
@@ -332,8 +384,11 @@ export function mulaiEksporAntrean(
         const argsT = bangunArgumenThumbnail({
           src: it.srcAbs,
           // v2.2.1 — durasi total dikirim → frame DIPETAKAN ke menit 1–3 video
-          // (permintaan user: pengambilan cover menit 1–3 agar cepat)
+          // (permintaan user: pengambilan cover menit 1–3 agar cepat).
+          // v2.3.0 — mode "satu": `gambar` diisi → argumen input jadi -i gambar
+          // (detik sumber diabaikan filter builder).
           detik: detikFrameThumbnail(mulaiPart, durasiPart, it.info.durasi),
+          ...(gambar ? { gambar } : {}),
           judulTxt: teksJ,
           labelTxt: lbl,
           W,
@@ -342,14 +397,35 @@ export function mulaiEksporAntrean(
           fileLabel: fileL,
           ukuranJudul: 52,
           ukuranLabel: 74,
-          fontfile: fontfileNama("tebal"),
+          fontfile: fontfileNama(gy.fontJudul),
+          fontLabel: fontfileNama(gy.fontLabel),
+          gaya: thumb.gaya,
           keluar: keluarT,
           format: thumb.format,
         });
         await jalankanFfmpeg(argsT, 1, undefined, ff.bin);
         return { video: it.nama, file: path.basename(keluarT), ukuran: statSync(keluarT).size };
-      } catch {
+      } catch (e) {
+        console.error(
+          `[thumb-gagal] ${slug} part ${n} (mode=${thumb.mode}):`,
+          e instanceof Error ? e.message : e,
+        );
         return null;
+      } finally {
+        // v2.3.0 — thumbnail membersihkan file teks miliknya SENDIRI setelah
+        // komposisi tuntas. Dulu .finally render ikut menghapusnya — di mode
+        // "satu" (part terakhir: await janji langsung lanjut) file terhapus
+        // SEBELUM ffmpeg membaca textfile → komposisi gagal senyap (E2E).
+        try {
+          unlinkSync(fileJ);
+        } catch {
+          /* abaikan */
+        }
+        try {
+          unlinkSync(fileL);
+        } catch {
+          /* abaikan */
+        }
       }
     };
     const fraksi = new Map<string, number>(); // "vi:part" → 0..1
@@ -410,6 +486,21 @@ export function mulaiEksporAntrean(
           : p.zonaHapus && p.zonaHapus.length
             ? rentangPartHapus(n, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik, p.zonaHapus)
             : rentangPart(n, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik);
+      // v2.3.0 — mode "satu": posisi frame cover BERSAMA = posisi part 1 (35%
+      // bagian pertamanya) dipetakan menit 1–3 — deterministik (bukan dari part
+      // yang kebetulan selesai duluan). Mode per-part tak memakai nilai ini.
+      let detikSatu = 0;
+      if (konteks.thumb.mode === "satu") {
+        const [m1, d1] = konteks.potonganAdgn.length
+          ? [
+              konteks.potonganAdgn[0].mulai,
+              Math.max(0.5, konteks.potonganAdgn[0].akhir - konteks.potonganAdgn[0].mulai),
+            ]
+          : p.zonaHapus && p.zonaHapus.length
+            ? rentangPartHapus(1, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik, p.zonaHapus)
+            : rentangPart(1, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik);
+        detikSatu = detikFrameThumbnail(m1, d1, it.info.durasi);
+      }
       const kec2 = rapikanKecepatanLocal(p.kecepatanVideo);
       // v0.7.0 mode "asli" — v2.0.0: dimensiOutput (resolusi 720p/1080p/2K/4K
       // terkunci dgn 9:16 dibalik; auto = perilaku lama; asli = sumber genap)
@@ -556,21 +647,25 @@ export function mulaiEksporAntrean(
           // v2.1.0 — THUMBNAIL OTOMATIS: gagal diabaikan (job tetap sukses);
           // hasil masuk ekor outputs (ikut unduhan & ZIP)
           if (konteks.thumb?.aktif) {
-            void buatThumbnailPart(it, n, mulai, durasi, W, H, slug, tag, konteks.thumb)
-              .then((hasil) => {
-                if (hasil) {
-                  slotThumb.push(hasil);
-                  segarkanOutput();
-                }
-              })
-              .catch(() => {});
+            // v2.3.0 — kirim vi & anchor detikSatu utk mode "satu" (frame bersama);
+            // janji dilacak → bersih-bersih menunggu SEMUA thumbnail tuntas
+            janjiThumb.push(
+              buatThumbnailPart(it, n, mulai, durasi, W, H, slug, tag, konteks.thumb, vi, detikSatu)
+                .then((hasil) => {
+                  if (hasil) {
+                    slotThumb.push(hasil);
+                    segarkanOutput();
+                  }
+                })
+                .catch(() => {}),
+            );
           }
         })
         .finally(() => {
           // v0.58.0 — pembersihan temp dipindah ke finally: dulu hanya di jalur
           // sukses — render gagal/batal menetaskan 3-4 berkas yatim per part
           // di work/tmp yang menumpuk selamanya
-          for (const akhiran of ["judul", "part", "deskripsi", "sub", "intro", "intro-l", "thumb-j", "thumb-l"]) {
+          for (const akhiran of ["judul", "part", "deskripsi", "sub", "intro", "intro-l"]) {
             try {
               unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
             } catch {
@@ -983,6 +1078,8 @@ export function mulaiEksporAntrean(
     job.partAktif = 0;
     job.selesaiSemua = true;
     job.progresTotal = 100; // v0.58.0 — progres berakhir PASTI 100 (fraksi berbasis waktu bisa 99)
+    // v2.3.0 — frame bersama dibuang HANYA setelah semua komposisi thumbnail tuntas
+    void Promise.allSettled(janjiThumb).then(() => bersihkanFrameSatu());
     catatRiwayat(job); // hasil tetap bisa diunduh ulang dari panel Riwayat
     bersihkanBatal(id);
   })().catch((e) => {
@@ -992,6 +1089,7 @@ export function mulaiEksporAntrean(
       if (v.status === "menunggu" || v.status === "proses") v.status = "gagal";
     }
     job.adaGagal = true;
+    void Promise.allSettled(janjiThumb).then(() => bersihkanFrameSatu()); // v2.3.0
     catatRiwayat(job); // part yang sempat jadi sebelum gagal tetap tercatat
     bersihkanBatal(id);
   });
@@ -1287,7 +1385,9 @@ export function mulaiGabungAntrean(
           const it0t = daftar[0];
           const dT0 = durasiEfektif(it0t.info.durasi, it0t.pengaturan.mulaiDetik, it0t.pengaturan.akhirDetik);
           const skala0 = Math.min(W, H) / 1080;
-          const teksJ = bungkusTeks(bersihkanNamaJudul(it0t.nama), W * 0.92, Math.max(14, 52 * skala0), "tebal");
+          // v2.3.0 — gaya bingkai ikut pilihan user (gabung = 1 cover tanpa label)
+          const gy0 = GAYA_COVER[thumbnail.gaya] ?? GAYA_COVER.modern;
+          const teksJ = bungkusTeks(bersihkanNamaJudul(it0t.nama), W * 0.92, Math.max(14, 52 * skala0), gy0.fontJudul);
           const fileJ = path.join(dirTmp, `${id}-gab-thumb-j.txt`);
           const fileL = path.join(dirTmp, `${id}-gab-thumb-l.txt`);
           writeFileSync(fileJ, teksJ, "utf8");
@@ -1306,7 +1406,9 @@ export function mulaiGabungAntrean(
             fileLabel: fileL,
             ukuranJudul: 52,
             ukuranLabel: 74,
-            fontfile: fontfileNama("tebal"),
+            fontfile: fontfileNama(gy0.fontJudul),
+            fontLabel: fontfileNama(gy0.fontLabel),
+            gaya: thumbnail.gaya,
             keluar: keluarT,
             format: thumbnail.format,
           });

@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       modeEkspor?: string;
       targetMb?: number;
       /** v2.1.0 — THUMBNAIL OTOMATIS */
-      thumbnail?: { aktif?: boolean; kata?: string; format?: string };
+      thumbnail?: { aktif?: boolean; kata?: string; format?: string; mode?: string; gaya?: string };
     };
 
     const mentah = Array.isArray(body.daftar) ? body.daftar : [];

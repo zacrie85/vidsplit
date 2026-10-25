@@ -54,25 +54,59 @@ export function pilihBgPart(tampil: TampilIntro | undefined, n: number, total: n
 
 /* ============ v2.1.0 — THUMBNAIL OTOMATIS ============ */
 
+/** v2.3.0 — cakupan frame cover: "per-part" = tiap part mengambil frame sendiri
+ *  (perilaku lama, tiap cover beda); "satu" = SATU frame dari video sumber
+ *  (posisi part 1, dipetakan menit 1–3) dipakai SEMUA part — seek ekstraksi cuma
+ *  1× per video (lebih cepat) dan semua cover seragam. Permintaan user:
+ *  "1 gambar saja dari setiap video untuk dijadikan sebagai cover untuk semua
+ *  hasil splitan". */
+export type ModeThumbnail = "per-part" | "satu";
+
+/** v2.3.0 — gaya BINGKAI cover (permintaan user: "pilihan klasik modern dan
+ *  futuristik"): "modern" = kotak gelap bersih (bawaan, = rantai lama PERSIS),
+ *  "klasik" = bingkai emas ganda + huruf fantasi Cinzel Decorative,
+ *  "futuristik" = aksen neon cyan/magenta + sudut bracket + huruf Anton/Monoton. */
+export type GayaThumbnail = "modern" | "klasik" | "futuristik";
+
 /** v2.1.0 — opsi THUMBNAIL OTOMATIS (per-JOB ekspor/gabung, bukan per-video):
  *  tiap part selesai dirender → ambil 1 frame dari video sumber (±35% awal part)
  *  → overlay judul (dari NAMA FILE) + label "Part/Bagian/Episode N" → simpan
- *  JPG/PNG di folder output, ikut daftar unduhan & ZIP. */
+ *  JPG/PNG di folder output, ikut daftar unduhan & ZIP.
+ *  v2.3.0 — + mode (cakupan frame) & gaya (bingkai). */
 export interface OpsiThumbnail {
   aktif: boolean;
   kata: "Part" | "Bagian" | "Episode";
   format: "jpg" | "png";
+  mode: ModeThumbnail;
+  gaya: GayaThumbnail;
 }
 export const KATA_THUMBNAIL: Array<OpsiThumbnail["kata"]> = ["Part", "Bagian", "Episode"];
-export const opsiThumbnailDefault: OpsiThumbnail = { aktif: false, kata: "Part", format: "jpg" };
+export const MODE_THUMBNAIL: Array<OpsiThumbnail["mode"]> = ["per-part", "satu"];
+export const GAYA_THUMBNAIL: Array<OpsiThumbnail["gaya"]> = ["modern", "klasik", "futuristik"];
+export const opsiThumbnailDefault: OpsiThumbnail = {
+  aktif: false,
+  kata: "Part",
+  format: "jpg",
+  mode: "per-part",
+  gaya: "modern",
+};
 
-/** v2.1.0 — rapikan opsi thumbnail dari body API (aman thd nilai aneh/kosong) */
+/** v2.1.0 — rapikan opsi thumbnail dari body API (aman thd nilai aneh/kosong).
+ *  v2.3.0 — + mode & gaya: nilai lama tanpa kedua field → bawaan (per-part +
+ *  modern) = perilaku lama persis. */
 export function rapikanThumbnail(raw: unknown): OpsiThumbnail {
-  const o = (raw ?? {}) as Partial<OpsiThumbnail> & { kata?: string; format?: string };
+  const o = (raw ?? {}) as Partial<OpsiThumbnail> & {
+    kata?: string;
+    format?: string;
+    mode?: string;
+    gaya?: string;
+  };
   return {
     aktif: o.aktif === true,
     kata: o.kata === "Bagian" || o.kata === "Episode" ? o.kata : "Part",
     format: o.format === "png" ? "png" : "jpg",
+    mode: o.mode === "satu" ? "satu" : "per-part",
+    gaya: o.gaya === "klasik" || o.gaya === "futuristik" ? o.gaya : "modern",
   };
 }
 

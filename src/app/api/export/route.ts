@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
         pengaturan?: Partial<Pengaturan>;
       }>;
       /** v2.1.0 — THUMBNAIL OTOMATIS */
-      thumbnail?: { aktif?: boolean; kata?: string; format?: string };
+      thumbnail?: { aktif?: boolean; kata?: string; format?: string; mode?: string; gaya?: string };
     };
 
     // kompatibilitas lama: satu video → daftar 1 item

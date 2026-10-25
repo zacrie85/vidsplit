@@ -53,6 +53,9 @@ export function PanelEkspor({
     thumbnailAktif: boolean;
     thumbnailKata: "Part" | "Bagian" | "Episode";
     thumbnailFormat: "jpg" | "png";
+    /** v2.3.0 — cakupan frame & gaya bingkai cover */
+    thumbnailMode: "per-part" | "satu";
+    thumbnailGaya: "modern" | "klasik" | "futuristik";
   };
   onOpsiEkspor: (o: {
     paralel: number;
@@ -60,6 +63,8 @@ export function PanelEkspor({
     thumbnailAktif: boolean;
     thumbnailKata: "Part" | "Bagian" | "Episode";
     thumbnailFormat: "jpg" | "png";
+    thumbnailMode: "per-part" | "satu";
+    thumbnailGaya: "modern" | "klasik" | "futuristik";
   }) => void;
 }) {
   const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("presisi");
@@ -187,6 +192,8 @@ export function PanelEkspor({
             aktif: opsiEkspor.thumbnailAktif,
             kata: opsiEkspor.thumbnailKata,
             format: opsiEkspor.thumbnailFormat,
+            mode: opsiEkspor.thumbnailMode,
+            gaya: opsiEkspor.thumbnailGaya,
           },
         }),
       });
@@ -262,6 +269,8 @@ export function PanelEkspor({
             aktif: opsiEkspor.thumbnailAktif,
             kata: opsiEkspor.thumbnailKata,
             format: opsiEkspor.thumbnailFormat,
+            mode: opsiEkspor.thumbnailMode,
+            gaya: opsiEkspor.thumbnailGaya,
           },
         }),
       });
@@ -465,10 +474,38 @@ export function PanelEkspor({
                 ]}
               />
             </div>
+            {/* v2.3.0 — cakupan frame: tiap part beda, atau SATU frame utk semua */}
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Cakupan frame</p>
+              <ChipPilihan
+                nilai={opsiEkspor.thumbnailMode}
+                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailMode: v })}
+                pilihan={[
+                  { v: "per-part", label: "Tiap part beda", hint: "tiap potongan frame sendiri" },
+                  { v: "satu", label: "Satu untuk semua", hint: "1 frame video — paling cepat" },
+                ]}
+              />
+            </div>
+            {/* v2.3.0 — gaya bingkai cover: klasik / modern / futuristik */}
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Gaya cover</p>
+              <ChipPilihan
+                nilai={opsiEkspor.thumbnailGaya}
+                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailGaya: v })}
+                pilihan={[
+                  { v: "klasik", label: "Klasik", hint: "bingkai emas, huruf fantasi" },
+                  { v: "modern", label: "Modern", hint: "kotak gelap bersih (bawaan)" },
+                  { v: "futuristik", label: "Futuristik", hint: "neon cyan, sudut bracket" },
+                ]}
+              />
+            </div>
             <p className="text-[11px] text-slate-500">
               Tiap potongan diberi gambar thumbnail: frame dari video + JUDUL (dari nama
               file) + label {opsiEkspor.thumbnailKata} + nomor part-nya — tersimpan di samping
               hasil split, ikut unduhan &amp; ZIP. GABUNG VIDEO juga dapat 1 thumbnail.
+              {opsiEkspor.thumbnailMode === "satu"
+                ? " Cakupan SATU UNTUK SEMUA: satu frame video (menit 1–3) dipakai semua part — ekstraksi cuma 1×, ekspor lebih cepat, cover seragam."
+                : " Cakupan TIAP PART BEDA: tiap potongan punya frame-nya sendiri (dari menit 1–3 video)."}
             </p>
           </div>
         )}
