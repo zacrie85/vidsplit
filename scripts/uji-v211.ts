@@ -7,6 +7,9 @@
 //   (5) render NYATA ujung-ke-ujung: frame diambil dari video uji (posisi 35%),
 //       dipakai sbg bg intro (zoom-masuk + fade + teks + suara) → durasi TEPAT,
 //       frame pertama hasil = frame video (bukan hitam/hijau).
+// v2.2.1 — PERCEPATAN MENIT 1–3: detikRentangCover (pemetaan 60–180 dtk),
+//   detikFrameIntro/detikFrameThumbnail dgn durasiTotal, mode W,H frame sumber
+//   (scale+crop+an saat ekstraksi — PNG kecil, intro ringan).
 // Jalankan: npx tsx scripts/uji-v211.ts
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
@@ -17,6 +20,8 @@ import {
   bangunArgumenFrameSumber,
   bersihkanNamaJudul,
   detikFrameIntro,
+  detikFrameThumbnail,
+  detikRentangCover,
   labelIntro,
 } from "../src/lib/vidsplit/thumbnail";
 
@@ -49,6 +54,25 @@ cek(Math.abs(detikFrameIntro(2, 8, -5) - 2) < 1e-9, "posisi negatif → clamp 0%
 cek(Math.abs(detikFrameIntro(2, 8, 500) - 10) < 1e-9, "posisi >100 → clamp 100%");
 cek(Math.abs(detikFrameIntro(2, 8, NaN) - 2) < 1e-9, "NaN → clamp 0%");
 
+/* ================= (1b) v2.2.1 — PEMETAAN MENIT 1–3 ================= */
+console.log("\n== (1b) detikRentangCover — posisi DIPETAKAN ke menit 1–3 ==");
+cek(detikRentangCover(0, 3600) === 60, "video 1 jam: posisi 0 → menit 1 (60 dtk)");
+cek(Math.abs(detikRentangCover(1800, 3600) - 120) < 1e-9, "video 1 jam: tengah → menit 2 (120 dtk)");
+cek(Math.abs(detikRentangCover(3599, 3600) - 179.97) < 0.01, "video 1 jam: akhir → ≈ menit 3 (bukan akhir video)");
+cek(Math.abs(detikRentangCover(500, 600) - 160) < 1e-9, "video 10 mnt: 500 dtk → 160 dtk (urutan part terjaga)");
+cek(detikRentangCover(10, 60) === 10, "video pendek 60 dtk → PERSIS (tanpa pemetaan)");
+cek(detikRentangCover(70, 74) === 70, "video 74 dtk → PERSIS");
+cek(Math.abs(detikRentangCover(80, 90) - (60 + (80 / 90) * 29)) < 1e-9, "video 90 dtk → dipetakan 60–89 dtk");
+cek(detikRentangCover(10, undefined) === 10, "tanpa durasi → persis (kompatibel)");
+cek(detikRentangCover(-5, 3600) === 60, "posisi negatif → clamp → 60");
+cek(detikRentangCover(99999, 3600) <= 180, "posisi gila → clamp ≤ 180");
+// part JAUH di video panjang tetap mendarat di menit 1–3 (inti percepatan):
+cek(Math.abs(detikFrameIntro(400, 60, 50, 3600) - (60 + (430 / 3600) * 120)) < 1e-9, "intro: part ke-13 video 1 jam → tetap di menit 1–3");
+cek(Math.abs(detikFrameThumbnail(400, 60, 3600) - (60 + (421 / 3600) * 120)) < 1e-9, "thumbnail: sama, dipetakan menit 1–3");
+cek(Math.abs(detikFrameIntro(10, 20, 35) - 17) < 1e-9, "detikFrameIntro TANPA durasi → perilaku lama (17)");
+cek(Math.abs(detikFrameThumbnail(10, 20) - 17) < 1e-9, "detikFrameThumbnail TANPA durasi → perilaku lama (17)");
+cek(detikFrameIntro(0, 4, 35, 300) > 60 && detikFrameIntro(0, 4, 35, 300) <= 180, "video 5 mnt: frame intro di menit 1–3");
+
 /* ================= (2) LABEL INTRO ================= */
 console.log("\n== (2) labelIntro — kata bebas + nomor 2 digit ==");
 cek(labelIntro("Part", 3) === "Part 03", "Part 03");
@@ -69,6 +93,28 @@ cek(af.indexOf("-i") === 4 && af[5] === "/vid/sumber.mp4", "-ss SEBELUM -i (seek
 cek(af.includes("-frames:v") && af.includes("1"), "cuma 1 frame");
 cek(af[af.length - 1] === "/tmp/frame.png", "argumen terakhir = keluaran");
 cek(af.length === 9, `tanpa filter/tulisan — 9 argumen polos (${af.length})`);
+
+/* ================= (3b) v2.2.1 — MODE W,H (scale saat ekstraksi) ================= */
+console.log("\n== (3b) bangunArgumenFrameSumber dgn W,H — scale+crop+an ==");
+const af2 = bangunArgumenFrameSumber("/vid/sumber.mp4", 102.5, "/tmp/frame2.png", 1080, 1920);
+cek(af2.indexOf("-ss") === 2 && af2[3] === "102.500", "-ss tetap 3 desimal");
+cek(af2.indexOf("-i") === 4 && af2[5] === "/vid/sumber.mp4", "-ss SEBELUM -i (seek cepat)");
+cek(af2.includes("-vf"), "ada -vf");
+const vf2 = af2[af2.indexOf("-vf") + 1];
+cek(
+  vf2 === "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920",
+  `filter = scale+crop W×H (${vf2})`,
+);
+cek(af2.includes("-an"), "-an (abaikan audio — lebih cepat)");
+cek(af2.includes("-frames:v") && af2.includes("1"), "cuma 1 frame");
+cek(af2[af2.length - 1] === "/tmp/frame2.png", "argumen terakhir = keluaran");
+cek(af2.indexOf("-vf") < af2.indexOf("-frames:v"), "-vf SEBELUM -frames:v");
+// W/H ganjil dibulatkan ke genap (codec aman)
+const af3 = bangunArgumenFrameSumber("/v.mp4", 5, "/tmp/f3.png", 1081, 1919);
+cek(
+  af3[af3.indexOf("-vf") + 1].includes("scale=1082:1920"),
+  "W/H ganjil → dibulatkan genap (1082×1920)",
+);
 
 /* ================= (4) TEKS INTRO OTOMATIS DI bangunArgumenPart ================= */
 console.log("\n== (4) bangunArgumenPart — teks intro otomatis ==");
@@ -155,6 +201,17 @@ const fFrame = path.join(DIR, "uji-v211-frame.png");
 const dtk = detikFrameIntro(0, 4, 35);
 execFileSync("ffmpeg", bangunArgumenFrameSumber(VID, dtk, fFrame), { stdio: ["ignore", "ignore", "pipe"] });
 cek(existsSync(fFrame) && statSync(fFrame).size > 1000, `frame sumber diambil @ ${dtk.toFixed(3)} dtk (${statSync(fFrame).size} B)`);
+
+// v2.2.1 — frame mode W,H: PNG hasil PERSIS 720×1280 (ukuran output render)
+const fFrameWH = path.join(DIR, "uji-v211-frame-wh.png");
+execFileSync("ffmpeg", bangunArgumenFrameSumber(VID, dtk, fFrameWH, 720, 1280), { stdio: ["ignore", "ignore", "pipe"] });
+const dimWH = JSON.parse(execFileSync("ffprobe", ["-v", "error", "-print_format", "json", "-show_streams", fFrameWH]).toString());
+const wWH = Number(dimWH.streams?.[0]?.width);
+const hWH = Number(dimWH.streams?.[0]?.height);
+cek(
+  existsSync(fFrameWH) && wWH === 720 && hWH === 1280,
+  `frame W,H diambil PERSIS 720×1280 (${wWH}×${hWH}, ${statSync(fFrameWH).size} B)`,
+);
 
 const pR = aturDasar({ introAktif: true, durasiIntro: 2, introAnimasi: "zoom-masuk", introFade: true, introTeksUkuran: 64 });
 const keluarR = "/tmp/uji-v211-render.mp4";

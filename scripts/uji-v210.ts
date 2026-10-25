@@ -219,6 +219,12 @@ cek(labelThumbnail({ kata: "Part" } as OpsiThumbnail, 3) === "Part 03", "label P
 cek(labelThumbnail({ kata: "Bagian" } as OpsiThumbnail, 12) === "Bagian 12", "label Bagian 12");
 cek(detikFrameThumbnail(10, 20) === 17, "35% dari part → detik 17");
 cek(detikFrameThumbnail(0, 0) === 0, "durasi 0 → detik 0 (aman)");
+// v2.2.1 — dgn durasi total: frame DIPETAKAN ke menit 1–3 (permintaan user)
+cek(
+  Math.abs(detikFrameThumbnail(400, 60, 3600) - (60 + (421 / 3600) * 120)) < 1e-9,
+  "v2.2.1: video 1 jam, part jauh → thumbnail tetap di menit 1–3",
+);
+cek(detikFrameThumbnail(10, 20, 60) === 17, "v2.2.1: video pendek 60 dtk → persis (lama)");
 const fJ = path.join(DIR, "uji-v210-thumb-j.txt");
 const fL = path.join(DIR, "uji-v210-thumb-l.txt");
 const { writeFileSync } = require("node:fs") as typeof import("node:fs");

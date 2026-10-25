@@ -331,7 +331,9 @@ export function mulaiEksporAntrean(
         const keluarT = path.join(folder, `${slug}-part-${String(n).padStart(2, "0")}-thumbnail.${ekst}`);
         const argsT = bangunArgumenThumbnail({
           src: it.srcAbs,
-          detik: detikFrameThumbnail(mulaiPart, durasiPart),
+          // v2.2.1 — durasi total dikirim → frame DIPETAKAN ke menit 1–3 video
+          // (permintaan user: pengambilan cover menit 1–3 agar cepat)
+          detik: detikFrameThumbnail(mulaiPart, durasiPart, it.info.durasi),
           judulTxt: teksJ,
           labelTxt: lbl,
           W,
@@ -430,8 +432,16 @@ export function mulaiEksporAntrean(
       if (p.introAktif && pilihBgPart(p.introTampil, n, totalPartVid)) {
         const fileFrame = path.join(dirTmp, `${tag}-introbg.png`);
         try {
-          const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi);
-          await jalankanFfmpeg(bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame), 1, undefined, ff.bin);
+          // v2.2.1 — posisi frame DIPETAKAN ke MENIT 1–3 video (detikRentangCover
+          // via detikFrameIntro dgn durasi total) → seek dekat awal = cepat;
+          // frame langsung diskalakan ke W×H output (PNG kecil, intro ringan).
+          const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
+          await jalankanFfmpeg(
+            bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame, W, H),
+            1,
+            undefined,
+            ff.bin,
+          );
           bgPart = existsSync(fileFrame) ? fileFrame : null;
         } catch {
           bgPart = null;
@@ -1286,7 +1296,8 @@ export function mulaiGabungAntrean(
           const keluarT = path.join(folder, `gabung-${slug}-thumbnail.${ekst}`);
           const argsT = bangunArgumenThumbnail({
             src: it0t.srcAbs,
-            detik: detikFrameThumbnail(it0t.pengaturan.mulaiDetik, dT0),
+            // v2.2.1 — juga dipetakan ke menit 1–3 video pertama (cepat)
+            detik: detikFrameThumbnail(it0t.pengaturan.mulaiDetik, dT0, it0t.info.durasi),
             judulTxt: teksJ,
             labelTxt: "",
             W,

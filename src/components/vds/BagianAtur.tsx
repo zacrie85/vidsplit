@@ -1791,24 +1791,26 @@ export function PanelBackground({
       />
       {aktif && (
         <div className="mt-3 space-y-3">
-          {/* ---- v2.2.0 — INFO SUMBER FRAME ---- */}
+          {/* ---- v2.2.0 — INFO SUMBER FRAME (v2.2.1: menit 1–3 utk kecepatan) ---- */}
           <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
             <p className="text-xs leading-relaxed text-amber-200/90">
-              Background diambil OTOMATIS dari video ini — satu frame per potongan
-              pada posisi di bawah, lalu diberi animasi, judul, dan label Part.
+              Background diambil OTOMATIS dari video ini — frame diambil di antara
+              MENIT 1–3 video (permintaan: lebih cepat), lalu diberi animasi, judul,
+              dan label Part.
             </p>
           </div>
           {/* ---- v2.2.0 — POSISI FRAME (SLIDER BEBAS 0–100%) ---- */}
           <BarisSlider
-            label="Posisi frame dalam potongan"
+            label="Posisi frame (antara menit 1–3)"
             nilai={pengaturan.introPosisi}
             min={0}
             max={100}
             onChange={(n) => set("introPosisi", n)}
-            fmt={(n) => `${n}% dari potongan`}
+            fmt={(n) => `${n}%`}
           />
           <p className="-mt-2 text-[11px] text-slate-500">
-            0% = awal potongan · 35% = rekomendasi (sama dgn thumbnail otomatis) · 100% = akhir potongan
+            0% = menit 1 · 35% = rekomendasi · 100% = menit 3 — dipetakan dari posisi potongan
+            (video &lt; 1¼ menit: frame diambil persis di potongan)
           </p>
           <BarisSlider
             label="Durasi intro tiap potongan"
@@ -2161,7 +2163,7 @@ export function PanelRingkasan({
           {/* v2.2.0 — intro frame dari video: status dari introAktif (bukan lagi
               gambar unggahan) */}
           {pengaturan.introAktif
-            ? `frame video ${pengaturan.introPosisi}% · ${pengaturan.durasiIntro} dtk / potongan`
+            ? `frame video menit 1–3 (${pengaturan.introPosisi}%) · ${pengaturan.durasiIntro} dtk / potongan`
             : "tanpa background"}
         </dd>
         <dt className="text-slate-500">Total durasi output</dt>

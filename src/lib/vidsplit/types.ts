@@ -174,7 +174,10 @@ export interface Pengaturan {
   durasiIntro: number;
   /** v2.2.0 — posisi frame background intro DI DALAM potongan (0–100 %, bawaan 35):
    *  0 = awal potongan, 35 = sepertiga awal (sama dgn thumbnail otomatis),
-   *  100 = akhir potongan. Frame diambil dari video SUMBER (bersih). */
+   *  100 = akhir potongan. Frame diambil dari video SUMBER (bersih).
+   *  v2.2.1 — posisi DIPETAKAN ke rentang MENIT 1–3 video (detikRentangCover)
+   *  agar seek dekat awal = ekstraksi cepat (video ≥ 75 dtk; lebih pendek =
+   *  persis di potongan). */
   introPosisi: number;
   resolusi: Resolusi;
   posisiTeks: PosisiTeks;
