@@ -4,6 +4,8 @@
 //   • JUDUL — dari NAMA FILE (dibersihkan & dibungkus, di atas + kotak gelap)
 //   • LABEL — "Part/Bagian/Episode N" (besar, di bawah, kotak gelap)
 // Semua argumen murni & teruji unit (uji-v210); render nyata via jalankanFfmpeg.
+// v2.2.0 — ditambah helper BACKGROUND INTRO DARI VIDEO: detikFrameIntro,
+// labelIntro, bangunArgumenFrameSumber (frame polos — teks dibakar rantai intro).
 import type { OpsiThumbnail } from "./types";
 
 /** Kunci drawtext: nilai teks SELALU lewat textfile (aman unicode/koma) */
@@ -56,6 +58,43 @@ export function bersihkanNamaJudul(namaFile: string): string {
 export function detikFrameThumbnail(mulaiPart: number, durasiPart: number): number {
   const d = Math.max(0, Number(durasiPart) || 0);
   return Math.max(0, Number(mulaiPart) || 0) + d * 0.35;
+}
+
+/** v2.2.0 — detik frame BACKGROUND INTRO: mulai part + durasi × posisiPersen/100
+ *  (posisi bebas 0–100% pilihan user; 0 = awal part, 35 = bawaan = sama dgn
+ *  thumbnail). Posisi/durasi aneh di-clamp aman. Murni — dites unit. */
+export function detikFrameIntro(
+  mulaiPart: number,
+  durasiPart: number,
+  posisiPersen: number,
+): number {
+  const d = Math.max(0, Number(durasiPart) || 0);
+  const pos = Math.min(100, Math.max(0, Number(posisiPersen) || 0));
+  return Math.max(0, Number(mulaiPart) || 0) + (d * pos) / 100;
+}
+
+/** v2.2.0 — label teks intro otomatis: kata part (teks bebas user, kosong →
+ *  "Part") + nomor 2-digit konsisten dgn label thumbnail. Murni — dites unit. */
+export function labelIntro(kata: string, n: number): string {
+  const k = String(kata || "").trim() || "Part";
+  return `${k} ${String(Math.max(1, Math.floor(n))).padStart(2, "0")}`;
+}
+
+/** v2.2.0 — argumen ffmpeg utk mengambil SATU frame polos dari video sumber
+ *  (tanpa kotak/tulisan — gaya teks dibakar kemudian oleh rantai intro).
+ *  -ss SEBELUM -i (seek cepat, keyframe terdekat cukup utk background). */
+export function bangunArgumenFrameSumber(src: string, detik: number, keluar: string): string[] {
+  return [
+    "-y",
+    "-hide_banner",
+    "-ss",
+    Math.max(0, detik).toFixed(3),
+    "-i",
+    src,
+    "-frames:v",
+    "1",
+    keluar,
+  ];
 }
 
 /** v2.1.0 — label thumbnail: "Part 03" (nomor 2-digit konsisten dgn nama part) */

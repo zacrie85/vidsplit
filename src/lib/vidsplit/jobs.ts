@@ -16,7 +16,15 @@ import {
   type InfoVideo,
   type PilihanEncoder,
 } from "./ffmpeg";
-import { bangunArgumenThumbnail, bersihkanNamaJudul, detikFrameThumbnail, labelThumbnail } from "./thumbnail";
+import {
+  bangunArgumenFrameSumber,
+  bangunArgumenThumbnail,
+  bersihkanNamaJudul,
+  detikFrameIntro,
+  detikFrameThumbnail,
+  labelIntro,
+  labelThumbnail,
+} from "./thumbnail";
 import { bungkusTeks } from "./bungkus";
 import { siapkanBingkai, siapkanBingkaiWarna } from "./bingkai";
 import { catatRiwayat } from "./riwayat";
@@ -177,8 +185,8 @@ export interface ItemEkspor {
   /** nama tampilan (nama file sumber) */
   nama: string;
   srcAbs: string;
-  bgAbs: string | null;
-  /** logo watermark (path absolut) atau null */
+  /** v2.2.0 — background intro kini frame dari video (diekstrak per part di
+   *  renderSatu) — field bgAbs (gambar unggahan) DIHAPUS. */
   logoAbs: string | null;
   /** v0.46.0 — frame hiasan (path absolut) atau null */
   frameAbs?: string | null;
@@ -413,8 +421,25 @@ export function mulaiEksporAntrean(
       // dan hasil analisis suara tersedia); waktu segmen RELATIF RENTANG TRIM
       // v2.1.0 — GATING INTRO (introTampil): part tanpa intro benar-benar dirender
       // TANPA bg (durasi/offset backsound/offset subtitle ikut konsisten).
+      // v2.2.0 — BACKGROUND INTRO DARI VIDEO: frame diambil OTOMATIS dari video
+      // SUMBER (bersih tanpa tulisan terbakar) pada posisi p.introPosisi di
+      // dalam potongan ini (0–100%). Ekstraksi 1 frame cepat (-ss + 1 frame);
+      // gagal → part dirender TANPA intro (tidak menggagalkan job) + peringatan.
       const totalPartVid = konteks.potonganAdgn.length || Math.max(1, job.antrean[vi].total);
-      const bgPart = pilihBgPart(p.introTampil, n, totalPartVid) ? it.bgAbs : null;
+      let bgPart: string | null = null;
+      if (p.introAktif && pilihBgPart(p.introTampil, n, totalPartVid)) {
+        const fileFrame = path.join(dirTmp, `${tag}-introbg.png`);
+        try {
+          const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi);
+          await jalankanFfmpeg(bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame), 1, undefined, ff.bin);
+          bgPart = existsSync(fileFrame) ? fileFrame : null;
+        } catch {
+          bgPart = null;
+        }
+        if (!bgPart && !job.peringatanSubtitle) {
+          job.peringatanSubtitle = `${it.nama}: frame intro gagal diambil — part ${n} dirender tanpa intro`;
+        }
+      }
       const pakaiBg = !!bgPart;
       // v2.0.0 — BACKSOUND: posisi lagu KONTINU antar part (offset fungsi murni
       // dgn zona/intro/kecepatan ikut), volume 0–150 %
@@ -501,6 +526,9 @@ export function mulaiEksporAntrean(
         sumberTinggi: it.info.tinggi,
         // v2.1.0 — suara intro
         fileSuaraIntro: konteks.suaraIntroAbs,
+        // v2.2.0 — teks intro OTOMATIS: judul dr nama file + label kata-part NN
+        introJudulTxt: bgPart ? bersihkanNamaJudul(it.nama) : "",
+        introLabelTxt: bgPart ? labelIntro(p.kataPart, n) : "",
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -532,7 +560,7 @@ export function mulaiEksporAntrean(
           // v0.58.0 — pembersihan temp dipindah ke finally: dulu hanya di jalur
           // sukses — render gagal/batal menetaskan 3-4 berkas yatim per part
           // di work/tmp yang menumpuk selamanya
-          for (const akhiran of ["judul", "part", "deskripsi", "sub", "intro", "thumb-j", "thumb-l"]) {
+          for (const akhiran of ["judul", "part", "deskripsi", "sub", "intro", "intro-l", "thumb-j", "thumb-l"]) {
             try {
               unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
             } catch {
@@ -543,6 +571,12 @@ export function mulaiEksporAntrean(
             } catch {
               /* abaikan */
             }
+          }
+          // v2.2.0 — PNG frame intro ikut dibersihkan
+          try {
+            unlinkSync(path.join(dirTmp, `${tag}-introbg.png`));
+          } catch {
+            /* abaikan */
           }
           const f = fraksi.get(`${vi}:${n}`);
           if (f !== undefined) dasarSelesai += f;
@@ -1129,7 +1163,8 @@ export function mulaiGabungAntrean(
             segmen: segmenSub,
             mulaiPartRel: 0,
             durasiPart: durasi,
-            offsetIntro: it.bgAbs ? p.durasiIntro : 0,
+            // v2.2.0 — GABUNG tanpa intro (permintaan user): offset 0
+            offsetIntro: 0,
             W,
             H,
             ukuran: p.subtitleUkuran,
@@ -1172,7 +1207,8 @@ export function mulaiGabungAntrean(
       const tag = `${id}-gab-${vi}`;
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
-        bg: it.bgAbs,
+        // v2.2.0 — GABUNG VIDEO TANPA intro (permintaan user): bg selalu null
+        bg: null,
         logo: it.logoAbs,
         frameAbs: it.frameAbs ?? null,
         neon: aset46.neon,
@@ -1304,13 +1340,13 @@ export function mulaiGabungAntrean(
   return id;
 }
 
-/** Σ durasi HASIL segmen sebelum index vi (posisi lagu kontinu antar segmen) */
+/** Σ durasi HASIL segmen sebelum index vi (posisi lagu kontinu antar segmen)
+ *  v2.2.0 — GABUNG tanpa intro → Σ durasi efektif saja */
 function durasiHasilSebelumGabung(daftar: ItemEkspor[], vi: number): number {
   let sumber = 0;
   for (let k = 0; k < vi; k++) {
     const p = daftar[k].pengaturan;
     sumber += durasiEfektif(daftar[k].info.durasi, p.mulaiDetik, p.akhirDetik);
-    if (daftar[k].bgAbs) sumber += Math.max(0, p.durasiIntro);
   }
   const kec = rapikanKecepatanLocal(daftar[0].pengaturan.kecepatanVideo);
   return Math.max(0, sumber / Math.max(0.1, kec));

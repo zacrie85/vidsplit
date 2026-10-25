@@ -1,10 +1,10 @@
-// VidSplit v2.1.0 — uji unit + integrasi UPGRADE BACKGROUND INTRO + THUMBNAIL OTOMATIS:
-//   (1) pilihBgPart (gating introTampil), (2) offsetBacksound dgn introUntuk,
-//   (3) rantaiIntroBg (Ken Burns zoompan + teks intro + panjang fade),
-//   (4) bangunArgumenPart 8 kombinasi bg×suara×logo (indeks input + afade + xfade),
-//   (5) thumbnail (bersihkanNamaJudul/label/detik/args), (6) migrasiSimpanan V2.1,
-//   (7) render NYATA: intro animasi+fade+teks+suara, thumbnail, + regresi jalur lama.
-// Jalankan: npx tsx scripts/uji-v210.ts
+// VidSplit v2.1.0 (+v2.2.0) — uji unit + integrasi UPGRADE BACKGROUND INTRO +
+// THUMBNAIL OTOMATIS:   (1) pilihBgPart (gating introTampil), (2) offsetBacksound
+// dgn introUntuk,   (3) rantaiIntroBg (Ken Burns zoompan + teks/label intro +
+// panjang fade),   (4) bangunArgumenPart 8 kombinasi bg×suara×logo (indeks input
+// + afade + xfade),   (5) thumbnail (bersihkanNamaJudul/label/detik/args),
+// (6) migrasiSimpanan V2.2,   (7) render NYATA: intro animasi+fade+teks+suara,
+// thumbnail, + regresi jalur lama. Jalankan: npx tsx scripts/uji-v210.ts
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -77,7 +77,7 @@ cek(
 console.log("\n== (3) rantaiIntroBg ==");
 const RANTAI_LAMA =
   "[1:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,setsar=1,trim=duration=3.000,setpts=PTS-STARTPTS[bgv]";
-const pDiam = aturDasar({ introAnimasi: "mati", introFade: false, introTeks: "" });
+const pDiam = aturDasar({ introAnimasi: "mati", introFade: false });
 cek(rantaiIntroBg(pDiam, 1080, 1920, 30, 3, null, "") === RANTAI_LAMA, "animasi mati + tanpa fade = rantai lama PERSIS (nol regresi)");
 
 const pZoomMasuk = aturDasar({ introAnimasi: "zoom-masuk", introFade: false });
@@ -103,7 +103,8 @@ const rF = rantaiIntroBg(pFade, 1080, 1920, 30, 3, null, "");
 cek(rF.includes("trim=duration=3.500"), "fade → gambar diperpanjang N+0.5 (xfade tak kehabisan input)");
 
 const fileTeks = path.join(DIR, "uji-v210-intro.txt");
-const pTeks = aturDasar({ introAnimasi: "mati", introFade: false, introTeks: "ALAM GAIB", introTeksFont: "anton", introTeksUkuran: 64, introTeksWarna: "#ff0000" });
+const fileLabel = path.join(DIR, "uji-v210-intro-l.txt");
+const pTeks = aturDasar({ introAnimasi: "mati", introFade: false, introTeksFont: "anton", introTeksUkuran: 64, introTeksWarna: "#ff0000" });
 const rT = rantaiIntroBg(pTeks, 1080, 1920, 30, 3, fileTeks, "ALAM GAIB");
 cek(rT.includes("drawtext=textfile="), "teks intro: drawtext textfile");
 cek(rT.includes("fontsize=64.0"), "teks intro: ukuran 64 @ skala 1");
@@ -111,6 +112,13 @@ cek(rT.includes("fontcolor=0xff0000"), "teks intro: warna dari pengaturan (forma
 cek(rT.includes("expansion=none"), "teks intro: expansion=none (teks %{ aman)");
 cek(rT.includes("borderw=4") && rT.includes("bordercolor=black"), "teks intro: outline hitam otomatis");
 cek(rT.includes("y=H*0.42"), "teks intro: posisi 42% tinggi");
+// v2.2.0 — LABEL otomatis: kuning di bawah judul (param ke-8/9); tanpa judul → label di tengah
+const rL = rantaiIntroBg(pTeks, 1080, 1920, 30, 3, fileTeks, "ALAM\nGAIB", fileLabel, "Part 03");
+cek(rL.includes("fontcolor=#fbbf24"), "label intro: kuning #fbbf24");
+cek(rL.includes(":y=" + String(Math.round(1920 * 0.42 + 2 * 64 * 1.5 + 64 * 0.45))), "label intro: y di bawah blok judul 2 baris");
+const rL2 = rantaiIntroBg(pTeks, 1080, 1920, 30, 3, null, "", fileLabel, "Part 03");
+cek(rL2.includes(":y=" + String(Math.round(1920 * 0.42))), "label intro tanpa judul: y = 42% (tengah)");
+cek((rL.match(/drawtext=textfile=/g) || []).length === 2, "judul + label = 2 drawtext");
 
 /* ================= (4) BANGUN ARGUMEN PART — kombinasi ================= */
 console.log("\n== (4) bangunArgumenPart — bg × suara × logo ==");
@@ -130,15 +138,17 @@ if (!existsSync(VID)) {
 }
 const codec = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "30"];
 
-const pLengkap = aturDasar({ introAnimasi: "zoom-masuk", introFade: true, introTeks: "ALAM GAIB", introSuaraVolume: 100 });
+const pLengkap = aturDasar({ durasiIntro: 3, introAnimasi: "zoom-masuk", introFade: true, introSuaraVolume: 100 });
 const { args: a1, total: t1 } = bangunArgumenPart({
   src: VID, bg: fBg, logo: fLogo, pengaturan: pLengkap, n: 1, mulai: 0, durasi: 4,
   W: 1080, H: 1920, fps: 25, adaAudio: true,
   judulTxt: "Judul", partTxt: "Part 1", deskripsiTxt: "",
   fileSuaraIntro: fSuara,
+  introJudulTxt: "ALAM GAIB", introLabelTxt: "Part 01",
   dirTmp: DIR, tag: "uji-v210-a", codecArgs: codec, keluar: "/tmp/uji-v210-a.mp4",
 });
 cek(Math.abs(t1 - 7) < 1e-9, `total = intro 3 + durasi 4 = 7 (${t1})`);
+cek(existsSync(path.join(DIR, "uji-v210-a-intro.txt")) && existsSync(path.join(DIR, "uji-v210-a-intro-l.txt")), "v2.2.0: textfile judul & label intro ditulis");
 const idxBg1 = a1.indexOf(fBg);
 const idxSuara1 = a1.indexOf(fSuara);
 // struktur input bg animasi: [..., "-framerate","25","-loop","1","-t","3.500","-i",fBg]
@@ -156,7 +166,7 @@ cek(fl1.includes("[bgx][ccx]xfade"), "video: kedua cabang lewat format=yuv420p (
 cek(!fl1.includes("concat=n=2:v=1:a=0"), "fade aktif → concat video TIDAK dipakai");
 
 // kombinasi: TANPA fade (semua fitur baru mati kecuali bg) — struktur lama
-const pLama = aturDasar({ introAnimasi: "mati", introFade: false, introTeks: "", introSuaraFile: "" });
+const pLama = aturDasar({ durasiIntro: 3, introAnimasi: "mati", introFade: false, introSuaraFile: "" });
 const { args: a2 } = bangunArgumenPart({
   src: VID, bg: fBg, logo: null, pengaturan: pLama, n: 1, mulai: 0, durasi: 4,
   W: 1080, H: 1920, fps: 25, adaAudio: true,
@@ -238,15 +248,20 @@ cek(rapikanThumbnail({ aktif: true, kata: "Episode", format: "png" }).aktif, "ra
 cek(rapikanThumbnail({ kata: "aneh" }).kata === "Part" && rapikanThumbnail({ format: "gif" }).format === "jpg", "rapikanThumbnail nilai aneh → bawaan");
 cek(rapikanThumbnail(null).aktif === false, "rapikanThumbnail null → mati");
 
-/* ================= (6) MIGRASI SIMPANAN V2.1 ================= */
-console.log("\n== (6) migrasiSimpanan V2.1.0 ==");
+/* ================= (6) MIGRASI SIMPANAN V2.2 ================= */
+console.log("\n== (6) migrasiSimpanan V2.2.0 ==");
 const m1 = migrasiSimpanan({});
-cek(m1.introAnimasi === "mati" && m1.introTampil === "semua", "simpanan lama → animasi mati, tampil semua (perilaku lama)");
+cek(m1.introAnimasi === "zoom-masuk" && m1.introTampil === "semua", "simpanan lama → animasi ZOOM MASUK (bawaan baru), tampil semua");
 cek(m1.introFade === true, "simpanan lama → fade lembut AKTIF (pengalaman baru)");
-cek(m1.introTeks === "" && m1.introSuaraFile === "", "teks & suara kosong");
+cek(m1.introAktif === false && m1.introPosisi === 35, "v2.2.0: introAktif false + introPosisi 35 (bawaan)");
+cek((m1 as Record<string, unknown>).bgId === undefined && (m1 as Record<string, unknown>).introTeks === undefined, "v2.2.0: bgId & introTeks DIHAPUS dr simpanan lama");
 cek(m1.introTeksUkuran === 64 && m1.introSuaraVolume === 100, "ukuran 64 & volume 100");
-const m2 = migrasiSimpanan({ introTeksUkuran: 9999, introSuaraVolume: 5000 } as Partial<Pengaturan>);
+const m2 = migrasiSimpanan({ introTeksUkuran: 9999, introSuaraVolume: 5000, introPosisi: 250, bgId: "lama.png", introTeks: "teks lama" } as Partial<Pengaturan>);
 cek(m2.introTeksUkuran === 160 && m2.introSuaraVolume === 150, "nilai ekstrem di-clamp");
+cek(m2.introPosisi === 100, "v2.2.0: introPosisi ekstrem → clamp 100");
+cek((m2 as Record<string, unknown>).bgId === undefined && (m2 as Record<string, unknown>).introTeks === undefined, "v2.2.0: bgId & introTeks ikut terhapus");
+const m3 = migrasiSimpanan({ introAnimasi: "mati", introPosisi: 0 } as Partial<Pengaturan>);
+cek(m3.introAnimasi === "mati" && m3.introPosisi === 0, "nilai sengaja dipilih user (mati, 0%) TIDAK dipaksa berubah");
 
 /* ================= (7) RENDER NYATA ================= */
 console.log("\n== (7) RENDER NYATA ffmpeg ==");

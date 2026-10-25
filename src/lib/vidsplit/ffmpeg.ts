@@ -345,6 +345,8 @@ function rantaiUtama(
 /** v2.1.0 — UPGRADE BACKGROUND INTRO: rantai gambar intro dgn animasi Ken Burns
  *  (zoompan) + teks intro (drawtext). Keluar label [bgv]. animasi "mati" = rantai
  *  lama PERSIS (nol regresi — dites unit di uji-v210).
+ *  v2.2.0 — teks intro OTOMATIS dua lapis: JUDUL (dari nama file, warna/ukuran
+ *  pilihan user) + LABEL ("Part NN", kuning, di bawah judul) — dua textfile.
  *  Catatan timing: bila transisi FADE aktif, gambar diperpanjang +DURASI_TRANSISI
  *  (masih gambar murah) sehingga xfade offset=durasiIntro TIDAK pernah melewati
  *  akhir input pertama — total durasi hasil TETAP N+M (identik concat).
@@ -357,6 +359,8 @@ export function rantaiIntroBg(
   N: number,
   fileTeksIntro: string | null,
   teksIntro: string,
+  fileTeksLabel?: string | null,
+  teksLabel?: string,
 ): string {
   const anim = p.introAnimasi;
   const aktifAnim =
@@ -413,6 +417,26 @@ export function rantaiIntroBg(
     if (ff) d += `:fontfile=${kutipFilter(ff)}`;
     d += `:line_spacing=${(u * 0.3).toFixed(1)}:expansion=none`;
     rantai = rantai.replace("[bgv]", `,${d}[bgv]`);
+  }
+  // v2.2.0 — LABEL intro otomatis ("Part/Bagian/Episode NN") di bawah judul:
+  // kuning ala thumbnail, ukuran 55% judul; tanpa judul → label di posisi tengah
+  if (fileTeksLabel && (teksLabel ?? "").trim()) {
+    const skala = Math.min(W, H) / 1080;
+    const uJ = Math.max(12, p.introTeksUkuran * skala);
+    const adaJudul = !!teksIntro.trim();
+    const barisJ = adaJudul ? Math.max(1, teksIntro.split("\n").length) : 0;
+    const uL = Math.max(12, p.introTeksUkuran * 0.55 * skala);
+    const yL = Math.round(
+      H * 0.42 + (adaJudul ? barisJ * uJ * 1.5 + uJ * 0.45 : 0),
+    );
+    let dl =
+      `drawtext=textfile=${kutipFilter(fileTeksLabel)}:fontsize=${uL.toFixed(1)}` +
+      `:fontcolor=#fbbf24:borderw=${Math.max(1, Math.round(4 * skala))}:bordercolor=black` +
+      `:x=(w-text_w)/2:y=${yL}`;
+    const ffl = fontfile({ font: p.introTeksFont } as GayaTeks);
+    if (ffl) dl += `:fontfile=${kutipFilter(ffl)}`;
+    dl += `:expansion=none`;
+    rantai = rantai.replace("[bgv]", `,${dl}[bgv]`);
   }
   return rantai;
 }
@@ -602,6 +626,8 @@ function rantaiTeksTemplate(
 
 export interface ArgPart {
   src: string;
+  /** v2.2.0 — path PNG frame intro (hasil ambil frame dari video sumber di
+   *  jobs.ts) atau null. Fitur unggah gambar/template DIHAPUS. */
   bg: string | null;
   /** logo watermark (path absolut) atau null */
   logo: string | null;
@@ -645,6 +671,10 @@ export interface ArgPart {
   sumberTinggi?: number;
   /** v2.0.0 — bitrate target KOMPRES PINTAR (kbps) — null = ikuti CRF/CQ */
   bitrateKbps?: number | null;
+  /** v2.2.0 — TEKS INTRO OTOMATIS: judul dari NAMA FILE (mentah — dibungkus di
+   *  sini) + label "Part/Bagian/Episode NN". Kosong = tanpa teks itu. */
+  introJudulTxt?: string;
+  introLabelTxt?: string;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -704,14 +734,26 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const fileJudul = path.join(a.dirTmp, `${a.tag}-judul.txt`);
   const filePart = path.join(a.dirTmp, `${a.tag}-part.txt`);
   const fileDeskripsi = path.join(a.dirTmp, `${a.tag}-deskripsi.txt`);
-  // v2.1.0 — teks intro dibungkus (aturan sama dgn judul: lebar 92% frame)
-  // lalu ditulis ke textfile — drawtext multi-baris aman unicode.
-  const teksIntroMentah = (p.introTeks || "").trim();
-  const fileIntro = teksIntroMentah && pakaiBg ? path.join(a.dirTmp, `${a.tag}-intro.txt`) : null;
+  // v2.2.0 — TEKS INTRO OTOMATIS: judul dari NAMA FILE (dibungkus aturan sama
+  // dgn judul utama: lebar 92% frame) + label "Part/Bagian/Episode NN" — dua
+  // textfile, digambar rantaiIntroBg (judul warna pilihan user, label kuning).
+  // TEKS TERBUNGKUS ikut diteruskan ke rantai — jumlah barisnya menentukan
+  // posisi label (bug: mentah 1 baris membuat label menimpa judul terlipat).
+  const judulIntroMentah = (a.introJudulTxt || "").trim();
+  const labelIntroMentah = (a.introLabelTxt || "").trim();
+  const fileIntro =
+    pakaiBg && judulIntroMentah ? path.join(a.dirTmp, `${a.tag}-intro.txt`) : null;
+  let teksIntroSiap = "";
   if (fileIntro) {
     const skalaTxt = Math.min(W, H) / 1080;
     const uTxt = Math.max(12, p.introTeksUkuran * skalaTxt);
-    writeFileSync(fileIntro, bungkusTeks(teksIntroMentah, W * 0.92, uTxt, p.introTeksFont), "utf8");
+    teksIntroSiap = bungkusTeks(judulIntroMentah, W * 0.92, uTxt, p.introTeksFont);
+    writeFileSync(fileIntro, teksIntroSiap, "utf8");
+  }
+  const fileIntroLbl =
+    pakaiBg && labelIntroMentah ? path.join(a.dirTmp, `${a.tag}-intro-l.txt`) : null;
+  if (fileIntroLbl) {
+    writeFileSync(fileIntroLbl, labelIntroMentah, "utf8");
   }
 
   // URUTAN INPUT PENTING (indeks filter graph): 0=src, 1=bg?, lalu anullsrc,
@@ -899,7 +941,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
         `[bgx][ccx]xfade=transition=fade:duration=${DURASI_TRANSISI.toFixed(3)}:offset=${p.durasiIntro.toFixed(3)}[cc]`
       : `[bgv][${lblKonten}]concat=n=2:v=1:a=0[cc]`;
   const rantaiBgStr = pakaiBg
-    ? rantaiIntroBg(p, W, H, fps, p.durasiIntro, fileIntro, teksIntroMentah)
+    ? rantaiIntroBg(p, W, H, fps, p.durasiIntro, fileIntro, teksIntroSiap, fileIntroLbl, labelIntroMentah)
     : null;
   if (rantaiPembicaraStr && !pakaiBg && !pakaiTemplat) {
     // zoom pembicara: hasil langsung [cc] (tanpa intro bg — podca/raycast vertikal)

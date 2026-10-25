@@ -1742,32 +1742,17 @@ export function PanelFrame({
   );
 }
 
-/* ============ 6 — BACKGROUND INTRO ============ */
+/* ============ 6 — BACKGROUND INTRO (v2.2.0 — FRAME DARI VIDEO) ============ */
 
-/** v2.1.0 — 10 template intro siap pakai (PNG 1080×1920 di public/intro/,
- *  gaya horor VidSplit). Klik = langsung dipasang sebagai background video aktif. */
-const TEMPLAT_INTRO = [
-  { id: "kabut-kelam", nama: "Kabut Kelam" },
-  { id: "kilat-merah", nama: "Kilat Merah" },
-  { id: "bulan-purnama", nama: "Purnama" },
-  { id: "kuburan-asap", nama: "Kuburan Asap" },
-  { id: "api-neraka", nama: "Api Neraka" },
-  { id: "pocong-bayang", nama: "Pocong Bayang" },
-  { id: "kuntilanak", nama: "Kuntilanak" },
-  { id: "lorong-makam", nama: "Lorong Makam" },
-  { id: "mata-gaib", nama: "Mata Gaib" },
-  { id: "rimba-mistis", nama: "Rimba Mistis" },
-];
-
+/** v2.2.0 — GANTI TOTAL (permintaan user): background intro kini OTOMATIS dari
+ *  frame video yang sedang diekspor — template 10 desain & unggah gambar DIHAPUS.
+ *  Slider posisi 0–100% menentukan frame mana (per potongan), teks otomatis
+ *  (judul dari NAMA FILE + label Part/Bagian/Episode NN), animasi Ken Burns,
+ *  fade lembut, dan suara intro tetap tersedia. */
 export function PanelBackground({
   pengaturan,
   onChange,
-  bgInfo,
-  onBgFile,
-  onHapusBg,
-  bgSibuk,
   nomorVideo,
-  bukaDialog,
   // v2.1.0 — suara intro (file sendiri + volume)
   suaraInfo,
   onSuaraFile,
@@ -1777,13 +1762,7 @@ export function PanelBackground({
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
-  bgInfo: { nama: string; ukuran: number } | null;
-  onBgFile: (f: File) => void;
-  onHapusBg: () => void;
-  bgSibuk: boolean;
   nomorVideo: number;
-  /** v0.40.0 — mode desktop: klik zona membuka dialog natif Electron (bukan input HTML) */
-  bukaDialog?: () => void;
   /** v2.1.0 — info suara intro terpasang */
   suaraInfo: { nama: string } | null;
   onSuaraFile: (f: File) => void;
@@ -1794,96 +1773,43 @@ export function PanelBackground({
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
-  // v2.1.0 — pasang template: unduh PNG-nya lalu lewat jalur unggah biasa
-  const [pasangTemplat, setPasangTemplat] = useState<string | null>(null);
-  const klikTemplat = async (id: string, nama: string) => {
-    if (pasangTemplat) return;
-    setPasangTemplat(id);
-    try {
-      const r = await fetch(`/intro/${id}-916.png`);
-      if (!r.ok) throw new Error("template tidak ditemukan");
-      const blob = await r.blob();
-      onBgFile(new File([blob], `template-intro-${nama}.png`, { type: "image/png" }));
-    } catch {
-      setPasangTemplat(null);
-    }
-  };
-  const adaTeksIntro = !!(pengaturan.introTeks || "").trim();
+  const aktif = pengaturan.introAktif === true;
   return (
     <Kartu
-      judul="6. Background intro (opsional)"
-      deskripsi={`Gambar pembuka animasi + teks + suara di awal potongan video #${nomorVideo}`}
+      judul="6. Background intro — frame dari video"
+      deskripsi={`Pembuka otomatis: frame video ini + judul + Part + suara di awal potongan #${nomorVideo}`}
       ikon={<ImageIcon className="h-4 w-4" />}
     >
-      {/* ---- v2.1.0 — TEMPLATE SIAP PAKAI ---- */}
-      {!bgInfo && (
-        <div className="mb-3">
-          <p className="mb-1.5 text-xs font-medium text-slate-300">
-            Template siap pakai — klik langsung jadi
-          </p>
-          <div className="grid grid-cols-5 gap-1.5">
-            {TEMPLAT_INTRO.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                title={t.nama}
-                onClick={() => void klikTemplat(t.id, t.nama)}
-                className={`group relative overflow-hidden rounded-lg border transition ${
-                  pasangTemplat === t.id
-                    ? "border-amber-400/80"
-                    : "border-slate-700 hover:border-amber-400/60"
-                }`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/intro/${t.id}-916.png`}
-                  alt={t.nama}
-                  className="aspect-[9/16] w-full object-cover"
-                />
-                <span className="absolute inset-x-0 bottom-0 bg-black/60 px-1 py-0.5 text-[8px] leading-tight text-slate-200">
-                  {pasangTemplat === t.id ? "memasang…" : t.nama}
-                </span>
-              </button>
-            ))}
-          </div>
-          <p className="mt-1.5 text-center text-[11px] text-slate-500">
-            atau unggah gambar sendiri di bawah
-          </p>
-        </div>
-      )}
-      {bgInfo ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/60 bg-slate-800/50 p-3">
-          <div className="flex items-center gap-3 overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/file?p=${encodeURIComponent(pengaturan.bgId)}`}
-              alt="pratinjau background"
-              className="h-12 w-12 rounded-lg border border-slate-600 object-cover"
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm text-slate-200">{bgInfo.nama}</p>
-              <p className="text-[11px] text-slate-500">{fmtUkuran(bgInfo.ukuran)}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onHapusBg}
-            className="rounded-lg border border-red-500/40 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
-          >
-            Hapus
-          </button>
-        </div>
-      ) : (
-        <JatuhBerkas
-          terima="image/png,image/jpeg,image/webp"
-          onFile={onBgFile}
-          hint="PNG / JPG / WebP — maks 25 MB"
-          sibuk={bgSibuk}
-          bukaDialog={bukaDialog}
-        />
-      )}
-      {bgInfo && (
+      {/* ---- v2.2.0 — SAKELAR UTAMA ---- */}
+      <ChipPilihan
+        nilai={aktif ? "on" : "off"}
+        onChange={(v) => set("introAktif", v === "on")}
+        pilihan={[
+          { v: "off", label: "Mati", hint: "tanpa intro (bawaan)" },
+          { v: "on", label: "Aktif", hint: "frame video jadi pembuka" },
+        ]}
+      />
+      {aktif && (
         <div className="mt-3 space-y-3">
+          {/* ---- v2.2.0 — INFO SUMBER FRAME ---- */}
+          <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
+            <p className="text-xs leading-relaxed text-amber-200/90">
+              Background diambil OTOMATIS dari video ini — satu frame per potongan
+              pada posisi di bawah, lalu diberi animasi, judul, dan label Part.
+            </p>
+          </div>
+          {/* ---- v2.2.0 — POSISI FRAME (SLIDER BEBAS 0–100%) ---- */}
+          <BarisSlider
+            label="Posisi frame dalam potongan"
+            nilai={pengaturan.introPosisi}
+            min={0}
+            max={100}
+            onChange={(n) => set("introPosisi", n)}
+            fmt={(n) => `${n}% dari potongan`}
+          />
+          <p className="-mt-2 text-[11px] text-slate-500">
+            0% = awal potongan · 35% = rekomendasi (sama dgn thumbnail otomatis) · 100% = akhir potongan
+          </p>
           <BarisSlider
             label="Durasi intro tiap potongan"
             nilai={pengaturan.durasiIntro}
@@ -1932,50 +1858,46 @@ export function PanelBackground({
               ]}
             />
           </div>
-          {/* ---- v2.1.0 — TEKS DI ATAS INTRO ---- */}
+          {/* ---- v2.2.0 — TEKS OTOMATIS DI ATAS INTRO ---- */}
           <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="mb-1.5 text-xs font-medium text-slate-300">Teks di atas intro (opsional)</p>
-            <input
-              value={pengaturan.introTeks}
-              onChange={(e) => set("introTeks", e.target.value)}
-              placeholder="kosong = tanpa teks — mis. ALAM GAIB"
-              maxLength={200}
-              className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-amber-400/70"
-            />
-            {adaTeksIntro && (
-              <div className="mt-2 space-y-2">
-                <div>
-                  <p className="mb-1 text-[11px] text-slate-400">Font teks intro</p>
-                  <select
-                    value={pengaturan.introTeksFont}
-                    onChange={(e) => set("introTeksFont", e.target.value as NamaFont)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
-                  >
-                    {(Object.keys(INFO_FONT) as NamaFont[]).map((f) => (
-                      <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
-                        {INFO_FONT[f]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <BarisSlider
-                  label="Ukuran teks intro"
-                  nilai={pengaturan.introTeksUkuran}
-                  min={20}
-                  max={160}
-                  onChange={(n) => set("introTeksUkuran", n)}
-                  fmt={(n) => `${n} px`}
-                />
-                <PilihWarna
-                  label="Warna teks intro"
-                  nilai={pengaturan.introTeksWarna}
-                  onChange={(v) => set("introTeksWarna", v)}
-                />
-                <p className="text-[11px] text-slate-500">
-                  Outline hitam otomatis agar selalu terbaca; teks hanya tampil selama intro.
-                </p>
+            <p className="mb-1 text-xs font-medium text-slate-300">Teks otomatis di atas intro</p>
+            <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+              Judul diambil dari NAMA FILE video + label {pengaturan.kataPart || "Part"} 01, 02, …
+              (kata ikut setelan menu 3 Tulisan Part).
+            </p>
+            <div className="space-y-2">
+              <div>
+                <p className="mb-1 text-[11px] text-slate-400">Font teks intro</p>
+                <select
+                  value={pengaturan.introTeksFont}
+                  onChange={(e) => set("introTeksFont", e.target.value as NamaFont)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+                >
+                  {(Object.keys(INFO_FONT) as NamaFont[]).map((f) => (
+                    <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
+                      {INFO_FONT[f]}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
+              <BarisSlider
+                label="Ukuran teks intro"
+                nilai={pengaturan.introTeksUkuran}
+                min={20}
+                max={160}
+                onChange={(n) => set("introTeksUkuran", n)}
+                fmt={(n) => `${n} px`}
+              />
+              <PilihWarna
+                label="Warna teks intro"
+                nilai={pengaturan.introTeksWarna}
+                onChange={(v) => set("introTeksWarna", v)}
+              />
+              <p className="text-[11px] text-slate-500">
+                Label Part tampil kuning di bawah judul; outline hitam otomatis agar selalu terbaca;
+                teks hanya tampil selama intro.
+              </p>
+            </div>
           </div>
           {/* ---- v2.1.0 — SUARA INTRO ---- */}
           <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
@@ -2152,7 +2074,6 @@ export function PanelRingkasan({
   ukuranVideo,
   lebarVideo,
   tinggiVideo,
-  bgInfo,
   logoInfo,
   nomorVideo,
   totalVideo,
@@ -2163,7 +2084,6 @@ export function PanelRingkasan({
   ukuranVideo: string;
   lebarVideo: number;
   tinggiVideo: number;
-  bgInfo: { nama: string; ukuran: number } | null;
   logoInfo: { nama: string; ukuran: number } | null;
   nomorVideo: number;
   totalVideo: number;
@@ -2238,7 +2158,11 @@ export function PanelRingkasan({
         </dd>
         <dt className="text-slate-500">Intro background</dt>
         <dd className="text-right text-slate-200">
-          {bgInfo ? `${pengaturan.durasiIntro} dtk / potongan` : "tanpa background"}
+          {/* v2.2.0 — intro frame dari video: status dari introAktif (bukan lagi
+              gambar unggahan) */}
+          {pengaturan.introAktif
+            ? `frame video ${pengaturan.introPosisi}% · ${pengaturan.durasiIntro} dtk / potongan`
+            : "tanpa background"}
         </dd>
         <dt className="text-slate-500">Total durasi output</dt>
         <dd className="text-right text-slate-200">{formatDurasi(durasiOutput)}</dd>

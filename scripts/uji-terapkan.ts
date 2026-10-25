@@ -52,7 +52,8 @@ const sumber: Pengaturan = {
   gayaPart: { font: "anton", ukuran: 52, warna: "#fbbf24", outlineLebar: 6, outlineWarna: "#000000" },
   posisiTeks: "tengah",
   // kartu 4
-  bgId: "bg-sumber.png",
+  introAktif: true,
+  introPosisi: 80,
   durasiIntro: 7,
   // kartu 5
   logoId: "logo-sumber.png",
@@ -89,7 +90,8 @@ const target: Pengaturan = {
   gayaPart: { font: "tebal", ukuran: 35, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
   posisiTeks: "atas",
   // kartu 4 — background milik video lain (harus TETAP)
-  bgId: "bg-lain.jpg",
+  introAktif: false,
+  introPosisi: 20,
   durasiIntro: 2,
   // kartu 5 (harus DIGANTI)
   logoId: "logo-lama.png",
@@ -139,8 +141,9 @@ cek("gayaPart mengikuti — outlineLebar", hasil.gayaPart.outlineLebar === 6);
 cek("gayaPart mengikuti — outlineWarna", hasil.gayaPart.outlineWarna === "#000000");
 cek("posisiTeks mengikuti", hasil.posisiTeks === "tengah");
 
-// ===== kartu 4 — Background intro: TIDAK IKUT =====
-cek("bgId TIDAK ikut", hasil.bgId === "bg-lain.jpg", `dapat "${hasil.bgId}"`);
+// ===== kartu 4 — Background intro: TIDAK IKUT (v2.2.0: frame dr video) =====
+cek("introAktif TIDAK ikut", hasil.introAktif === false, `dapat ${hasil.introAktif}`);
+cek("introPosisi TIDAK ikut", hasil.introPosisi === 20, `dapat ${hasil.introPosisi}`);
 cek("durasiIntro TIDAK ikut", hasil.durasiIntro === 2, `dapat ${hasil.durasiIntro}`);
 
 // ===== kartu 5 — Watermark / logo: MENGIKUTI sumber =====
@@ -159,7 +162,7 @@ cek("gayaPart hasil SALINAN baru", hasil.gayaPart !== sumber.gayaPart && hasil.g
 const salinanGaya = { ...hasil.gayaPart };
 salinanGaya.ukuran = 999;
 cek("mengubah salinan gaya tak merusak sumber", sumber.gayaPart.ukuran === 52);
-cek("target asli tak terubah (fungsi murni)", target.judul === "Judul Khas Video Dua" && target.mode === "blur" && target.bgId === "bg-lain.jpg");
+cek("target asli tak terubah (fungsi murni)", target.judul === "Judul Khas Video Dua" && target.mode === "blur" && target.introPosisi === 20);
 
 // ===== kasus: video sumber TANPA logo → semua video ikut TANPA logo =====
 const sumberTanpaLogo: Pengaturan = { ...sumber, logoId: "" };

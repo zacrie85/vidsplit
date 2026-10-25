@@ -27,9 +27,8 @@ async function unggah(kind, file, nama) {
 }
 
 async function main() {
-  // 1. unggah video + bg
+  // 1. unggah video (v2.2.0 — bg unggahan tidak lagi diperlukan: intro = frame video)
   const upV = await unggah("video", path.join(SAMPLE, "uji-mini.mp4"), "uji-mini.mp4");
-  const upB = await unggah("bg", path.join(SAMPLE, "bg-uji.png"), "bg-uji.png");
 
   // 2. probe
   let r = await fetch(`${BASE}/api/probe`, {
@@ -48,7 +47,6 @@ async function main() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       file: upV.file,
-      bg: upB.file,
       modeEkspor: "cepat",
       pengaturan: {
         mode: "blur",
@@ -58,7 +56,8 @@ async function main() {
         durasiIntro: 1,
         resolusi: "720",
         posisiTeks: "atas",
-        bgId: upB.file,
+        introAktif: true,
+        introPosisi: 35,
       },
     }),
   });

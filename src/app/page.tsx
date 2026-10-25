@@ -69,7 +69,6 @@ interface VideoInfo {
 interface VideoKerja {
   info: VideoInfo;
   pengaturan: Pengaturan;
-  bgInfo: { nama: string; ukuran: number } | null;
   logoInfo: { nama: string; ukuran: number } | null;
   /** v2.1.0 — info suara intro terpasang (nama file utk tampilan) */
   suaraInfo: { nama: string } | null;
@@ -91,7 +90,6 @@ export default function Halaman() {
   const [daftar, setDaftar] = useState<VideoKerja[]>([]);
   const [aktif, setAktif] = useState(0);
   const [sibukVideo, setSibukVideo] = useState(false);
-  const [sibukBg, setSibukBg] = useState(false);
   // v0.46.0 — unggah frame hiasan
   const [sibukFrame, setSibukFrame] = useState(false);
   const [sibukLogo, setSibukLogo] = useState(false);
@@ -139,7 +137,7 @@ export default function Halaman() {
         const simpanan = migrasiSimpanan(JSON.parse(mentah) as Partial<Pengaturan>);
         // sinkron pasca-hidrasi dgn preferensi tersimpan — pola memuat localStorage
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        setDasar((p) => ({ ...p, ...simpanan, bgId: "" }));
+        setDasar((p) => ({ ...p, ...simpanan }));
       }
       const eksporMentah = localStorage.getItem(KUNCI_EKSPOR);
       if (eksporMentah) {
@@ -160,14 +158,14 @@ export default function Halaman() {
     }
   }, []);
 
-  // simpan preferensi (bgId tidak ikut — file sesi lokal)
+  // simpan preferensi (file sesi lokal — suara intro & logo — tidak ikut)
   useEffect(() => {
     if (!termuatSimpan.current) return;
     // v0.58.0 — DEBOUNCE 400 ms: dulu setiap gerakan slider menulis JSON penuh
     // serempak (puluhan×/dtk, kerja sinkron main-thread — jank di mesin lemah)
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(KUNCI_SIMPAN, JSON.stringify({ ...dasar, bgId: "" }));
+        localStorage.setItem(KUNCI_SIMPAN, JSON.stringify(dasar));
         localStorage.setItem(KUNCI_EKSPOR, JSON.stringify(opsiEkspor));
       } catch {
         if (!kuotaPeringatan.current) {
@@ -231,7 +229,6 @@ export default function Halaman() {
             ...(pengaturanTersimpan ? { ...pengaturanDefault } : dasar),
             judul: judulDariNama(nama),
           },
-          bgInfo: null,
           logoInfo: null,
           suaraInfo: null,
         },
@@ -319,60 +316,9 @@ export default function Halaman() {
     }
   };
 
-  // v0.40.0 — alur desktop & web dipisah (sama dgn unggahVideo): handler unggah murni
-  // HTTP, dialog natif Elektron kini lewat pilihBgDesktop() dari klik zona langsung
-  const unggahBg = async (f: File) => {
-    if (!videoAktif) return;
-    setSibukBg(true);
-    try {
-      const r = await fetch(`/api/upload?kind=bg&nama=${encodeURIComponent(f.name)}`, {
-        method: "POST",
-        body: f,
-        headers: { "Content-Type": "application/octet-stream" },
-      });
-      const j = (await r.json()) as { ok: boolean; file?: string; ukuran?: number; error?: string };
-      if (!j.ok || !j.file) throw new Error(j.error || "Unggah background gagal");
-      perbaruiAktif((p) => ({ ...p, bgId: j.file as string }));
-      setDaftar((d) =>
-        d.map((v, i) =>
-          i === aktif ? { ...v, bgInfo: { nama: f.name, ukuran: j.ukuran || f.size } } : v,
-        ),
-      );
-      toast.success(`Background "${f.name}" dipasang ke video #${aktif + 1}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal pasang background");
-    } finally {
-      setSibukBg(false);
-    }
-  };
-
-  /** mode desktop: dialog natif Electron utk background video aktif */
-  const pilihBgDesktop = async () => {
-    if (typeof window === "undefined" || !window.vdsplitDesktop || !videoAktif) return;
-    setSibukBg(true);
-    try {
-      const dipilih = await window.vdsplitDesktop.pilih("bg");
-      if (!dipilih.length) return;
-      const bg = dipilih[0];
-      perbaruiAktif((p) => ({ ...p, bgId: bg.path }));
-      setDaftar((d) =>
-        d.map((v, i) =>
-          i === aktif ? { ...v, bgInfo: { nama: bg.nama, ukuran: bg.ukuran } } : v,
-        ),
-      );
-      toast.success(`Background "${bg.nama}" dipasang ke video #${aktif + 1}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal pasang background");
-    } finally {
-      setSibukBg(false);
-    }
-  };
-
-  const hapusBg = () => {
-    if (!videoAktif) return;
-    perbaruiAktif((p) => ({ ...p, bgId: "" }));
-    setDaftar((d) => d.map((v, i) => (i === aktif ? { ...v, bgInfo: null } : v)));
-  };
+  // v2.2.0 — handler BACKGROUND (unggahBg/pilihBgDesktop/hapusBg) DIHAPUS:
+  // background intro kini frame otomatis dari video (PanelBackground hanya
+  // mengatur introAktif/introPosisi lewat onChange biasa).
 
   // v0.40.0 — alur desktop & web dipisah (sama dgn unggahVideo): handler unggah murni
   // HTTP, dialog natif Elektron kini lewat pilihLogoDesktop() dari klik zona langsung
@@ -715,7 +661,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v2.1.0
+            v2.2.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -820,13 +766,13 @@ export default function Halaman() {
                           </span>
                           <span
                             className="block truncate text-[11px] text-slate-400"
-                            title={`${formatDurasi(v.info.durasi)} · ${v.info.lebar}×${v.info.tinggi} · ${Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))} part${v.pengaturan.judul ? ` · "${v.pengaturan.judul}"` : ""}${v.bgInfo ? " · dgn background" : ""}${v.logoInfo ? " · dgn logo" : ""}`}
+                            title={`${formatDurasi(v.info.durasi)} · ${v.info.lebar}×${v.info.tinggi} · ${Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))} part${v.pengaturan.judul ? ` · "${v.pengaturan.judul}"` : ""}${v.pengaturan.introAktif ? " · intro frame video" : ""}${v.logoInfo ? " · dgn logo" : ""}`}
                           >
                             {formatDurasi(v.info.durasi)} · {v.info.lebar}×{v.info.tinggi} ·{" "}
                             {Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))}{" "}
                             part
                             {v.pengaturan.judul ? ` · "${v.pengaturan.judul.slice(0, 24)}"` : ""}
-                            {v.bgInfo ? " · dgn background" : ""}
+                            {v.pengaturan.introAktif ? " · intro frame video" : ""}
                             {v.logoInfo ? " · dgn logo" : ""}
                           </span>
                         </span>
@@ -897,7 +843,6 @@ export default function Halaman() {
                 ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
                 lebarVideo={videoAktif.info.lebar}
                 tinggiVideo={videoAktif.info.tinggi}
-                bgInfo={videoAktif.bgInfo}
                 logoInfo={videoAktif.logoInfo}
                 nomorVideo={aktif + 1}
                 totalVideo={daftar.length}
@@ -1027,10 +972,6 @@ export default function Halaman() {
               <PanelBackground
                 pengaturan={videoAktif.pengaturan}
                 onChange={gantiPengaturanAktif}
-                bgInfo={videoAktif.bgInfo}
-                onBgFile={unggahBg}
-                onHapusBg={hapusBg}
-                bgSibuk={sibukBg}
                 nomorVideo={aktif + 1}
                 // v2.1.0 — suara intro
                 suaraInfo={videoAktif.suaraInfo}
@@ -1038,7 +979,6 @@ export default function Halaman() {
                 onHapusSuara={hapusSuaraIntro}
                 suaraSibuk={sibukSuaraIntro}
                 bukaDialogAudio={diDesktop ? pilihSuaraIntroDesktop : undefined}
-                bukaDialog={diDesktop ? pilihBgDesktop : undefined}
               />
               <PanelWatermark
                 pengaturan={videoAktif.pengaturan}

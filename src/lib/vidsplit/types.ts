@@ -34,7 +34,8 @@ export type LajuPindah = "cepat" | "normal" | "lambat";
 /** v2.1.0 — animasi gambar intro (efek Ken Burns, 100% ffmpeg):
  *  "mati" = gambar diam (perilaku lama); "zoom-masuk" = perlahan membesar;
  *  "zoom-keluar" = mulai besar lalu mengecil; "geser-kiri"/"geser-kanan" =
- *  kamera meluncur pelan ke samping (zoom ±8% memberi ruang geser). */
+ *  kamera meluncur pelan ke samping (zoom ±8% memberi ruang geser).
+ *  v2.2.0 — bawaan "zoom-masuk" (background intro kini frame dari video). */
 export type AnimasiIntro = "mati" | "zoom-masuk" | "zoom-keluar" | "geser-kiri" | "geser-kanan";
 
 /** v2.1.0 — di potongan mana gambar intro tampil: "semua" (perilaku lama),
@@ -165,10 +166,16 @@ export interface Pengaturan {
   gayaPart: GayaTeks;
   /** durasi tiap part dalam detik (5–3600) */
   durasiPart: number;
-  /** path relatif background di work/upload ("" = tanpa bg) */
-  bgId: string;
+  /** v2.2.0 — background intro kini OTOMATIS dari frame video (fitur lama
+   *  unggah gambar/template DIHAPUS — permintaan user "ganti total").
+   *  introAktif = sakelar pembuka; introPosisi = posisi frame di potongan. */
+  introAktif: boolean;
   /** durasi intro background di awal tiap potongan (1–10 dtk) */
   durasiIntro: number;
+  /** v2.2.0 — posisi frame background intro DI DALAM potongan (0–100 %, bawaan 35):
+   *  0 = awal potongan, 35 = sepertiga awal (sama dgn thumbnail otomatis),
+   *  100 = akhir potongan. Frame diambil dari video SUMBER (bersih). */
+  introPosisi: number;
   resolusi: Resolusi;
   posisiTeks: PosisiTeks;
   /** posisi area potong horizontal utk mode "crop" — 0=kiri, 50=tengah, 100=kanan */
@@ -219,14 +226,15 @@ export interface Pengaturan {
   backsoundFile: string;
   /** v2.0.0 — volume backsound 0–150 % (bawaan 80) */
   backsoundVolume: number;
-  /** v2.1.0 — animasi gambar intro (Ken Burns; "mati" = perilaku lama) */
+  /** v2.1.0 — animasi gambar intro (Ken Burns). v2.2.0 — bawaan "zoom-masuk" */
   introAnimasi: AnimasiIntro;
   /** v2.1.0 — transisi intro → video utama: true = fade lembut (xfade + afade
    *  audio), false = potong langsung (perilaku lama). Bawaan TRUE (pengalaman baru). */
   introFade: boolean;
-  /** v2.1.0 — teks yang dibakar di atas gambar intro ("" = tanpa teks) */
-  introTeks: string;
-  /** v2.1.0 — gaya huruf teks intro */
+  /** v2.2.0 — teks intro OTOMATIS: judul dari NAMA FILE (dibersihkan & dibungkus)
+   *  + label "Part/Bagian/Episode NN" (kata ikut kataPart). Field introTeks lama
+   *  (teks manual) DIHAPUS — gaya huruf di bawah tetap dipakai utk teks otomatis. */
+  /** v2.2.0 — gaya huruf teks intro otomatis */
   introTeksFont: NamaFont;
   /** v2.1.0 — ukuran huruf teks intro (px pada sisi terpendek 1080) */
   introTeksUkuran: number;
@@ -321,8 +329,11 @@ export const pengaturanDefault: Pengaturan = {
   kataPart: "Part",
   gayaPart: { font: "cinzeldec", ukuran: 23, warna: "#fbbf24", outlineLebar: 3, outlineWarna: "#000000" },
   durasiPart: 20,
-  bgId: "",
-  durasiIntro: 3,
+  // v2.2.0 — background intro OTOMATIS dari frame video (bawaan MATI — ekspor
+  // lama persis sama sampai user menyalakannya; template & unggah gambar dihapus)
+  introAktif: false,
+  durasiIntro: 2,
+  introPosisi: 35,
   resolusi: "1080",
   posisiTeks: "atas",
   posisiPotong: 50,
@@ -345,11 +356,10 @@ export const pengaturanDefault: Pengaturan = {
   backsoundAktif: false,
   backsoundFile: "",
   backsoundVolume: 80,
-  // v2.1.0 — intro: animasi mati (perilaku lama), tapi fade lembut AKTIF (chip
-  // "Langsung" tersedia utk kembali ke potong kering); teks kosong; semua part
-  introAnimasi: "mati" as AnimasiIntro,
+  // v2.2.0 — intro: animasi bawaan ZOOM MASUK (permintaan user), fade lembut
+  // AKTIF (chip "Langsung" tersedia utk potong kering); teks OTOMATIS dr nama file
+  introAnimasi: "zoom-masuk" as AnimasiIntro,
   introFade: true,
-  introTeks: "",
   introTeksFont: "anton" as NamaFont,
   introTeksUkuran: 64,
   introTeksWarna: "#ffffff",
@@ -440,11 +450,17 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   if (hasil.backsoundFile === undefined) hasil.backsoundFile = "";
   if (hasil.backsoundVolume === undefined) hasil.backsoundVolume = 80;
   else hasil.backsoundVolume = Math.min(150, Math.max(0, Number(hasil.backsoundVolume) || 0));
-  // v2.1.0 — simpanan lama tanpa fitur intro baru: isi bawaan (animasi mati =
-  // perilaku lama; fade true = pengalaman baru; tampil semua = perilaku lama)
-  if (hasil.introAnimasi === undefined) hasil.introAnimasi = "mati";
+  // v2.2.0 — simpanan lama: fitur background intro DIGANTI TOTAL (frame dari
+  // video). bgId (gambar unggahan) & introTeks (teks manual) dihapus dr simpanan;
+  // field baru diisi bawaan; simpanan lama tanpa introAnimasi → "zoom-masuk"
+  // (bawaan baru). Nilai yang sengaja dipilih user TIDAK dipaksa berubah.
+  delete (hasil as Record<string, unknown>).bgId;
+  delete (hasil as Record<string, unknown>).introTeks;
+  if (hasil.introAktif === undefined) hasil.introAktif = false;
+  if (hasil.introPosisi === undefined) hasil.introPosisi = 35;
+  else hasil.introPosisi = Math.min(100, Math.max(0, Math.round(Number(hasil.introPosisi) || 0)));
+  if (hasil.introAnimasi === undefined) hasil.introAnimasi = "zoom-masuk";
   if (hasil.introFade === undefined) hasil.introFade = true;
-  if (hasil.introTeks === undefined) hasil.introTeks = "";
   if (hasil.introTeksFont === undefined) hasil.introTeksFont = "anton";
   if (hasil.introTeksUkuran === undefined) hasil.introTeksUkuran = 64;
   else hasil.introTeksUkuran = Math.min(160, Math.max(20, Math.round(Number(hasil.introTeksUkuran) || 64)));
@@ -779,7 +795,7 @@ export function bitrateKbpsTarget(targetMb: number, durasiDetik: number): number
  *   • kartu 2 — Tulisan judul (judul + gayaJudul) — tiap video punya judulnya sendiri
  *   • kartu 4 — Tulis Deskripsi (deskripsi + gayaDeskripsi + deskripsiX/Y) — tiap
  *     video punya deskripsinya sendiri (v0.39.0)
- *   • kartu 5 — Background intro (bgId + durasiIntro)
+ *   • kartu 5 — Background intro (introAktif + introPosisi + durasiIntro)
  *   • setelan performa ekspor (prosesParalel, pakaiGpu)
  *  v0.41.0 — UKURAN HURUF tidak ikut lagi (permintaan user: "hanya ukuran
  *  videonya ya kawan bukan judul dan part nya"): gaya huruf Part

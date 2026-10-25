@@ -176,7 +176,6 @@ export function PanelEkspor({
           daftar: daftar.map((v) => ({
             file: v.file,
             nama: v.nama,
-            bg: v.pengaturan.bgId || undefined,
             logo: v.pengaturan.logoId || undefined,
             pengaturan: v.pengaturan,
           })),
@@ -253,7 +252,6 @@ export function PanelEkspor({
           daftar: daftar.map((v) => ({
             file: v.file,
             nama: v.nama,
-            bg: v.pengaturan.bgId || undefined,
             logo: v.pengaturan.logoId || undefined,
             pengaturan: v.pengaturan,
           })),
