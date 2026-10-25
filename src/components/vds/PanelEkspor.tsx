@@ -10,6 +10,7 @@ import {
   Cpu,
   Download,
   FileArchive,
+  Image as ImageIcon,
   Loader2,
   Merge,
   Rocket,
@@ -21,7 +22,7 @@ import {
 import type { InfoJob } from "@/lib/vidsplit/jobs";
 import type { SetelanTujuan } from "@/lib/vidsplit/tujuan";
 import { hitungPartV2, slugify, type Pengaturan } from "@/lib/vidsplit/types";
-import { BarisSlider, Kartu, fmtUkuran } from "./bits";
+import { BarisSlider, ChipPilihan, Kartu, fmtUkuran } from "./bits";
 import { PanelTujuan } from "./PanelTujuan";
 
 interface ItemVideo {
@@ -45,8 +46,21 @@ export function PanelEkspor({
   onOpsiEkspor,
 }: {
   daftar: ItemVideo[];
-  opsiEkspor: { paralel: number; pakaiGpu: boolean };
-  onOpsiEkspor: (o: { paralel: number; pakaiGpu: boolean }) => void;
+  opsiEkspor: {
+    paralel: number;
+    pakaiGpu: boolean;
+    /** v2.1.0 — THUMBNAIL OTOMATIS */
+    thumbnailAktif: boolean;
+    thumbnailKata: "Part" | "Bagian" | "Episode";
+    thumbnailFormat: "jpg" | "png";
+  };
+  onOpsiEkspor: (o: {
+    paralel: number;
+    pakaiGpu: boolean;
+    thumbnailAktif: boolean;
+    thumbnailKata: "Part" | "Bagian" | "Episode";
+    thumbnailFormat: "jpg" | "png";
+  }) => void;
 }) {
   const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("presisi");
   const [job, setJob] = useState<InfoJob | null>(null);
@@ -169,6 +183,12 @@ export function PanelEkspor({
           modeEkspor,
           // v2.0.0 — KOMPRES PINTAR: target ukuran MB (kosong = bebas)
           ...(Number(targetMb) > 0 ? { targetMb: Number(targetMb) } : {}),
+          // v2.1.0 — THUMBNAIL OTOMATIS
+          thumbnail: {
+            aktif: opsiEkspor.thumbnailAktif,
+            kata: opsiEkspor.thumbnailKata,
+            format: opsiEkspor.thumbnailFormat,
+          },
         }),
       });
       const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
@@ -239,6 +259,12 @@ export function PanelEkspor({
           })),
           modeEkspor,
           ...(Number(targetMb) > 0 ? { targetMb: Number(targetMb) } : {}),
+          // v2.1.0 — THUMBNAIL utk hasil gabungan
+          thumbnail: {
+            aktif: opsiEkspor.thumbnailAktif,
+            kata: opsiEkspor.thumbnailKata,
+            format: opsiEkspor.thumbnailFormat,
+          },
         }),
       });
       const j = (await r.json()) as { ok: boolean; id?: string; error?: string };
@@ -395,6 +421,59 @@ export function PanelEkspor({
           Video diproses satu per satu sesuai urutan antrean; di dalam tiap video, part
           dirender {opsiEkspor.paralel} sekaligus. Video yang gagal dilewati, antrean lanjut.
         </p>
+      </div>
+
+      {/* v2.1.0 — THUMBNAIL OTOMATIS */}
+      <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-300">
+          <ImageIcon className="h-3.5 w-3.5 text-amber-400" /> Thumbnail otomatis
+        </p>
+        <button
+          type="button"
+          onClick={() => onOpsiEkspor({ ...opsiEkspor, thumbnailAktif: !opsiEkspor.thumbnailAktif })}
+          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
+            opsiEkspor.thumbnailAktif
+              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5" /> PAKAI — buat gambar thumbnail tiap potongan
+          </span>
+          <span className="font-medium">{opsiEkspor.thumbnailAktif ? "Aktif" : "Mati"}</span>
+        </button>
+        {opsiEkspor.thumbnailAktif && (
+          <div className="mt-2 space-y-2">
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Kata label di thumbnail</p>
+              <ChipPilihan
+                nilai={opsiEkspor.thumbnailKata}
+                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailKata: v })}
+                pilihan={[
+                  { v: "Part", label: "Part" },
+                  { v: "Bagian", label: "Bagian" },
+                  { v: "Episode", label: "Episode" },
+                ]}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Format gambar</p>
+              <ChipPilihan
+                nilai={opsiEkspor.thumbnailFormat}
+                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailFormat: v })}
+                pilihan={[
+                  { v: "jpg", label: "JPG", hint: "ringan, cocok upload" },
+                  { v: "png", label: "PNG", hint: "tajam, agak besar" },
+                ]}
+              />
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Tiap potongan diberi gambar thumbnail: frame dari video + JUDUL (dari nama
+              file) + label {opsiEkspor.thumbnailKata} + nomor part-nya — tersimpan di samping
+              hasil split, ikut unduhan &amp; ZIP. GABUNG VIDEO juga dapat 1 thumbnail.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* v0.6.4 — folder tujuan hasil ekspor: pilih dulu, hasil otomatis tersalin */}

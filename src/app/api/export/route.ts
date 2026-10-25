@@ -14,6 +14,7 @@ import {
   neonDari,
   hitungPartV2,
   pengaturanDefault,
+  rapikanThumbnail,
   templatDari,
   type NamaFont,
   type Pengaturan,
@@ -76,6 +77,17 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.backsoundAktif = p.backsoundAktif === true;
   p.backsoundFile = typeof p.backsoundFile === "string" ? p.backsoundFile.slice(0, 500) : "";
   p.backsoundVolume = clamp(p.backsoundVolume, 0, 150, 80);
+  // v2.1.0 — UPGRADE BACKGROUND INTRO
+  if (!["mati", "zoom-masuk", "zoom-keluar", "geser-kiri", "geser-kanan"].includes(p.introAnimasi))
+    p.introAnimasi = "mati";
+  p.introFade = p.introFade !== false;
+  p.introTeks = String(p.introTeks || "").slice(0, 200);
+  if (!daftarFont.includes(p.introTeksFont)) p.introTeksFont = "anton";
+  p.introTeksUkuran = clamp(p.introTeksUkuran, 20, 160, 64);
+  p.introTeksWarna = /^#[0-9a-fA-F]{6}$/.test(p.introTeksWarna || "") ? (p.introTeksWarna as string) : "#ffffff";
+  if (!["semua", "pertama", "pertama-terakhir"].includes(p.introTampil)) p.introTampil = "semua";
+  p.introSuaraFile = typeof p.introSuaraFile === "string" ? p.introSuaraFile.slice(0, 500) : "";
+  p.introSuaraVolume = clamp(p.introSuaraVolume, 0, 150, 100);
   // v0.46.0 — frame hiasan + neon + template (clamp aman dgn modul murni)
   p.frameId = typeof p.frameId === "string" ? p.frameId.slice(0, 300) : "";
   const neon = neonDari(p);
@@ -113,6 +125,8 @@ export async function POST(req: NextRequest) {
         logo?: string;
         pengaturan?: Partial<Pengaturan>;
       }>;
+      /** v2.1.0 — THUMBNAIL OTOMATIS */
+      thumbnail?: { aktif?: boolean; kata?: string; format?: string };
     };
 
     // kompatibilitas lama: satu video → daftar 1 item
@@ -237,7 +251,7 @@ export async function POST(req: NextRequest) {
             )),
       0,
     );
-    const id = mulaiEksporAntrean(items, modeEkspor);
+    const id = mulaiEksporAntrean(items, modeEkspor, rapikanThumbnail(body.thumbnail));
     return NextResponse.json({ ok: true, id, total: items.length, totalPart });
   } catch (e) {
     return NextResponse.json(

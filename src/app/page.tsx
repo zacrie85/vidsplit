@@ -71,11 +71,17 @@ interface VideoKerja {
   pengaturan: Pengaturan;
   bgInfo: { nama: string; ukuran: number } | null;
   logoInfo: { nama: string; ukuran: number } | null;
+  /** v2.1.0 — info suara intro terpasang (nama file utk tampilan) */
+  suaraInfo: { nama: string } | null;
 }
 
 interface OpsiEkspor {
   paralel: number;
   pakaiGpu: boolean;
+  /** v2.1.0 — THUMBNAIL OTOMATIS (per antrean, tersimpan localStorage) */
+  thumbnailAktif: boolean;
+  thumbnailKata: "Part" | "Bagian" | "Episode";
+  thumbnailFormat: "jpg" | "png";
 }
 
 export default function Halaman() {
@@ -89,7 +95,14 @@ export default function Halaman() {
   // v0.46.0 — unggah frame hiasan
   const [sibukFrame, setSibukFrame] = useState(false);
   const [sibukLogo, setSibukLogo] = useState(false);
-  const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({ paralel: 2, pakaiGpu: true });
+  const [opsiEkspor, setOpsiEkspor] = useState<OpsiEkspor>({
+    paralel: 2,
+    pakaiGpu: true,
+    // v2.1.0 — thumbnail otomatis bawaan MATI
+    thumbnailAktif: false,
+    thumbnailKata: "Part",
+    thumbnailFormat: "jpg",
+  });
   // v0.58.0 — simpanan localStorage hanya boleh ditulis SETELAH preferensi lama
   // selesai dimuat: dulu efek simpan jalan di commit yang sama dgn state default
   // → simpanan lama sempat DITIMPA default (hilang bila aplikasi tutup mendadak)
@@ -134,6 +147,10 @@ export default function Halaman() {
         setOpsiEkspor({
           paralel: Math.min(10, Math.max(1, Math.round(Number(o.paralel) || 2))),
           pakaiGpu: o.pakaiGpu !== false,
+          // v2.1.0 — thumbnail: nilai lama tanpa field → bawaan
+          thumbnailAktif: o.thumbnailAktif === true,
+          thumbnailKata: o.thumbnailKata === "Bagian" || o.thumbnailKata === "Episode" ? o.thumbnailKata : "Part",
+          thumbnailFormat: o.thumbnailFormat === "png" ? "png" : "jpg",
         });
       }
     } catch {
@@ -216,6 +233,7 @@ export default function Halaman() {
           },
           bgInfo: null,
           logoInfo: null,
+          suaraInfo: null,
         },
       ];
     });
@@ -610,6 +628,55 @@ export default function Halaman() {
     }
   };
 
+  // v2.1.0 — SUARA INTRO (web): POST /api/upload?kind=backsound (nama unik per file)
+  const [sibukSuaraIntro, setSibukSuaraIntro] = useState(false);
+  const unggahSuaraIntro = async (f: File) => {
+    if (!videoAktif) return;
+    setSibukSuaraIntro(true);
+    try {
+      const r = await fetch(`/api/upload?kind=backsound&nama=${encodeURIComponent(f.name)}`, {
+        method: "POST",
+        body: f,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; ukuran?: number; error?: string };
+      if (!j.ok || !j.file) throw new Error(j.error || "Unggah suara intro gagal");
+      perbaruiAktif((p) => ({ ...p, introSuaraFile: j.file as string }));
+      setDaftar((d) =>
+        d.map((v, i) => (i === aktif ? { ...v, suaraInfo: { nama: f.name } } : v)),
+      );
+      toast.success(`Suara intro "${f.name}" dipasang ke video #${aktif + 1}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unggah suara intro gagal");
+    } finally {
+      setSibukSuaraIntro(false);
+    }
+  };
+  // v2.1.0 — mode desktop: dialog natif utk suara intro
+  const pilihSuaraIntroDesktop = async () => {
+    if (typeof window === "undefined" || !window.vdsplitDesktop || !videoAktif) return;
+    setSibukSuaraIntro(true);
+    try {
+      const dipilih = await window.vdsplitDesktop.pilih("audio");
+      if (!dipilih || !dipilih.length) return;
+      const it = dipilih[0];
+      perbaruiAktif((p) => ({ ...p, introSuaraFile: it.path }));
+      setDaftar((d) =>
+        d.map((v, i) => (i === aktif ? { ...v, suaraInfo: { nama: it.nama } } : v)),
+      );
+      toast.success(`Suara intro "${it.nama}" dipasang ke video #${aktif + 1}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal memilih suara intro");
+    } finally {
+      setSibukSuaraIntro(false);
+    }
+  };
+  const hapusSuaraIntro = () => {
+    if (!videoAktif) return;
+    perbaruiAktif((p) => ({ ...p, introSuaraFile: "" }));
+    setDaftar((d) => d.map((v, i) => (i === aktif ? { ...v, suaraInfo: null } : v)));
+  };
+
   const totalDurasi = daftar.reduce((a, v) => a + v.info.durasi, 0);
   // v2.0.0 — hitungan part MENGHORMATI jumlah otomatis & zona hapus (mode adegan
   // = 1 sementara, dipastikan saat ekspor oleh analisis adegan)
@@ -648,7 +715,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v2.0.0
+            v2.1.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -965,6 +1032,12 @@ export default function Halaman() {
                 onHapusBg={hapusBg}
                 bgSibuk={sibukBg}
                 nomorVideo={aktif + 1}
+                // v2.1.0 — suara intro
+                suaraInfo={videoAktif.suaraInfo}
+                onSuaraFile={unggahSuaraIntro}
+                onHapusSuara={hapusSuaraIntro}
+                suaraSibuk={sibukSuaraIntro}
+                bukaDialogAudio={diDesktop ? pilihSuaraIntroDesktop : undefined}
                 bukaDialog={diDesktop ? pilihBgDesktop : undefined}
               />
               <PanelWatermark

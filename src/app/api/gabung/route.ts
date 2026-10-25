@@ -12,6 +12,7 @@ import {
   INFO_FONT,
   neonDari,
   pengaturanDefault,
+  rapikanThumbnail,
   templatDari,
   type NamaFont,
   type Pengaturan,
@@ -27,6 +28,7 @@ function clamp(n: number, min: number, max: number, fallback: number): number {
 
 function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   const p: Pengaturan = { ...pengaturanDefault, ...(raw || {}) };
+  const daftarFont = Object.keys(INFO_FONT) as NamaFont[];
   p.mode = ["blur", "crop", "warna", "asli", "template"].includes(p.mode) ? p.mode : "blur";
   p.resolusi = p.resolusi === "720" ? "720" : "1080";
   if (!["auto", "720p", "1080p", "2k", "4k"].includes(p.resolusiOutput)) p.resolusiOutput = "auto";
@@ -36,13 +38,23 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.backsoundAktif = p.backsoundAktif === true;
   p.backsoundFile = typeof p.backsoundFile === "string" ? p.backsoundFile.slice(0, 500) : "";
   p.backsoundVolume = clamp(p.backsoundVolume, 0, 150, 80);
+  // v2.1.0 — UPGRADE BACKGROUND INTRO
+  if (!["mati", "zoom-masuk", "zoom-keluar", "geser-kiri", "geser-kanan"].includes(p.introAnimasi))
+    p.introAnimasi = "mati";
+  p.introFade = p.introFade !== false;
+  p.introTeks = String(p.introTeks || "").slice(0, 200);
+  if (!daftarFont.includes(p.introTeksFont)) p.introTeksFont = "anton";
+  p.introTeksUkuran = clamp(p.introTeksUkuran, 20, 160, 64);
+  p.introTeksWarna = /^#[0-9a-fA-F]{6}$/.test(p.introTeksWarna || "") ? (p.introTeksWarna as string) : "#ffffff";
+  if (!["semua", "pertama", "pertama-terakhir"].includes(p.introTampil)) p.introTampil = "semua";
+  p.introSuaraFile = typeof p.introSuaraFile === "string" ? p.introSuaraFile.slice(0, 500) : "";
+  p.introSuaraVolume = clamp(p.introSuaraVolume, 0, 150, 100);
   p.durasiIntro = clamp(p.durasiIntro, 1, 10, 3);
   p.judul = String(p.judul || "").slice(0, 300);
   p.warnaLatar = /^#[0-9a-fA-F]{6,8}$/.test(p.warnaLatar) ? p.warnaLatar : "#111827";
   p.gayaJudul.ukuran = clamp(p.gayaJudul?.ukuran, 20, 160, 64);
   p.gayaJudul.outlineLebar = clamp(p.gayaJudul?.outlineLebar, 0, 12, 4);
   p.posisiTeks = ["atas", "tengah", "bawah"].includes(p.posisiTeks) ? p.posisiTeks : "atas";
-  const daftarFont = Object.keys(INFO_FONT) as NamaFont[];
   if (!daftarFont.includes(p.gayaJudul?.font)) p.gayaJudul = { ...p.gayaJudul, font: "tebal" };
   if (!daftarFont.includes(p.gayaPart?.font)) p.gayaPart = { ...p.gayaPart, font: "tebal" };
   p.logoId = typeof p.logoId === "string" ? p.logoId.slice(0, 300) : "";
@@ -80,6 +92,8 @@ export async function POST(req: NextRequest) {
       }>;
       modeEkspor?: string;
       targetMb?: number;
+      /** v2.1.0 — THUMBNAIL OTOMATIS */
+      thumbnail?: { aktif?: boolean; kata?: string; format?: string };
     };
 
     const mentah = Array.isArray(body.daftar) ? body.daftar : [];
@@ -170,7 +184,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const id = mulaiGabungAntrean(items, modeEkspor);
+    const id = mulaiGabungAntrean(items, modeEkspor, rapikanThumbnail(body.thumbnail));
     return NextResponse.json({ ok: true, id, total: items.length });
   } catch (e) {
     return NextResponse.json(

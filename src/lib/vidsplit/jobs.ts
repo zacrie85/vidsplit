@@ -7,6 +7,7 @@ import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./bata
 import {
   bangunArgumenPart,
   dirWork,
+  fontfileNama,
   jalankanFfmpeg,
   pathAman,
   pilihEncoder,
@@ -15,6 +16,8 @@ import {
   type InfoVideo,
   type PilihanEncoder,
 } from "./ffmpeg";
+import { bangunArgumenThumbnail, bersihkanNamaJudul, detikFrameThumbnail, labelThumbnail } from "./thumbnail";
+import { bungkusTeks } from "./bungkus";
 import { siapkanBingkai, siapkanBingkaiWarna } from "./bingkai";
 import { catatRiwayat } from "./riwayat";
 import {
@@ -45,6 +48,7 @@ import {
   hitungPartV2,
   levelH264,
   offsetBacksound,
+  pilihBgPart,
   rapikanKecepatan as rapikanKecepatanLocal,
   rentangPart,
   rentangPartHapus,
@@ -52,7 +56,9 @@ import {
   slugUnikDaftar,
   templatDari,
   durasiPartDipakai,
+  opsiThumbnailDefault,
   type CodecVideo,
+  type OpsiThumbnail,
   type Pengaturan,
 } from "./types";
 
@@ -183,6 +189,8 @@ export interface ItemEkspor {
 export function mulaiEksporAntrean(
   daftar: ItemEkspor[],
   modeEkspor: "presisi" | "cepat",
+  /** v2.1.0 — THUMBNAIL OTOMATIS (bawaan mati) */
+  thumbnail: OpsiThumbnail = opsiThumbnailDefault,
 ): string {
   const id = randomBytes(4).toString("hex");
   // v0.58.0 — beres-beres RAM job lama + pangkas disk (throttled 1×/jam)
@@ -282,8 +290,57 @@ export function mulaiEksporAntrean(
     // ke job.outputs sehingga UI bisa menampilkan & mengunduh hasil sedini mungkin.
     const slot: (KeluaranJob | null)[] = [];
     let pengisi = 0;
+    // v2.1.0 — thumbnail tidak menempati slot part (urutan tetap rapi);
+    // masuk ekor outputs setelah partnya tercatat
+    const slotThumb: KeluaranJob[] = [];
     const segarkanOutput = () => {
-      job.outputs = slot.filter((s): s is KeluaranJob => !!s);
+      job.outputs = [...slot.filter((s): s is KeluaranJob => !!s), ...slotThumb];
+    };
+
+    /** v2.1.0 — THUMBNAIL OTOMATIS satu part: frame dari SUMBER (bersih tanpa
+     *  tulisan terbakar) + judul dr NAMA FILE + label Part/Bagian/Episode.
+     *  Gagal thumbnail TIDAK menggagalkan job (null → dilewati senyap). */
+    const buatThumbnailPart = async (
+      it: ItemEkspor,
+      n: number,
+      mulaiPart: number,
+      durasiPart: number,
+      W: number,
+      H: number,
+      slug: string,
+      tag: string,
+      thumb: OpsiThumbnail,
+    ): Promise<KeluaranJob | null> => {
+      try {
+        const skala = Math.min(W, H) / 1080;
+        const teksJ = bungkusTeks(bersihkanNamaJudul(it.nama), W * 0.92, Math.max(14, 52 * skala), "tebal");
+        const lbl = labelThumbnail(thumb, n);
+        const fileJ = path.join(dirTmp, `${tag}-thumb-j.txt`);
+        const fileL = path.join(dirTmp, `${tag}-thumb-l.txt`);
+        writeFileSync(fileJ, teksJ, "utf8");
+        writeFileSync(fileL, lbl, "utf8");
+        const ekst = thumb.format === "png" ? "png" : "jpg";
+        const keluarT = path.join(folder, `${slug}-part-${String(n).padStart(2, "0")}-thumbnail.${ekst}`);
+        const argsT = bangunArgumenThumbnail({
+          src: it.srcAbs,
+          detik: detikFrameThumbnail(mulaiPart, durasiPart),
+          judulTxt: teksJ,
+          labelTxt: lbl,
+          W,
+          H,
+          fileJudul: fileJ,
+          fileLabel: fileL,
+          ukuranJudul: 52,
+          ukuranLabel: 74,
+          fontfile: fontfileNama("tebal"),
+          keluar: keluarT,
+          format: thumb.format,
+        });
+        await jalankanFfmpeg(argsT, 1, undefined, ff.bin);
+        return { video: it.nama, file: path.basename(keluarT), ukuran: statSync(keluarT).size };
+      } catch {
+        return null;
+      }
     };
     const fraksi = new Map<string, number>(); // "vi:part" → 0..1
     // v0.58.0 — fraksi part yang sudah BERAKHIR ditumpuk ke dasar: dulu entri
@@ -322,6 +379,10 @@ export function mulaiEksporAntrean(
         durasiPartEff: number;
         backsoundAbs: string | null;
         filePembicara: string | null;
+        /** v2.1.0 — file suara intro (absolut) atau null */
+        suaraIntroAbs: string | null;
+        /** v2.1.0 — opsi thumbnail otomatis */
+        thumb: OpsiThumbnail;
       },
     ) => {
       if (apakahBatal(id)) throw new Error("DIBATALKAN");
@@ -350,7 +411,11 @@ export function mulaiEksporAntrean(
       const tag = `${id}-${vi}-${n}`;
       // v0.44.0 — bangun berkas .ass subtitle utk part ini (bila subtitle aktif
       // dan hasil analisis suara tersedia); waktu segmen RELATIF RENTANG TRIM
-      const pakaiBg = !!it.bgAbs;
+      // v2.1.0 — GATING INTRO (introTampil): part tanpa intro benar-benar dirender
+      // TANPA bg (durasi/offset backsound/offset subtitle ikut konsisten).
+      const totalPartVid = konteks.potonganAdgn.length || Math.max(1, job.antrean[vi].total);
+      const bgPart = pilihBgPart(p.introTampil, n, totalPartVid) ? it.bgAbs : null;
+      const pakaiBg = !!bgPart;
       // v2.0.0 — BACKSOUND: posisi lagu KONTINU antar part (offset fungsi murni
       // dgn zona/intro/kecepatan ikut), volume 0–150 %
       const offsetBs = konteks.backsoundAbs
@@ -364,6 +429,8 @@ export function mulaiEksporAntrean(
             pakaiBg,
             p.durasiIntro,
             kec2,
+            // v2.1.0 — intro hanya di sebagian part → offset lagu ikut aturan itu
+            (k) => pilihBgPart(p.introTampil, k, totalPartVid),
           )
         : 0;
       // v0.53.0 — transkrip berjalan DI LATAR: tunggu sampai blok audio zona
@@ -408,7 +475,7 @@ export function mulaiEksporAntrean(
       }
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
-        bg: it.bgAbs,
+        bg: bgPart,
         logo: it.logoAbs,
         frameAbs: it.frameAbs ?? null,
         neon: aset46.neon,
@@ -432,6 +499,8 @@ export function mulaiEksporAntrean(
         filePembicara: konteks.filePembicara,
         sumberLebar: it.info.lebar,
         sumberTinggi: it.info.tinggi,
+        // v2.1.0 — suara intro
+        fileSuaraIntro: konteks.suaraIntroAbs,
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -446,12 +515,24 @@ export function mulaiEksporAntrean(
           slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
           job.antrean[vi].selesai += 1;
           segarkanOutput(); // v0.8.0 — part baru selesai → langsung tampak di UI
+          // v2.1.0 — THUMBNAIL OTOMATIS: gagal diabaikan (job tetap sukses);
+          // hasil masuk ekor outputs (ikut unduhan & ZIP)
+          if (konteks.thumb?.aktif) {
+            void buatThumbnailPart(it, n, mulai, durasi, W, H, slug, tag, konteks.thumb)
+              .then((hasil) => {
+                if (hasil) {
+                  slotThumb.push(hasil);
+                  segarkanOutput();
+                }
+              })
+              .catch(() => {});
+          }
         })
         .finally(() => {
           // v0.58.0 — pembersihan temp dipindah ke finally: dulu hanya di jalur
           // sukses — render gagal/batal menetaskan 3-4 berkas yatim per part
           // di work/tmp yang menumpuk selamanya
-          for (const akhiran of ["judul", "part", "deskripsi", "sub"]) {
+          for (const akhiran of ["judul", "part", "deskripsi", "sub", "intro", "thumb-j", "thumb-l"]) {
             try {
               unlinkSync(path.join(dirTmp, `${tag}-${akhiran}.txt`));
             } catch {
@@ -599,7 +680,24 @@ export function mulaiEksporAntrean(
           }
         }
       }
-      const konteks = { potonganAdgn, durasiPartEff, backsoundAbs, filePembicara };
+      // v2.1.0 — SUARA INTRO: resolve path (pola backsound, gagal = senyap dilewati)
+      let suaraIntroAbs: string | null = null;
+      if (p.introSuaraFile) {
+        try {
+          const c = pathAman(p.introSuaraFile);
+          if (existsSync(c)) suaraIntroAbs = c;
+        } catch {
+          /* dilewati */
+        }
+      }
+      const konteks = {
+        potonganAdgn,
+        durasiPartEff,
+        backsoundAbs,
+        filePembicara,
+        suaraIntroAbs,
+        thumb: thumbnail,
+      };
 
       const nTotal = Math.max(1, job.antrean[vi].total);
       let berikut = 1;
@@ -872,6 +970,8 @@ export function mulaiEksporAntrean(
 export function mulaiGabungAntrean(
   daftar: ItemEkspor[],
   modeEkspor: "presisi" | "cepat",
+  /** v2.1.0 — THUMBNAIL OTOMATIS utk hasil gabungan (bawaan mati) */
+  thumbnail: OpsiThumbnail = opsiThumbnailDefault,
 ): string {
   if (daftar.length < 2) {
     throw new Error("GABUNG VIDEO butuh minimal 2 video di Kotak Video");
@@ -1134,6 +1234,41 @@ export function mulaiGabungAntrean(
       job.outputs = [{ video: "gabung", file: namaHasil, ukuran: statSync(keluarHasil).size }];
       job.progresTotal = 99;
       for (const v of job.antrean) if (v.status === "menunggu") v.status = "selesai";
+      // v2.1.0 — THUMBNAIL hasil gabungan: frame dari video PERTAMA (bersih),
+      // judul dari nama filenya, tanpa label Part. Gagal = diabaikan.
+      if (thumbnail.aktif) {
+        try {
+          const it0t = daftar[0];
+          const dT0 = durasiEfektif(it0t.info.durasi, it0t.pengaturan.mulaiDetik, it0t.pengaturan.akhirDetik);
+          const skala0 = Math.min(W, H) / 1080;
+          const teksJ = bungkusTeks(bersihkanNamaJudul(it0t.nama), W * 0.92, Math.max(14, 52 * skala0), "tebal");
+          const fileJ = path.join(dirTmp, `${id}-gab-thumb-j.txt`);
+          const fileL = path.join(dirTmp, `${id}-gab-thumb-l.txt`);
+          writeFileSync(fileJ, teksJ, "utf8");
+          writeFileSync(fileL, "", "utf8");
+          const ekst = thumbnail.format === "png" ? "png" : "jpg";
+          const keluarT = path.join(folder, `gabung-${slug}-thumbnail.${ekst}`);
+          const argsT = bangunArgumenThumbnail({
+            src: it0t.srcAbs,
+            detik: detikFrameThumbnail(it0t.pengaturan.mulaiDetik, dT0),
+            judulTxt: teksJ,
+            labelTxt: "",
+            W,
+            H,
+            fileJudul: fileJ,
+            fileLabel: fileL,
+            ukuranJudul: 52,
+            ukuranLabel: 74,
+            fontfile: fontfileNama("tebal"),
+            keluar: keluarT,
+            format: thumbnail.format,
+          });
+          await jalankanFfmpeg(argsT, 1, undefined, ff.bin);
+          job.outputs.push({ video: "gabung", file: path.basename(keluarT), ukuran: statSync(keluarT).size });
+        } catch {
+          /* thumbnail gabung gagal → diabaikan */
+        }
+      }
     }
 
     // simpan otomatis ke folder tujuan (pola split)

@@ -29,6 +29,52 @@ export type ModePembicara = "mati" | "geser" | "fade" | "langsung";
 /** v2.0.0 — kecepatan pindah fokus saat pembicara berganti (GESER HALUS) */
 export type LajuPindah = "cepat" | "normal" | "lambat";
 
+/* ============ v2.1.0 — UPGRADE BACKGROUND INTRO ============ */
+
+/** v2.1.0 — animasi gambar intro (efek Ken Burns, 100% ffmpeg):
+ *  "mati" = gambar diam (perilaku lama); "zoom-masuk" = perlahan membesar;
+ *  "zoom-keluar" = mulai besar lalu mengecil; "geser-kiri"/"geser-kanan" =
+ *  kamera meluncur pelan ke samping (zoom ±8% memberi ruang geser). */
+export type AnimasiIntro = "mati" | "zoom-masuk" | "zoom-keluar" | "geser-kiri" | "geser-kanan";
+
+/** v2.1.0 — di potongan mana gambar intro tampil: "semua" (perilaku lama),
+ *  "pertama" = hanya part 1, "pertama-terakhir" = part 1 dan part terakhir */
+export type TampilIntro = "semua" | "pertama" | "pertama-terakhir";
+
+/** v2.1.0 — apakah part ke-n (1..total) menampilkan gambar intro. Fungsi murni
+ *  — dipakai jobs.ts utk memutuskan bg per part (dan offset backsound/subtitle
+ *  ikut konsisten). Nilai tampil tak dikenal = "semua" (perilaku lama). */
+export function pilihBgPart(tampil: TampilIntro | undefined, n: number, total: number): boolean {
+  const t = tampil === "pertama" ? "pertama" : tampil === "pertama-terakhir" ? "pertama-terakhir" : "semua";
+  if (t === "pertama") return n <= 1;
+  if (t === "pertama-terakhir") return n <= 1 || n >= Math.max(1, total);
+  return true;
+}
+
+/* ============ v2.1.0 — THUMBNAIL OTOMATIS ============ */
+
+/** v2.1.0 — opsi THUMBNAIL OTOMATIS (per-JOB ekspor/gabung, bukan per-video):
+ *  tiap part selesai dirender → ambil 1 frame dari video sumber (±35% awal part)
+ *  → overlay judul (dari NAMA FILE) + label "Part/Bagian/Episode N" → simpan
+ *  JPG/PNG di folder output, ikut daftar unduhan & ZIP. */
+export interface OpsiThumbnail {
+  aktif: boolean;
+  kata: "Part" | "Bagian" | "Episode";
+  format: "jpg" | "png";
+}
+export const KATA_THUMBNAIL: Array<OpsiThumbnail["kata"]> = ["Part", "Bagian", "Episode"];
+export const opsiThumbnailDefault: OpsiThumbnail = { aktif: false, kata: "Part", format: "jpg" };
+
+/** v2.1.0 — rapikan opsi thumbnail dari body API (aman thd nilai aneh/kosong) */
+export function rapikanThumbnail(raw: unknown): OpsiThumbnail {
+  const o = (raw ?? {}) as Partial<OpsiThumbnail> & { kata?: string; format?: string };
+  return {
+    aktif: o.aktif === true,
+    kata: o.kata === "Bagian" || o.kata === "Episode" ? o.kata : "Part",
+    format: o.format === "png" ? "png" : "jpg",
+  };
+}
+
 /** durasi pindah fokus (detik, pada waktu HASIL) per laju */
 export const DURASI_PINDAH: Record<LajuPindah, number> = { cepat: 0.35, normal: 0.8, lambat: 1.6 };
 /** durasi crossfade FADE antar segmen fokus (detik) */
@@ -173,6 +219,26 @@ export interface Pengaturan {
   backsoundFile: string;
   /** v2.0.0 — volume backsound 0–150 % (bawaan 80) */
   backsoundVolume: number;
+  /** v2.1.0 — animasi gambar intro (Ken Burns; "mati" = perilaku lama) */
+  introAnimasi: AnimasiIntro;
+  /** v2.1.0 — transisi intro → video utama: true = fade lembut (xfade + afade
+   *  audio), false = potong langsung (perilaku lama). Bawaan TRUE (pengalaman baru). */
+  introFade: boolean;
+  /** v2.1.0 — teks yang dibakar di atas gambar intro ("" = tanpa teks) */
+  introTeks: string;
+  /** v2.1.0 — gaya huruf teks intro */
+  introTeksFont: NamaFont;
+  /** v2.1.0 — ukuran huruf teks intro (px pada sisi terpendek 1080) */
+  introTeksUkuran: number;
+  /** v2.1.0 — warna teks intro (#rrggbb); outline hitam selalu ikut agar terbaca */
+  introTeksWarna: string;
+  /** v2.1.0 — intro tampil di potongan mana (semua/pertama/pertama-terakhir) */
+  introTampil: TampilIntro;
+  /** v2.1.0 — file suara intro: relatif work/upload (web) atau ABSOLUT (Electron);
+   *  "" = tanpa suara. Diputar selama intro (LOOP bila lebih pendek). */
+  introSuaraFile: string;
+  /** v2.1.0 — volume suara intro 0–150 % (bawaan 100) */
+  introSuaraVolume: number;
   /** codec video hasil — h265 menghasilkan file jauh lebih kecil */
   codec: CodecVideo;
   /** v0.39.0 — teks deskripsi bebas yang dibakar ke dalam video ("" = tanpa deskripsi).
@@ -279,6 +345,17 @@ export const pengaturanDefault: Pengaturan = {
   backsoundAktif: false,
   backsoundFile: "",
   backsoundVolume: 80,
+  // v2.1.0 — intro: animasi mati (perilaku lama), tapi fade lembut AKTIF (chip
+  // "Langsung" tersedia utk kembali ke potong kering); teks kosong; semua part
+  introAnimasi: "mati" as AnimasiIntro,
+  introFade: true,
+  introTeks: "",
+  introTeksFont: "anton" as NamaFont,
+  introTeksUkuran: 64,
+  introTeksWarna: "#ffffff",
+  introTampil: "semua" as TampilIntro,
+  introSuaraFile: "",
+  introSuaraVolume: 100,
   mulaiDetik: 0,
   akhirDetik: 0,
   codec: "h264",
@@ -363,6 +440,19 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   if (hasil.backsoundFile === undefined) hasil.backsoundFile = "";
   if (hasil.backsoundVolume === undefined) hasil.backsoundVolume = 80;
   else hasil.backsoundVolume = Math.min(150, Math.max(0, Number(hasil.backsoundVolume) || 0));
+  // v2.1.0 — simpanan lama tanpa fitur intro baru: isi bawaan (animasi mati =
+  // perilaku lama; fade true = pengalaman baru; tampil semua = perilaku lama)
+  if (hasil.introAnimasi === undefined) hasil.introAnimasi = "mati";
+  if (hasil.introFade === undefined) hasil.introFade = true;
+  if (hasil.introTeks === undefined) hasil.introTeks = "";
+  if (hasil.introTeksFont === undefined) hasil.introTeksFont = "anton";
+  if (hasil.introTeksUkuran === undefined) hasil.introTeksUkuran = 64;
+  else hasil.introTeksUkuran = Math.min(160, Math.max(20, Math.round(Number(hasil.introTeksUkuran) || 64)));
+  if (hasil.introTeksWarna === undefined) hasil.introTeksWarna = "#ffffff";
+  if (hasil.introTampil === undefined) hasil.introTampil = "semua";
+  if (hasil.introSuaraFile === undefined) hasil.introSuaraFile = "";
+  if (hasil.introSuaraVolume === undefined) hasil.introSuaraVolume = 100;
+  else hasil.introSuaraVolume = Math.min(150, Math.max(0, Number(hasil.introSuaraVolume) || 0));
   return hasil;
 }
 
@@ -586,6 +676,9 @@ export function offsetBacksound(
   pakaiIntro: boolean,
   durasiIntro: number,
   kecepatan: number,
+  /** v2.1.0 — predikat part-ke-k menampilkan intro (introTampil gating).
+   *  Absen = semua part ber-intro (perilaku lama). */
+  introUntuk?: (k: number) => boolean,
 ): number {
   const kec = Math.max(0.1, kecepatan || 1);
   let sumberDetik = 0;
@@ -596,7 +689,7 @@ export function offsetBacksound(
         ? rentangPartHapus(k, durasiVideo, durasiPart, mulaiDetik, akhirDetik, zonas)
         : rentangPart(k, durasiVideo, durasiPart, mulaiDetik, akhirDetik);
     sumberDetik += d;
-    if (pakaiIntro) sumberDetik += Math.max(0, durasiIntro);
+    if (pakaiIntro && (introUntuk ? introUntuk(k) : true)) sumberDetik += Math.max(0, durasiIntro);
   }
   return Math.max(0, sumberDetik / kec);
 }

@@ -2,9 +2,9 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { teksSiapGambar } from "./bungkus";
+import { teksSiapGambar, bungkusTeks } from "./bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
-import type { CodecVideo, GayaTeks, ModeKonversi, Pengaturan } from "./types";
+import type { CodecVideo, GayaTeks, ModeKonversi, NamaFont, Pengaturan } from "./types";
 import { DURASI_TRANSISI, rapikanKecepatan } from "./types";
 import { rantaiPembicara, type Keyframe } from "./pembicara";
 
@@ -253,6 +253,12 @@ function fontfile(gaya: GayaTeks): string {
   return hasil;
 }
 
+/** v2.1.0 — path TTF utk NAMA font (dipakai THUMBNAIL OTOMATIS & pengujian);
+ *  "" = biarkan ffmpeg pakai font bawaan. */
+export function fontfileNama(font: NamaFont): string {
+  return fontfile({ font } as GayaTeks);
+}
+
 /** Filter konversi frame video sumber → frame W×H (tanpa label akhir)
  *  v0.50.0 — zoomPotong 50–100 utk mode "crop": 100 = potong penuh seperti
  *  semula; di bawahnya video diskalakan (zoom × skala-cover) di ATAS latar
@@ -334,6 +340,81 @@ function rantaiUtama(
     `[isi]scale='trunc(iw*${skalaBlur}/2)*2':'trunc(ih*${skalaBlur}/2)*2'[isif]`,
     `[blurf][isif]overlay=x='(W-w)*${ppBlur}/100':y='(H-h)/2',${ekor}[mv]`,
   ].join(";");
+}
+
+/** v2.1.0 — UPGRADE BACKGROUND INTRO: rantai gambar intro dgn animasi Ken Burns
+ *  (zoompan) + teks intro (drawtext). Keluar label [bgv]. animasi "mati" = rantai
+ *  lama PERSIS (nol regresi — dites unit di uji-v210).
+ *  Catatan timing: bila transisi FADE aktif, gambar diperpanjang +DURASI_TRANSISI
+ *  (masih gambar murah) sehingga xfade offset=durasiIntro TIDAK pernah melewati
+ *  akhir input pertama — total durasi hasil TETAP N+M (identik concat).
+ *  Butuh input bg dgn `-framerate fps` bila animasi aktif (timing zoompan). */
+export function rantaiIntroBg(
+  p: Pengaturan,
+  W: number,
+  H: number,
+  fps: number,
+  N: number,
+  fileTeksIntro: string | null,
+  teksIntro: string,
+): string {
+  const anim = p.introAnimasi;
+  const aktifAnim =
+    anim === "zoom-masuk" || anim === "zoom-keluar" || anim === "geser-kiri" || anim === "geser-kanan";
+  const D = p.introFade ? DURASI_TRANSISI : 0;
+  const panjang = N + D; // fade: gambar tampil N + D dtk (xfade menimpa D terakhir)
+  const fr = Math.max(1, Math.round(fps * panjang)); // total frame animasi
+  const Z = 0.12; // rentang zoom 12% — halus, ala Ken Burns
+  let rantai: string;
+  if (aktifAnim) {
+    const tengah = "iw/2-(iw/zoom/2)";
+    let zExpr: string;
+    let posisi: string;
+    if (anim === "zoom-masuk") {
+      zExpr = `min(1+${Z}*on/${fr},1+${Z})`;
+      posisi = `x='${tengah}':y='ih/2-(ih/zoom/2)'`;
+    } else if (anim === "zoom-keluar") {
+      zExpr = `max(1+${Z}-${Z}*on/${fr},1)`;
+      posisi = `x='${tengah}':y='ih/2-(ih/zoom/2)'`;
+    } else {
+      // geser: zoom konstan 8% memberi ruang geser; kamera meluncur pelan
+      zExpr = "1.08";
+      const jalan = `(iw-iw/zoom)*min(on/${fr},1)`;
+      posisi =
+        anim === "geser-kiri"
+          ? `x='min(max(0,${jalan}),iw-iw/zoom)':y='ih/2-(ih/zoom/2)'`
+          : `x='min(max(0,(iw-iw/zoom)-${jalan}),iw-iw/zoom)':y='ih/2-(ih/zoom/2)'`;
+    }
+    // upscale sebelum zoompan → mengurangi jitter langkah zoom pada frame;
+    // 4K tak di-upscale 2× (33 MP/frame terlalu berat) — 1,25× cukup
+    const FAKTOR_UPS = W * H > 3_500_000 ? 1.25 : 2;
+    const upW = Math.max(2, Math.round((W * FAKTOR_UPS) / 2) * 2);
+    const upH = Math.max(2, Math.round((H * FAKTOR_UPS) / 2) * 2);
+    rantai =
+      `[1:v]scale=${upW}:${upH}:force_original_aspect_ratio=increase,crop=${upW}:${upH},` +
+      `zoompan=z='${zExpr}':${posisi}:d=1:fps=${fps}:s=${W}x${H},setsar=1` +
+      `,trim=duration=${panjang.toFixed(3)},setpts=PTS-STARTPTS[bgv]`;
+  } else {
+    rantai =
+      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1` +
+      `,trim=duration=${panjang.toFixed(3)},setpts=PTS-STARTPTS[bgv]`;
+  }
+  // teks intro dibakar DI ATAS gambar SEBELUM digabung ke video utama →
+  // otomatis hanya tampil selama intro (bukan sepanjang video)
+  if (fileTeksIntro && teksIntro.trim()) {
+    const skala = Math.min(W, H) / 1080;
+    const u = Math.max(12, p.introTeksUkuran * skala);
+    let d =
+      `drawtext=textfile=${kutipFilter(fileTeksIntro)}:fontsize=${u.toFixed(1)}` +
+      `:fontcolor=${warnaFf(p.introTeksWarna)}` +
+      `:borderw=${Math.max(1, Math.round(4 * skala))}:bordercolor=black` +
+      `:x=(w-text_w)/2:y=H*0.42`;
+    const ff = fontfile({ font: p.introTeksFont } as GayaTeks);
+    if (ff) d += `:fontfile=${kutipFilter(ff)}`;
+    d += `:line_spacing=${(u * 0.3).toFixed(1)}:expansion=none`;
+    rantai = rantai.replace("[bgv]", `,${d}[bgv]`);
+  }
+  return rantai;
 }
 
 /** v0.39.0 — ekspresi posisi drawtext deskripsi, murni & teruji:
@@ -553,6 +634,9 @@ export interface ArgPart {
   volumeBacksound?: number;
   /** v2.0.0 — posisi lagu saat part ini mulai (detik, waktu HASIL) */
   offsetBacksound?: number;
+  /** v2.1.0 — file SUARA INTRO (path absolut) atau null — diputar selama intro
+   *  (LOOP otomatis bila lebih pendek), fade-out saat transisi fade aktif */
+  fileSuaraIntro?: string | null;
   /** v2.0.0 — keyframe ZOOM PEMBICARA (JSON work/tmp) atau null — rantai video
    *  diganti crop dinamis mengikuti pembicara aktif (geser/fade/langsung) */
   filePembicara?: string | null;
@@ -620,12 +704,36 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const fileJudul = path.join(a.dirTmp, `${a.tag}-judul.txt`);
   const filePart = path.join(a.dirTmp, `${a.tag}-part.txt`);
   const fileDeskripsi = path.join(a.dirTmp, `${a.tag}-deskripsi.txt`);
+  // v2.1.0 — teks intro dibungkus (aturan sama dgn judul: lebar 92% frame)
+  // lalu ditulis ke textfile — drawtext multi-baris aman unicode.
+  const teksIntroMentah = (p.introTeks || "").trim();
+  const fileIntro = teksIntroMentah && pakaiBg ? path.join(a.dirTmp, `${a.tag}-intro.txt`) : null;
+  if (fileIntro) {
+    const skalaTxt = Math.min(W, H) / 1080;
+    const uTxt = Math.max(12, p.introTeksUkuran * skalaTxt);
+    writeFileSync(fileIntro, bungkusTeks(teksIntroMentah, W * 0.92, uTxt, p.introTeksFont), "utf8");
+  }
 
   // URUTAN INPUT PENTING (indeks filter graph): 0=src, 1=bg?, lalu anullsrc,
   // lalu logo PALING AKHIR — sehingga idxLogo = pakaiBg ? 3 : 2 selalu benar
   // dan referensi audio [2:a] / -map 2:a tidak pernah bergeser oleh logo.
   const inputs: string[] = ["-ss", a.mulai.toFixed(3), "-i", a.src];
-  if (pakaiBg) inputs.push("-loop", "1", "-t", p.durasiIntro.toFixed(3), "-i", a.bg as string);
+  // v2.1.0 — FADE LEMBUT: gambar diperpanjang +DURASI_TRANSISI (xfade menimpa
+  // D terakhir) → durasi hasil TETAP N+M; animasi Ken Burns butuh -framerate
+  // fps agar ekspresi zoompan `on` selaras dgn waktu (nol regresi: mati+langsung
+  // = argumen input persis lama).
+  const pakaiFadeIntro = pakaiBg && p.introFade === true;
+  const panjangBg = pakaiBg ? p.durasiIntro + (pakaiFadeIntro ? DURASI_TRANSISI : 0) : 0;
+  const pakaiAnimIntro =
+    pakaiBg &&
+    (p.introAnimasi === "zoom-masuk" ||
+      p.introAnimasi === "zoom-keluar" ||
+      p.introAnimasi === "geser-kiri" ||
+      p.introAnimasi === "geser-kanan");
+  if (pakaiBg) {
+    if (pakaiAnimIntro) inputs.push("-framerate", String(fps));
+    inputs.push("-loop", "1", "-t", panjangBg.toFixed(3), "-i", a.bg as string);
+  }
   const idxLogo = pakaiLogo ? (pakaiBg ? 3 : 2) : -1;
   const inputLogo: string[] = pakaiLogo ? ["-loop", "1", "-i", a.logo as string] : [];
   // v0.46.0 — input tambahan SELALU di akhir (setelah logo) sehingga indeks
@@ -654,6 +762,24 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ? (pakaiNeon ? idxNeon + 1 : pakaiFrame ? idxFrame + 1 : pakaiTemplat ? idxTemplat + 1 : dasarBerikut)
     : -1;
 
+  // v2.1.0 — SUARA INTRO: input SELALU PALING AKHIR (setelah backsound) — indeks
+  // eksplisit sehingga anullsrc ([2:a])/logo/templat tidak pernah bergeser.
+  // LOOP otomatis (-stream_loop -1) bila lagu lebih pendek dr intro; atrim.
+  const pakaiSuaraIntro = pakaiBg && !!a.fileSuaraIntro && existsSync(a.fileSuaraIntro);
+  const dasarAkhir = pakaiBacksound
+    ? idxBacksound + 1
+    : pakaiNeon
+      ? idxNeon + 1
+      : pakaiFrame
+        ? idxFrame + 1
+        : pakaiTemplat
+          ? idxTemplat + 1
+          : dasarBerikut;
+  const inputSuaraIntro: string[] = pakaiSuaraIntro
+    ? ["-stream_loop", "-1", "-t", (p.durasiIntro + 1).toFixed(3), "-i", a.fileSuaraIntro as string]
+    : [];
+  const idxSuaraIntro = pakaiSuaraIntro ? dasarAkhir : -1;
+
   // v2.0.0 — ZOOM PEMBICARA: keyframe dari file JSON (analisis latar) → rantai
   // video khusus menggantikan rantaiUtama (crop dinamis pembicara aktif). Gagal
   // baca/rantai tak bisa dibangun → jatuh ke rantai lama (perilaku aman).
@@ -678,7 +804,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     }
   }
 
-  // audio: hening selama intro + audio sumber ter-trim
+  // audio: suara intro / hening selama intro + audio sumber ter-trim
   const inputAudio: string[] = [];
   const filterAudio: string[] = [];
   let mapAudio: string[];
@@ -686,10 +812,39 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // bukan cuma durasi intro — kalau tidak, track audio output terpotong pendek
   const durasiAudio = pakaiBg && a.adaAudio ? p.durasiIntro : total;
   inputAudio.push("-f", "lavfi", "-t", durasiAudio.toFixed(3), "-i", "anullsrc=channel_layout=stereo:sample_rate=44100");
+  // v2.1.0 — fade lembut: audio sumber memudar masuk selama transisi (setelah
+  // intro), suara intro memudar keluar — pergantian terasa mulus dua arah
+  const DFade = pakaiFadeIntro ? DURASI_TRANSISI : 0;
   if (pakaiBg) {
-    if (a.adaAudio) {
+    if (pakaiSuaraIntro) {
+      const vol = Math.min(1.5, Math.max(0.01, (p.introSuaraVolume ?? 100) / 100));
+      const fadeKel =
+        DFade > 0 && p.durasiIntro > DFade
+          ? `,afade=t=out:st=${(p.durasiIntro - DFade).toFixed(3)}:d=${DFade.toFixed(3)}`
+          : "";
       filterAudio.push(
-        `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,atrim=duration=${a.durasi.toFixed(3)},asetpts=PTS-STARTPTS[ma]`,
+        `[${idxSuaraIntro}:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,` +
+          `atrim=duration=${p.durasiIntro.toFixed(3)},asetpts=PTS-STARTPTS,volume=${vol.toFixed(3)}${fadeKel}[sia]`,
+      );
+      if (a.adaAudio) {
+        const fadeMasuk = DFade > 0 ? `,afade=t=in:st=0:d=${DFade.toFixed(3)}` : "";
+        filterAudio.push(
+          `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,atrim=duration=${a.durasi.toFixed(3)},asetpts=PTS-STARTPTS${fadeMasuk}[ma]`,
+          `[sia][ma]concat=n=2:v=0:a=1${kec !== 1 ? `,atempo=${kec}` : ""}[aout]`,
+        );
+        mapAudio = ["-map", "[aout]"];
+      } else {
+        // suara intro + hening sisanya (anullsrc tetap sepanjang TOTAL → atrim mulai N)
+        filterAudio.push(
+          `[2:a]atrim=start=${p.durasiIntro.toFixed(3)},asetpts=PTS-STARTPTS[seN]`,
+          `[sia][seN]concat=n=2:v=0:a=1${kec !== 1 ? `,atempo=${kec}` : ""}[aout]`,
+        );
+        mapAudio = ["-map", "[aout]"];
+      }
+    } else if (a.adaAudio) {
+      const fadeMasuk = DFade > 0 ? `,afade=t=in:st=0:d=${DFade.toFixed(3)}` : "";
+      filterAudio.push(
+        `[0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,atrim=duration=${a.durasi.toFixed(3)},asetpts=PTS-STARTPTS${fadeMasuk}[ma]`,
         `[2:a][ma]concat=n=2:v=0:a=1${kec !== 1 ? `,atempo=${kec}` : ""}[aout]`,
       );
       mapAudio = ["-map", "[aout]"];
@@ -718,7 +873,10 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     // bila video punya audio asli → campur dgn amix TANPA normalisasi (volume
     // asli tetap 1.0); tanpa audio asli → backsound jadi satu-satunya track
     // (video tanpa suara tetap diekspor DENGAN audio) ✓ permintaan user
-    const dasarAudio = pakaiBg ? (a.adaAudio ? "[aout]" : "[2:a]") : a.adaAudio ? "[aout]" : "[1:a]";
+    // v2.1.0 — suara intro: [aout] pasti ada (rantai suara intro memakainya)
+    const dasarAudio = pakaiBg
+      ? (a.adaAudio || pakaiSuaraIntro ? "[aout]" : "[2:a]")
+      : a.adaAudio ? "[aout]" : "[1:a]";
     if (a.adaAudio || pakaiBg) {
       filterAudio.push(`${dasarAudio}[bsv]amix=inputs=2:duration=first:normalize=0[amixv]`);
       mapAudio = ["-map", "[amixv]"];
@@ -727,19 +885,30 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     }
   }
 
-  // video: intro bg (opsional) + video utama → concat → frame hiasan → neon → teks
+  // video: intro bg (opsional) + video utama → concat/xfade → frame hiasan → neon → teks
   // v2.0.0 — bila rantai pembicara tersedia → menggantikan rantaiUtama ([cc])
+  // v2.1.0 — rantai intro = rantaiIntroBg (Ken Burns + teks intro); gabungan
+  // intro→konten = FADE LEMBUT (xfade offset=N; gambar sudah diperpanjang N+D)
+  // atau concat langsung (perilaku lama, identik bit-per-bit saat semua mati).
   const filterVideo: string[] = [];
+  const sambungIntro = (lblKonten: string) =>
+    pakaiFadeIntro
+      ? // xfade WAJIB masukan constant-frame-rate — fps= di kedua cabang
+        // menjamin itu (zoompan/overlay bisa melaporkan rate 1/0 → xfade menolak)
+        `[${lblKonten}]format=yuv420p,fps=${fps}[ccx];[bgv]format=yuv420p,fps=${fps}[bgx];` +
+        `[bgx][ccx]xfade=transition=fade:duration=${DURASI_TRANSISI.toFixed(3)}:offset=${p.durasiIntro.toFixed(3)}[cc]`
+      : `[bgv][${lblKonten}]concat=n=2:v=1:a=0[cc]`;
+  const rantaiBgStr = pakaiBg
+    ? rantaiIntroBg(p, W, H, fps, p.durasiIntro, fileIntro, teksIntroMentah)
+    : null;
   if (rantaiPembicaraStr && !pakaiBg && !pakaiTemplat) {
     // zoom pembicara: hasil langsung [cc] (tanpa intro bg — podca/raycast vertikal)
     filterVideo.push(rantaiPembicaraStr);
   } else if (rantaiPembicaraStr && pakaiBg) {
     // intro bg tetap jalan di depan, lalu konten pembicara
-    filterVideo.push(
-      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
-    );
+    filterVideo.push(rantaiBgStr as string);
     filterVideo.push(rantaiPembicaraStr);
-    filterVideo.push(`[bgv][cc]concat=n=2:v=1:a=0[cc]`);
+    filterVideo.push(sambungIntro("cc"));
   } else if (pakaiTemplat) {
     // v0.46.0 MODE TEMPLATE — video pas DI DALAM jendela kotak tengah:
     // (1) video contain di kotak + pad putih, (2) diletakkan di posisi kotak pada
@@ -752,17 +921,13 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     );
     filterVideo.push(`[vidbox][tbgx]overlay=0:0${pakaiBg ? "[tv1]" : "[cc]"}`);
     if (pakaiBg) {
-      filterVideo.push(
-        `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
-      );
-      filterVideo.push(`[bgv][tv1]concat=n=2:v=1:a=0[cc]`);
+      filterVideo.push(rantaiBgStr as string);
+      filterVideo.push(sambungIntro("tv1"));
     }
   } else if (pakaiBg) {
-    filterVideo.push(
-      `[1:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},setsar=1,trim=duration=${p.durasiIntro.toFixed(3)},setpts=PTS-STARTPTS[bgv]`,
-    );
+    filterVideo.push(rantaiBgStr as string);
     filterVideo.push(rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong, p.zoomPotong, p.zoomBlur));
-    filterVideo.push(`[bgv][mv]concat=n=2:v=1:a=0[cc]`);
+    filterVideo.push(sambungIntro("mv"));
   } else {
     filterVideo.push(
       rantaiUtama(p.mode, W, H, p.warnaLatar, fps, a.durasi, p.posisiPotong, p.zoomPotong, p.zoomBlur).replace("[mv]", "[cc]"),
@@ -877,6 +1042,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ...inputFrame,
     ...inputNeon,
     ...inputBacksound,
+    ...inputSuaraIntro,
     "-filter_complex",
     filter,
     "-map",

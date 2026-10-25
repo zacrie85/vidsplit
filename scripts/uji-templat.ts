@@ -146,7 +146,9 @@ ok(
 );
 
 // template + bg + logo → urutan lengkap
-const pTemplat: Pengaturan = { ...pengaturanDefault, mode: "template", frameId: "bawaan:x", neonAktif: true, neonWarna: "cyan", neonTebal: 6, neonKecepatan: 1, neonDuaGaris: false };
+// v2.1.0 — bawaan introFade TRUE → sambungan intro = xfade (bukan concat lagi);
+// jalur concat lama diuji eksplisit dgn introFade: false
+const pTemplat: Pengaturan = { ...pengaturanDefault, mode: "template", frameId: "bawaan:x", neonAktif: true, neonWarna: "cyan", neonTebal: 6, neonKecepatan: 1, neonDuaGaris: false, introFade: false };
 const bgPalsu = path.join(tmp, "bg.png");
 writeFileSync(bgPalsu, "PNG");
 const logoPalsu = path.join(tmp, "logo.png");
@@ -166,7 +168,12 @@ ok(a2.args.filter((x) => x === "-i").length === 6, "template+bg+logo+neon: 6 inp
 ok(teksFilter2.includes("force_original_aspect_ratio=decrease,pad="), "template: video contain ke kotak");
 ok(teksFilter2.includes(`pad=1080:1920:${px1080.x}:${px1080.y}`), "template: kotak ditempatkan pada posisi jendela");
 ok(teksFilter2.includes("[vidbox][tbgx]overlay=0:0[tv1]"), "template: latar PNG di atas video");
-ok(teksFilter2.includes("[bgv][tv1]concat=n=2:v=1:a=0[cc]"), "template: intro bg masih concat");
+ok(teksFilter2.includes("[bgv][tv1]concat=n=2:v=1:a=0[cc]"), "template: intro bg masih concat (introFade=false)");
+// v2.1.0 — bawaan fade: sambungan template pakai xfade
+const pTemplatFade: Pengaturan = { ...pTemplat, introFade: true };
+const a2f = bangunArgumenPart({ ...dasar, pengaturan: pTemplatFade, bg: bgPalsu, logo: logoPalsu, frameAbs: pngPalsu, neon: neonKotak, templatBg: pngTemplat });
+const fl2f = a2f.args[a2f.args.indexOf("-filter_complex") + 1];
+ok(fl2f.includes("[bgx][ccx]xfade=transition=fade"), "template: bawaan fade → sambungan intro xfade");
 ok(teksFilter2.includes("drawtext=textfile="), "template: drawtext ada");
 ok(teksFilter2.includes("-text_h/2"), "template: teks tengah kotak (text_h/2)");
 ok(/\[\d+:v\]scale=1080:1920\[tbgx\]/.test(teksFilter2), "template: input templat di index 4", "");
