@@ -5,7 +5,7 @@ import path from "node:path";
 import { teksSiapGambar, bungkusTeks } from "./bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import type { CodecVideo, GayaTeks, ModeKonversi, NamaFont, Pengaturan } from "./types";
-import { DURASI_TRANSISI, rapikanKecepatan } from "./types";
+import { DURASI_TRANSISI, rapikanKecepatan, posisiTeksBlok, rapikanPosisiXY, rapikanPosisiY } from "./types";
 import { rantaiPembicara, type Keyframe } from "./pembicara";
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
@@ -466,7 +466,13 @@ export function ekspresiPosisiDeskripsi(
 /** Dua-tiga drawtext (judul + Part + deskripsi) di atas hasil concat → [vout].
  *  v0.42.0 — teksJ/teksP/teksD = teks SUDAH DIBUNGKUS (teksSiapGambar): jumlah
  *  barisnya dipakai utk tata letak tinggi (tJ/tP) & isinya sudah ditulis ke
- *  textfile — drawtext multi-baris, tidak ada lagi teks 1 baris terpotong kiri-kanan. */
+ *  textfile — drawtext multi-baris, tidak ada lagi teks 1 baris terpotong kiri-kanan.
+ *  v2.4.0 — POSISI BEBAS TERPISAH (permintaan user: "posisi judul serta part
+ *  bisa dipisah" + "bebas ditaruh dimana saja dengan cara digeser"): judul &
+ *  part kini punya judulX/Y & partX/Y sendiri (persen frame; -1 = otomatis).
+ *  NOL REGRESI: bawaan (50/-1/50/-1) memunculkan string PERSIS rantai lama
+ *  posisiTeks "atas" (judul margin atas, part tepat di bawahnya) — dites
+ *  string-sajar di uji-v240. */
 function rantaiTeks(
   p: Pengaturan,
   W: number,
@@ -496,33 +502,37 @@ function rantaiTeks(
   const gap = uJ * 0.45;
   const mrg = H * 0.045;
 
-  let yJ: number;
-  let yP: number;
-  if (p.posisiTeks === "tengah") {
-    const tot = tJ + gap + tP;
-    yJ = (H - tot) / 2;
-    yP = yJ + tJ + gap;
-  } else if (p.posisiTeks === "bawah") {
-    yP = H - mrg - tP;
-    yJ = yP - gap - tJ;
-  } else {
-    yJ = mrg;
-    yP = yJ + tJ + gap;
-  }
+  // v2.4.0 — posisi Y efektif (otomatis -1 = perilaku lama) + posisi X (50 = tengah)
+  const { yJ, yP } = posisiTeksBlok(
+    rapikanPosisiY(p.judulY, -1),
+    rapikanPosisiY(p.partY, -1),
+    H, mrg, tJ, tP, gap,
+  );
+  const xJ = rapikanPosisiXY(p.judulX, 50);
+  const xP = rapikanPosisiXY(p.partX, 50);
 
   const bagian: string[] = [];
+  /** v2.4.0 — X drawtext: 50 → pola lama persis (x=(w-text_w)/2); lainnya →
+   *  ekspresi berjaga (teks tak keluar frame), jangkar = TENGAH blok teks.
+   *  PENTING: ekspresi mengandung KOMA — wajib dibungkus kutip tunggal (pola
+   *  sama dgn overlay deskripsi/logo). */
+  const ekspresiX = (x: number): string =>
+    x === 50
+      ? "(w-text_w)/2"
+      : `'min(max(0,W*${Number(x.toFixed(2))}/100-text_w/2),W-text_w)'`;
   const opsiDasar = (
     fontsize: number,
     warna: string,
     outline: GayaTeks,
     y: number,
     ff: string,
+    xExpr: string,
   ) => {
     let s = `fontsize=${fontsize.toFixed(1)}:fontcolor=${warnaFf(warna)}`;
     if (outline.outlineLebar > 0) {
       s += `:borderw=${Math.max(1, Math.round(outline.outlineLebar * skala))}:bordercolor=${warnaFf(outline.outlineWarna)}`;
     }
-    s += `:x=(w-text_w)/2:y=${Math.round(y)}`;
+    s += `:x=${xExpr}:y=${Math.round(y)}`;
     if (ff) s += `:fontfile=${kutipFilter(ff)}`;
     // v0.58.0 — expansion=none: teks user berisi "%{" dulu membuat parser drawtext
     // gagal → seluruh part kena galat samar (aplikasi tak memakai fungsi %{...})
@@ -533,13 +543,13 @@ function rantaiTeks(
   if (teksJ.trim()) {
     const ffJ = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
     bagian.push(
-      `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
+      `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ, ekspresiX(xJ))}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
     );
   }
   if (teksP.trim()) {
     const ffP = fontfile(p.gayaPart) || fontfile(p.gayaJudul);
     bagian.push(
-      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP)}:line_spacing=${(uP * 0.3).toFixed(1)}`,
+      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP, ekspresiX(xP))}:line_spacing=${(uP * 0.3).toFixed(1)}`,
     );
   }
   // v0.39.0 — deskripsi posisi BEBAS (persen frame): X = tengah blok teks,

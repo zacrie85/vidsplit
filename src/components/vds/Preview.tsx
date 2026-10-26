@@ -3,7 +3,7 @@
 // VidSplit — pratinjau live: video 9:16 + overlay judul & Part berganti otomatis
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
-import { formatDurasi, FONT_CSS, neonDari, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
+import { formatDurasi, FONT_CSS, neonDari, posisiTeksBlok, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
 import { LapisanNeon } from "@/components/vds/Neon";
@@ -74,7 +74,6 @@ export function Preview({
   const ukuranJudul = `${(pengaturan.gayaJudul.ukuran / 1080) * 100}cqw`;
   const ukuranPart = `${(pengaturan.gayaPart.ukuran / 1080) * 100}cqw`;
   const ukuranDeskripsi = `${(pengaturan.gayaDeskripsi.ukuran / 1080) * 100}cqw`;
-  const posisi = pengaturan.posisiTeks;
   // v0.46.0 — mode template + setelan neon & frame
   const modeTemplate = pengaturan.mode === "template";
   const neon = neonDari(pengaturan);
@@ -138,49 +137,88 @@ export function Preview({
     10,
   );
 
-  const susunTeks = (
-    <div
-      className={`pointer-events-none absolute inset-x-0 z-10 flex flex-col items-center gap-[1.2cqw] px-[4cqw] text-center ${
-        posisi === "atas"
-          ? "top-[4.5%]"
-          : posisi === "tengah"
-            ? "top-1/2 -translate-y-1/2"
-            : "bottom-[4.5%]"
-      }`}
-    >
+  // v2.4.0 — posisi judul & part TERPISAH (judulX/Y & partX/Y; -1 = otomatis).
+  // Keduanya otomatis → kotak flex lama (pratinjau PERSIS semula). Salah satu
+  // konkret → tiap teks jadi lapisan absolut sendiri: X = TENGAH blok, Y = ATAS
+  // blok (jangkar sama dgn drawtext; Y otomatis Part dihitung dari blok judul
+  // lewat posisiTeksBlok — rumus render yang sama persis).
+  const Hpx = modeAsli && tinggi > 0 ? tinggi : 1920;
+  const skalaPx = modeAsli && lebar > 0 ? Math.min(lebar, tinggi) / 1080 : 1;
+  const uJpx = Math.max(12, pengaturan.gayaJudul.ukuran * skalaPx);
+  const uPpx = Math.max(10, pengaturan.gayaPart.ukuran * skalaPx);
+  const tJpx = Math.max(1, judulB.split("\n").length) * uJpx * 1.5;
+  const tPpx = Math.max(1, partB.split("\n").length) * uPpx * 1.5;
+  const posEfektif = posisiTeksBlok(
+    pengaturan.judulY,
+    pengaturan.partY,
+    Hpx,
+    Hpx * 0.045,
+    tJpx,
+    tPpx,
+    uJpx * 0.45,
+  );
+  const keduaOtomatis = pengaturan.judulY < 0 && pengaturan.partY < 0;
+  const pctJudul = (posEfektif.yJ / Hpx) * 100;
+  const pctPart = (posEfektif.yP / Hpx) * 100;
+  const clampPct = (n: number) => Math.min(100, Math.max(0, n));
+
+  const gayaHurufJudul = {
+    fontSize: ukuranJudul,
+    fontFamily: FONT_CSS[pengaturan.gayaJudul.font],
+    color: pengaturan.gayaJudul.warna,
+    "--stroke-w": `${(pengaturan.gayaJudul.outlineLebar / 1080) * 100}cqw`,
+    "--stroke-color": pengaturan.gayaJudul.outlineWarna,
+  } as React.CSSProperties;
+  const gayaHurufPart = {
+    fontSize: ukuranPart,
+    fontFamily: FONT_CSS[pengaturan.gayaPart.font],
+    color: pengaturan.gayaPart.warna,
+    "--stroke-w": `${(pengaturan.gayaPart.outlineLebar / 1080) * 100}cqw`,
+    "--stroke-color": pengaturan.gayaPart.outlineWarna,
+  } as React.CSSProperties;
+
+  const susunTeks = keduaOtomatis ? (
+    <div className="pointer-events-none absolute inset-x-0 top-[4.5%] z-10 flex flex-col items-center gap-[1.2cqw] px-[4cqw] text-center">
+      {pengaturan.judul.trim() && (
+        <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufJudul}>
+          {judulB}
+        </p>
+      )}
+      {pengaturan.kataPart.trim() && (
+        <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufPart}>
+          {partB}
+        </p>
+      )}
+    </div>
+  ) : (
+    <>
       {pengaturan.judul.trim() && (
         <p
-          className="teks-stroke whitespace-pre font-bold leading-tight"
-          style={
-            {
-              fontSize: ukuranJudul,
-              fontFamily: FONT_CSS[pengaturan.gayaJudul.font],
-              color: pengaturan.gayaJudul.warna,
-              "--stroke-w": `${(pengaturan.gayaJudul.outlineLebar / 1080) * 100}cqw`,
-              "--stroke-color": pengaturan.gayaJudul.outlineWarna,
-            } as React.CSSProperties
-          }
+          className="teks-stroke pointer-events-none absolute z-10 whitespace-pre font-bold leading-tight"
+          style={{
+            left: `${clampPct(pengaturan.judulX)}%`,
+            top: `${pctJudul}%`,
+            transform: "translate(-50%, 0)",
+            ...gayaHurufJudul,
+          }}
         >
           {judulB}
         </p>
       )}
       {pengaturan.kataPart.trim() && (
         <p
-          className="teks-stroke whitespace-pre font-bold leading-tight"
-          style={
-            {
-              fontSize: ukuranPart,
-              fontFamily: FONT_CSS[pengaturan.gayaPart.font],
-              color: pengaturan.gayaPart.warna,
-              "--stroke-w": `${(pengaturan.gayaPart.outlineLebar / 1080) * 100}cqw`,
-              "--stroke-color": pengaturan.gayaPart.outlineWarna,
-            } as React.CSSProperties
-          }
+          className="teks-stroke pointer-events-none absolute z-10 whitespace-pre font-bold leading-tight"
+          style={{
+            left: `${clampPct(pengaturan.partX)}%`,
+            top: `${pctPart}%`,
+            transform: "translate(-50%, 0)",
+            ...gayaHurufPart,
+          }}
         >
           {partB}
         </p>
       )}
-    </div>
+    </>
   );
 
   return (

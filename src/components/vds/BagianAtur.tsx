@@ -7,6 +7,10 @@ import { useEffect, useRef, useState } from "react";
 import {
   AlignLeft,
   Captions,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
   Copy,
   Crop,
   Droplets,
@@ -57,7 +61,6 @@ import {
   type ModeSplit,
   type NamaFont,
   type PosisiLogo,
-  type PosisiTeks,
   type Pengaturan,
   type Resolusi,
   type ResolusiOutput,
@@ -67,6 +70,7 @@ import {
   urlBingkaiWarna,
 } from "@/lib/vidsplit/types";
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
+import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
 import { PratinjauBlurZoom } from "./PratinjauBlurZoom";
@@ -572,6 +576,86 @@ diputar berurutan, antar part terasa ada perpindahannya. Gunakan tombol "Terapka
 
 /* ============ 2 — TULISAN JUDUL ============ */
 
+/* ===== v2.4.0 — PENG GESER POSISI BEBAS (permintaan user: "penentuan posisi
+ * bisa bebas ditaruh dimana saja dengan cara di geser — pilihan atas tengah
+ * bawah digantikan tombol geser atas bawah kiri kanan") =====
+ * Posisi = persen frame: X = tengah blok teks, Y = ATAS blok teks.
+ * y = -1 → OTOMATIS (perilaku lama). Tekan pertama mewujudkan posisi otomatis
+ * menjadi angka (dari yOtomatis) lalu menggesernya — pratinjau live mengikuti. */
+const LANGKAH_GESER_Y = 4; // % tinggi per tekan
+const LANGKAH_GESER_X = 6; // % lebar per tekan
+
+export function PenggeserPosisi({
+  label,
+  x,
+  y,
+  yOtomatis,
+  onChange,
+}: {
+  label: string;
+  x: number;
+  /** Y saat ini — -1 = otomatis */
+  y: number;
+  /** posisi Y efektif saat otomatis (%) — jangkar mewujudkan nilai pertama kali */
+  yOtomatis: number;
+  onChange: (x: number, y: number) => void;
+}) {
+  const geser = (dx: number, dy: number) => {
+    const yKini = y < 0 ? yOtomatis : y;
+    const bulat = (n: number) => Math.round(n * 10) / 10;
+    onChange(
+      Math.min(100, Math.max(0, bulat(x + dx))),
+      Math.min(100, Math.max(0, bulat(yKini + dy))),
+    );
+  };
+  const tombol =
+    "flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800/70 text-slate-200 transition hover:border-amber-400/70 hover:text-amber-200 active:bg-amber-400/20";
+  return (
+    <div className="mt-3 border-t border-slate-700/50 pt-3">
+      <p className="mb-1.5 text-xs text-slate-400">{label}</p>
+      <div className="flex items-start gap-4">
+        <div className="grid grid-cols-3 gap-1.5">
+          <span />
+          <button type="button" className={tombol} title="Geser ke atas" aria-label="Geser ke atas" onClick={() => geser(0, -LANGKAH_GESER_Y)}>
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <span />
+          <button type="button" className={tombol} title="Geser ke kiri" aria-label="Geser ke kiri" onClick={() => geser(-LANGKAH_GESER_X, 0)}>
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/40 text-[10px] font-medium leading-tight text-slate-400">
+            {y < 0 ? "auto" : `${Math.round(x)}·${Math.round(y)}`}
+          </span>
+          <button type="button" className={tombol} title="Geser ke kanan" aria-label="Geser ke kanan" onClick={() => geser(LANGKAH_GESER_X, 0)}>
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <span />
+          <button type="button" className={tombol} title="Geser ke bawah" aria-label="Geser ke bawah" onClick={() => geser(0, LANGKAH_GESER_Y)}>
+            <ChevronDown className="h-4 w-4" />
+          </button>
+          <span />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] leading-snug text-slate-500">
+            {y < 0
+              ? "Posisi otomatis (seperti semula). Tekan tombol geser untuk menaruh bebas di mana saja."
+              : `Posisi: X ${x}% dr kiri · Y ${y}% dr atas — bebas di mana saja.`}
+          </p>
+          {y >= 0 && (
+            <button
+              type="button"
+              onClick={() => onChange(50, -1)}
+              className="mt-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] text-slate-300 transition hover:border-amber-400/70 hover:text-amber-200"
+            >
+              Kembalikan otomatis
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PanelJudul({
   pengaturan,
   onChange,
@@ -606,11 +690,35 @@ export function PanelJudul({
         maxUkuran={160}
         onTerapkanSemua={onTerapkanUkuran}
       />
+      {/* v2.4.0 — posisi judul BEBAS (terpisah dr Part): -1 = otomatis margin atas */}
+      <PenggeserPosisi
+        label="Posisi tulisan judul (geser bebas)"
+        x={pengaturan.judulX}
+        y={pengaturan.judulY}
+        yOtomatis={4.5}
+        onChange={(x, y) => onChange({ ...pengaturan, judulX: x, judulY: y })}
+      />
     </Kartu>
   );
 }
 
 /* ============ 3 — TULISAN PART OTOMATIS ============ */
+
+/** v2.4.0 — pilihan cepat kata part (request user: episode, bagian, part, eps) */
+const KATA_PART_CEPAT = ["Part", "Eps", "Episode", "Bagian"];
+
+/** v2.4.0 — posisi Y otomatis Part dalam PERSEN (basis 9:16 1080×1920, sama dgn
+ *  posisiTeksBlok di render): judul otomatis → margin 4,5% + tinggi blok judul
+ *  (baris terbungkus × ukuran × 1,5 + jarak 0,45×ukuran); judul konkret → dari
+ *  judulY. Dipakai tombol geser utk mewujudkan posisi otomatis jadi angka. */
+function yPartOtomatisPct(p: Pengaturan): number {
+  const HPx = 1920;
+  const uJpx = Math.max(12, p.gayaJudul.ukuran);
+  const barisJ = Math.max(1, bungkusTeksRender(p.judul, p.gayaJudul, 1080, HPx, 12).split("\n").length);
+  const yJudulPx = p.judulY >= 0 ? (p.judulY / 100) * HPx : HPx * 0.045;
+  const yPartPx = yJudulPx + barisJ * uJpx * 1.5 + uJpx * 0.45;
+  return Math.round((yPartPx / HPx) * 1000) / 10;
+}
 
 export function PanelPart({
   pengaturan,
@@ -710,6 +818,18 @@ export function PanelPart({
             placeholder="Part"
             className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-amber-400/70"
           />
+          {/* v2.4.0 — pilihan cepat kata part (permintaan user: "diberi pilihan
+              beberapa tulisan lain seperti episode, bagian, part dan eps") */}
+          <ChipPilihan<string>
+            pilihan={[
+              { v: "Part", label: "Part" },
+              { v: "Eps", label: "Eps" },
+              { v: "Episode", label: "Episode" },
+              { v: "Bagian", label: "Bagian" },
+            ]}
+            nilai={KATA_PART_CEPAT.includes(pengaturan.kataPart) ? pengaturan.kataPart : ""}
+            onChange={(v) => set("kataPart", v)}
+          />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs text-slate-400">Durasi tiap part (detik){jumlahAktif ? " — otomatis" : ""}</span>
@@ -772,18 +892,17 @@ export function PanelPart({
         maxUkuran={120}
         onTerapkanSemua={onTerapkanUkuran}
       />
-      <div className="mt-3 border-t border-slate-700/50 pt-3">
-        <p className="mb-1 text-xs text-slate-400">Posisi tulisan</p>
-        <ChipPilihan<PosisiTeks>
-          pilihan={[
-            { v: "atas", label: "Atas" },
-            { v: "tengah", label: "Tengah" },
-            { v: "bawah", label: "Bawah" },
-          ]}
-          nilai={pengaturan.posisiTeks}
-          onChange={(v) => set("posisiTeks", v)}
-        />
-      </div>
+      {/* v2.4.0 — posisi Part BEBAS & TERPISAH dr judul (tombol geser menggantikan
+          chip atas/tengah/bawah yang dulu menggerakkan judul + part sekaligus).
+          Jangkar otomatis = tepat di bawah blok judul (perhitungan sama dgn
+          posisiTeksBlok di render: judul otomatis margin 4,5% + tinggi blok judul). */}
+      <PenggeserPosisi
+        label="Posisi tulisan part (geser bebas — terpisah dari judul)"
+        x={pengaturan.partX}
+        y={pengaturan.partY}
+        yOtomatis={yPartOtomatisPct(pengaturan)}
+        onChange={(x, y) => onChange({ ...pengaturan, partX: x, partY: y })}
+      />
     </Kartu>
   );
 }

@@ -18,6 +18,9 @@ import {
   pengaturanDefault,
   rapikanThumbnail,
   templatDari,
+  dariPosisiTeksLama,
+  rapikanPosisiXY,
+  rapikanPosisiY,
   type NamaFont,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
@@ -31,10 +34,21 @@ function clamp(n: number, min: number, max: number, fallback: number): number {
 }
 
 function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
+  // v2.4.0 — payload LAMA (masih kirim posisiTeks atas/tengah/bawah tanpa field
+  // baru) dipetakan dulu ke posisi bebas sebelum digabung dgn bawaan
+  const mentah = (raw || {}) as Partial<Pengaturan> & { posisiTeks?: unknown };
+  if (mentah.judulY === undefined && mentah.posisiTeks !== undefined) {
+    raw = { ...mentah, ...dariPosisiTeksLama(mentah.posisiTeks) };
+  }
   const p: Pengaturan = { ...pengaturanDefault, ...(raw || {}) };
   p.mode = ["blur", "crop", "warna", "asli", "template"].includes(p.mode) ? p.mode : "blur";
   p.resolusi = p.resolusi === "720" ? "720" : "1080";
-  p.posisiTeks = ["atas", "tengah", "bawah"].includes(p.posisiTeks) ? p.posisiTeks : "atas";
+  // v2.4.0 — posisi bebas judul & part TERPISAH (-1 = otomatis); kunci lama dibuang
+  delete (p as unknown as Record<string, unknown>).posisiTeks;
+  p.judulX = rapikanPosisiXY(p.judulX, 50);
+  p.judulY = rapikanPosisiY(p.judulY, -1);
+  p.partX = rapikanPosisiXY(p.partX, 50);
+  p.partY = rapikanPosisiY(p.partY, -1);
   p.durasiPart = clamp(p.durasiPart, 5, 3600, 20);
   p.durasiIntro = clamp(p.durasiIntro, 1, 10, 2);
   p.judul = String(p.judul || "").slice(0, 300);

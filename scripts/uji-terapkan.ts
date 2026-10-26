@@ -50,7 +50,8 @@ const sumber: Pengaturan = {
   kataPart: "Bagian",
   durasiPart: 45,
   gayaPart: { font: "anton", ukuran: 52, warna: "#fbbf24", outlineLebar: 6, outlineWarna: "#000000" },
-  posisiTeks: "tengah",
+  partX: 50,
+  partY: 53,
   // kartu 4
   introAktif: true,
   introPosisi: 80,
@@ -88,7 +89,8 @@ const target: Pengaturan = {
   kataPart: "Part",
   durasiPart: 20,
   gayaPart: { font: "tebal", ukuran: 35, warna: "#ffffff", outlineLebar: 3, outlineWarna: "#000000" },
-  posisiTeks: "atas",
+  partX: 50,
+  partY: -1,
   // kartu 4 — background milik video lain (harus TETAP)
   introAktif: false,
   introPosisi: 20,
@@ -139,7 +141,7 @@ cek("gayaPart ukuran TIDAK ikut — tetap 35 milik target (v0.41.0)", hasil.gaya
 cek("gayaPart mengikuti — warna", hasil.gayaPart.warna === "#fbbf24");
 cek("gayaPart mengikuti — outlineLebar", hasil.gayaPart.outlineLebar === 6);
 cek("gayaPart mengikuti — outlineWarna", hasil.gayaPart.outlineWarna === "#000000");
-cek("posisiTeks mengikuti", hasil.posisiTeks === "tengah");
+cek("posisi part mengikuti (v2.4.0: partX/Y terpisah)", hasil.partX === 50 && hasil.partY === 53, `dapat ${hasil.partX}/${hasil.partY}`);
 
 // ===== kartu 4 — Background intro: TIDAK IKUT (v2.2.0: frame dr video) =====
 cek("introAktif TIDAK ikut", hasil.introAktif === false, `dapat ${hasil.introAktif}`);

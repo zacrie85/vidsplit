@@ -40,7 +40,10 @@ function buat(parsial: Partial<Pengaturan>): Pengaturan {
     deskripsiX: 50,
     deskripsiY: 80,
     resolusi: "1080", // sengaja 1080 — harus DIABAIKAN saat mode asli
-    posisiTeks: "atas",
+    judulX: 50,
+    judulY: -1,
+    partX: 50,
+    partY: -1,
     posisiPotong: 50,
     mulaiDetik: 0,
     akhirDetik: 0,

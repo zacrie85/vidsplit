@@ -14,6 +14,9 @@ import {
   pengaturanDefault,
   rapikanThumbnail,
   templatDari,
+  dariPosisiTeksLama,
+  rapikanPosisiXY,
+  rapikanPosisiY,
   type NamaFont,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
@@ -27,6 +30,11 @@ function clamp(n: number, min: number, max: number, fallback: number): number {
 }
 
 function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
+  // v2.4.0 — payload LAMA (posisiTeks tanpa field baru) dipetakan dulu
+  const mentah = (raw || {}) as Partial<Pengaturan> & { posisiTeks?: unknown };
+  if (mentah.judulY === undefined && mentah.posisiTeks !== undefined) {
+    raw = { ...mentah, ...dariPosisiTeksLama(mentah.posisiTeks) };
+  }
   const p: Pengaturan = { ...pengaturanDefault, ...(raw || {}) };
   const daftarFont = Object.keys(INFO_FONT) as NamaFont[];
   p.mode = ["blur", "crop", "warna", "asli", "template"].includes(p.mode) ? p.mode : "blur";
@@ -57,7 +65,12 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.warnaLatar = /^#[0-9a-fA-F]{6,8}$/.test(p.warnaLatar) ? p.warnaLatar : "#111827";
   p.gayaJudul.ukuran = clamp(p.gayaJudul?.ukuran, 20, 160, 64);
   p.gayaJudul.outlineLebar = clamp(p.gayaJudul?.outlineLebar, 0, 12, 4);
-  p.posisiTeks = ["atas", "tengah", "bawah"].includes(p.posisiTeks) ? p.posisiTeks : "atas";
+  // v2.4.0 — posisi bebas judul & part TERPISAH (-1 = otomatis); kunci lama dibuang
+  delete (p as unknown as Record<string, unknown>).posisiTeks;
+  p.judulX = rapikanPosisiXY(p.judulX, 50);
+  p.judulY = rapikanPosisiY(p.judulY, -1);
+  p.partX = rapikanPosisiXY(p.partX, 50);
+  p.partY = rapikanPosisiY(p.partY, -1);
   if (!daftarFont.includes(p.gayaJudul?.font)) p.gayaJudul = { ...p.gayaJudul, font: "tebal" };
   if (!daftarFont.includes(p.gayaPart?.font)) p.gayaPart = { ...p.gayaPart, font: "tebal" };
   p.logoId = typeof p.logoId === "string" ? p.logoId.slice(0, 300) : "";

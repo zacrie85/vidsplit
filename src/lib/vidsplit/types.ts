@@ -214,7 +214,19 @@ export interface Pengaturan {
    *  persis di potongan). */
   introPosisi: number;
   resolusi: Resolusi;
-  posisiTeks: PosisiTeks;
+  /** v2.4.0 — POSISI BEBAS JUDUL (ganti posisiTeks lama, permintaan user:
+   *  "menu 2 Tulisan judul juga dibuat pilihan letaknya, bisa bebas ditaruh
+   *  dimana saja dengan cara digeser") — X = persen LEBAR frame, titik TENGAH
+   *  blok teks (50 = rata tengah seperti lama); Y = persen TINGGI frame, titik
+   *  ATAS blok teks. Y = -1 → OTOMATIS: margin atas lama (H × 4,5%). */
+  judulX: number;
+  judulY: number;
+  /** v2.4.0 — POSISI BEBAS PART, TERPISAH dari judul (permintaan user: "posisi
+   *  judul serta part bisa dipisah posisinya"). Semantik sama dgn judulX/Y.
+   *  Y = -1 → OTOMATIS: tepat di bawah blok judul (perilaku lama utuh — juga
+   *  saat judul kosong, agar hasil lama persis sama). */
+  partX: number;
+  partY: number;
   /** posisi area potong horizontal utk mode "crop" — 0=kiri, 50=tengah, 100=kanan */
   posisiPotong: number;
   /** v0.50.0 — zoom manual utk mode "crop" (50–100, bawaan 100).
@@ -372,7 +384,12 @@ export const pengaturanDefault: Pengaturan = {
   durasiIntro: 2,
   introPosisi: 35,
   resolusi: "1080",
-  posisiTeks: "atas",
+  // v2.4.0 — posisi bawaan = PERSIS perilaku lama "atas": judul di margin atas,
+  // part tepat di bawah judul (keduanya OTOMATIS via -1) → nol regresi visual
+  judulX: 50,
+  judulY: -1,
+  partX: 50,
+  partY: -1,
   posisiPotong: 50,
   // v0.50.0 — zoom manual potong: bawaan 100 = perilaku lama (potong penuh)
   zoomPotong: 100,
@@ -506,7 +523,77 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   if (hasil.introSuaraFile === undefined) hasil.introSuaraFile = "";
   if (hasil.introSuaraVolume === undefined) hasil.introSuaraVolume = 100;
   else hasil.introSuaraVolume = Math.min(150, Math.max(0, Number(hasil.introSuaraVolume) || 0));
+  // v2.4.0 — simpanan lama dgn posisiTeks (atas/tengah/bawah) → dipetakan ke
+  // posisi bebas baru. "atas" (bawaan) → keduanya OTOMATIS (-1) = PERSIS lama;
+  // "tengah"/"bawah" → perkiraan konkret (user bisa geser ulang dgn tombol).
+  // Simpanan BARU yang sudah punya judulY tidak disentuh. Kunci lama dibuang.
+  if (hasil.judulY === undefined) {
+    const m = dariPosisiTeksLama((hasil as Record<string, unknown>).posisiTeks as string);
+    hasil.judulX = m.judulX;
+    hasil.judulY = m.judulY;
+    hasil.partX = m.partX;
+    hasil.partY = m.partY;
+  }
+  delete (hasil as Record<string, unknown>).posisiTeks;
+  hasil.judulX = rapikanPosisiXY(hasil.judulX, 50);
+  hasil.judulY = rapikanPosisiY(hasil.judulY, -1);
+  hasil.partX = rapikanPosisiXY(hasil.partX, 50);
+  hasil.partY = rapikanPosisiY(hasil.partY, -1);
   return hasil;
+}
+
+/** Clamp X posisi bebas (0–100, bawaan bila NaN). Murni. */
+export function rapikanPosisiXY(n: unknown, bawaan: number): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return bawaan;
+  return Math.min(100, Math.max(0, Math.round(v * 10) / 10));
+}
+
+/** Clamp Y posisi bebas: nilai < 0 → -1 (OTOMATIS); 0–100 → clamp 1 desimal.
+ *  Murni. */
+export function rapikanPosisiY(n: unknown, bawaan: number): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return bawaan;
+  if (v < 0) return -1;
+  return Math.min(100, Math.max(0, Math.round(v * 10) / 10));
+}
+
+/** v2.4.0 — peta posisiTeks LAMA (atas/tengah/bawah) → posisi bebas baru.
+ *  "atas" (bawaan & paling umum) = keduanya -1 (OTOMATIS) → hasil render PERSIS
+ *  sama dulu. "tengah"/"bawah" = perkiraan persen utk 9:16 dgn ukuran bawaan —
+ *  user bisa menyempurnakan lewat tombol geser. Nilai tak dikenal → "atas".
+ *  Murni — dites unit. */
+export function dariPosisiTeksLama(pos: unknown): {
+  judulX: number; judulY: number; partX: number; partY: number;
+} {
+  if (pos === "tengah") return { judulX: 50, judulY: 47, partX: 50, partY: 53 };
+  if (pos === "bawah") return { judulX: 50, judulY: 77, partX: 50, partY: 88 };
+  return { judulX: 50, judulY: -1, partX: 50, partY: -1 }; // "atas" / tak dikenal
+}
+
+/** v2.4.0 — hitung posisi Y efektif (px) blok judul & part utk drawtext.
+ *  Semantik identik rantai lama: judulY=-1 → margin atas (mrg); partY=-1 →
+ *  tepat di bawah blok judul (yJ + tJ + gap) — TERMASUK saat judul kosong
+ *  (rantai lama tetap menghitung tJ utk judul kosong = 1 baris, jadi hasil
+ *  lama persis dipertahankan). Nilai konkret → H×Y/100, di-clamp agar blok
+ *  tak keluar frame. Murni — dites unit & dipakai ffmpeg.ts + Preview.tsx. */
+export function posisiTeksBlok(
+  judulY: number,
+  partY: number,
+  H: number,
+  mrg: number,
+  tJ: number,
+  tP: number,
+  gap: number,
+): { yJ: number; yP: number } {
+  const tinggi = Math.max(1, H);
+  const yJ = judulY >= 0
+    ? Math.min(Math.max(0, tinggi - tJ), Math.max(0, (tinggi * judulY) / 100))
+    : mrg;
+  const yP = partY >= 0
+    ? Math.min(Math.max(0, tinggi - tP), Math.max(0, (tinggi * partY) / 100))
+    : yJ + tJ + gap;
+  return { yJ, yP };
 }
 
 export const INFO_FONT: Record<NamaFont, string> = {
@@ -868,11 +955,14 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     backsoundAktif: sumber.backsoundAktif,
     backsoundFile: sumber.backsoundFile,
     backsoundVolume: sumber.backsoundVolume,
-    // kartu 3 — Tulisan Part otomatis (v0.41.0: ukuran huruf TETAP milik target)
+    // kartu 3 — Tulisan Part otomatis (v0.41.0: ukuran huruf TETAP milik target;
+    // v2.4.0: posisi bebas Part ikut — posisi judul tetap milik masing-masing
+    // video karena termasuk kartu 2)
     kataPart: sumber.kataPart,
     durasiPart: sumber.durasiPart,
     gayaPart: { ...sumber.gayaPart, ukuran: target.gayaPart.ukuran },
-    posisiTeks: sumber.posisiTeks,
+    partX: sumber.partX,
+    partY: sumber.partY,
     // kartu 5 — Watermark / logo
     logoId: sumber.logoId,
     posisiLogo: sumber.posisiLogo,
