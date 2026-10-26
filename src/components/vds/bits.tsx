@@ -1,8 +1,39 @@
 "use client";
 
 // VidSplit — komponen kecil pemakai bersama
-import { useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
-import { Upload } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from "react";
+import { ChevronDown, Upload } from "lucide-react";
+
+/* ============ v2.5.0 — KARTU LIPAT FUTURISTIK (permintaan user: layout baru
+ * futuristik — "menu menunya ada tanda panah ke bawah untuk di buka dan bisa
+ * di klik lagi panah ke atas agar terlihat kecil lagi", acuan KINOSTRA) ============
+ * • Header kartu = tombol klik utuh: panah ▼ saat TERTUTUP (klik = buka),
+ *   panah ▲ (rotasi) saat TERBUKA (klik = lipat kecil lagi).
+ * • Status buka/tutup DIINGAT per kartu (localStorage, kunci dari judul kartu).
+ * • Animasi lipat halus (grid-rows 0fr↔1fr) + gaya neon: garis cyan di tepi
+ *   atas, ikon bergradasi amber→fuchsia, badge panah menyala cyan saat hover.
+ * Aman hidrasi: render pertama SELALU terbuka (sama dgn server), status
+ * tersimpan diterapkan setelah mount — tanpa peringatan hydration. */
+const KUNCI_LIPAT = "vidsplit-lipat-v1";
+
+function bacaStatusLipat(kunci: string): boolean | null {
+  try {
+    const m = JSON.parse(localStorage.getItem(KUNCI_LIPAT) || "{}") as Record<string, boolean>;
+    return typeof m[kunci] === "boolean" ? m[kunci] : null;
+  } catch {
+    return null;
+  }
+}
+
+function simpanStatusLipat(kunci: string, terbuka: boolean) {
+  try {
+    const m = JSON.parse(localStorage.getItem(KUNCI_LIPAT) || "{}") as Record<string, boolean>;
+    m[kunci] = terbuka;
+    localStorage.setItem(KUNCI_LIPAT, JSON.stringify(m));
+  } catch {
+    /* kuota penuh / mode privat — lipatan tak diingat, tak masalah */
+  }
+}
 
 export function Kartu({
   judul,
@@ -19,23 +50,94 @@ export function Kartu({
   children: ReactNode;
   className?: string;
 }) {
+  const bisaLipat = !!(judul || kanan);
+  // kunci penyimpanan dari judul (unik per kartu di seluruh aplikasi)
+  const kunciLipat = judul ? `${KUNCI_LIPAT}:${judul}` : null;
+  const [terbuka, setTerbuka] = useState(true);
+  useEffect(() => {
+    if (!kunciLipat) return;
+    const t = bacaStatusLipat(kunciLipat);
+    if (t !== null && t !== true) setTerbuka(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kunciLipat]);
+  const togle = () => {
+    setTerbuka((t) => {
+      const n = !t;
+      if (kunciLipat) simpanStatusLipat(kunciLipat, n);
+      return n;
+    });
+  };
+
+  if (!bisaLipat) {
+    // kartu tanpa judul/kanan — tampil polos seperti dulu (tidak perlu dilipat)
+    return (
+      <section
+        className={`rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4 shadow-lg shadow-black/20 backdrop-blur sm:p-5 ${className}`}
+      >
+        {children}
+      </section>
+    );
+  }
+
   return (
     <section
-      className={`rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4 shadow-lg shadow-black/20 backdrop-blur sm:p-5 ${className}`}
+      className={`group relative overflow-hidden rounded-2xl border border-slate-700/50 bg-gradient-to-b from-slate-900/80 to-slate-950/80 shadow-lg shadow-black/30 backdrop-blur transition-[border-color,box-shadow] duration-300 hover:border-cyan-400/40 hover:shadow-[0_0_28px_rgba(34,211,238,0.08)] ${className}`}
     >
-      {(judul || kanan) && (
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="flex items-start gap-2.5">
-            {ikon && <span className="mt-0.5 text-amber-400">{ikon}</span>}
-            <div>
-              {judul && <h2 className="font-semibold tracking-tight text-slate-100">{judul}</h2>}
-              {deskripsi && <p className="mt-0.5 text-xs text-slate-400">{deskripsi}</p>}
-            </div>
-          </div>
+      {/* garis neon di tepi atas — aksen futuristik */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent"
+      />
+      {/* HEADER = tombol lipat utuh (panah ▼ buka / ▲ lipat) */}
+      <button
+        type="button"
+        onClick={togle}
+        aria-expanded={terbuka}
+        title={terbuka ? "Klik untuk melipat kecil" : "Klik untuk membuka"}
+        className="flex w-full items-start justify-between gap-3 p-4 text-left sm:p-5"
+      >
+        <span className="flex items-start gap-2.5">
+          {ikon && (
+            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-gradient-to-br from-amber-400/15 via-slate-900/0 to-fuchsia-400/15 text-amber-300">
+              {ikon}
+            </span>
+          )}
+          <span>
+            {judul && (
+              <h2 className="font-semibold tracking-tight text-slate-100">{judul}</h2>
+            )}
+            {deskripsi && (
+              <span className={`mt-0.5 block text-xs text-slate-400 transition-opacity duration-200 ${terbuka ? "" : "opacity-70"}`}>
+                {deskripsi}
+              </span>
+            )}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
           {kanan}
+          <span
+            className={`flex h-7 w-7 items-center justify-center rounded-lg border transition-all duration-300 ${
+              terbuka
+                ? "border-amber-400/60 bg-amber-400/10 text-amber-300"
+                : "border-slate-600 bg-slate-800/60 text-slate-400 group-hover:border-cyan-400/60 group-hover:text-cyan-300"
+            }`}
+          >
+            <ChevronDown
+              className={`h-4 w-4 transition-transform duration-300 ${terbuka ? "rotate-180" : ""}`}
+            />
+          </span>
+        </span>
+      </button>
+      {/* ISI — lipat halus dgn grid-rows (tanpa ukuran JS) */}
+      <div
+        className={`grid transition-all duration-300 ease-out ${
+          terbuka ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div className="px-4 pb-4 sm:px-5 sm:pb-5">{children}</div>
         </div>
-      )}
-      {children}
+      </div>
     </section>
   );
 }

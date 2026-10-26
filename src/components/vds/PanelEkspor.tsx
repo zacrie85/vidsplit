@@ -10,7 +10,6 @@ import {
   Cpu,
   Download,
   FileArchive,
-  Image as ImageIcon,
   Loader2,
   Merge,
   Rocket,
@@ -22,7 +21,7 @@ import {
 import type { InfoJob } from "@/lib/vidsplit/jobs";
 import type { SetelanTujuan } from "@/lib/vidsplit/tujuan";
 import { hitungPartV2, slugify, type Pengaturan } from "@/lib/vidsplit/types";
-import { BarisSlider, ChipPilihan, Kartu, fmtUkuran } from "./bits";
+import { BarisSlider, Kartu, fmtUkuran } from "./bits";
 import { PanelTujuan } from "./PanelTujuan";
 
 interface ItemVideo {
@@ -53,8 +52,8 @@ export function PanelEkspor({
     thumbnailAktif: boolean;
     thumbnailKata: "Part" | "Bagian" | "Episode";
     thumbnailFormat: "jpg" | "png";
-    /** v2.3.0 — cakupan frame & gaya bingkai cover */
-    thumbnailMode: "per-part" | "satu";
+    /** v2.3.0 — cakupan frame & gaya bingkai cover (v2.5.0: + identik) */
+    thumbnailMode: "per-part" | "satu" | "identik";
     thumbnailGaya: "modern" | "klasik" | "futuristik";
   };
   onOpsiEkspor: (o: {
@@ -63,7 +62,7 @@ export function PanelEkspor({
     thumbnailAktif: boolean;
     thumbnailKata: "Part" | "Bagian" | "Episode";
     thumbnailFormat: "jpg" | "png";
-    thumbnailMode: "per-part" | "satu";
+    thumbnailMode: "per-part" | "satu" | "identik";
     thumbnailGaya: "modern" | "klasik" | "futuristik";
   }) => void;
 }) {
@@ -430,86 +429,10 @@ export function PanelEkspor({
         </p>
       </div>
 
-      {/* v2.1.0 — THUMBNAIL OTOMATIS */}
-      <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-300">
-          <ImageIcon className="h-3.5 w-3.5 text-amber-400" /> Thumbnail otomatis
-        </p>
-        <button
-          type="button"
-          onClick={() => onOpsiEkspor({ ...opsiEkspor, thumbnailAktif: !opsiEkspor.thumbnailAktif })}
-          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
-            opsiEkspor.thumbnailAktif
-              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-              : "border-slate-700 bg-slate-800/60 text-slate-400"
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            <ImageIcon className="h-3.5 w-3.5" /> PAKAI — buat gambar thumbnail tiap potongan
-          </span>
-          <span className="font-medium">{opsiEkspor.thumbnailAktif ? "Aktif" : "Mati"}</span>
-        </button>
-        {opsiEkspor.thumbnailAktif && (
-          <div className="mt-2 space-y-2">
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Kata label di thumbnail</p>
-              <ChipPilihan
-                nilai={opsiEkspor.thumbnailKata}
-                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailKata: v })}
-                pilihan={[
-                  { v: "Part", label: "Part" },
-                  { v: "Bagian", label: "Bagian" },
-                  { v: "Episode", label: "Episode" },
-                ]}
-              />
-            </div>
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Format gambar</p>
-              <ChipPilihan
-                nilai={opsiEkspor.thumbnailFormat}
-                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailFormat: v })}
-                pilihan={[
-                  { v: "jpg", label: "JPG", hint: "ringan, cocok upload" },
-                  { v: "png", label: "PNG", hint: "tajam, agak besar" },
-                ]}
-              />
-            </div>
-            {/* v2.3.0 — cakupan frame: tiap part beda, atau SATU frame utk semua */}
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Cakupan frame</p>
-              <ChipPilihan
-                nilai={opsiEkspor.thumbnailMode}
-                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailMode: v })}
-                pilihan={[
-                  { v: "per-part", label: "Tiap part beda", hint: "tiap potongan frame sendiri" },
-                  { v: "satu", label: "Satu untuk semua", hint: "1 frame video — paling cepat" },
-                ]}
-              />
-            </div>
-            {/* v2.3.0 — gaya bingkai cover: klasik / modern / futuristik */}
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Gaya cover</p>
-              <ChipPilihan
-                nilai={opsiEkspor.thumbnailGaya}
-                onChange={(v) => onOpsiEkspor({ ...opsiEkspor, thumbnailGaya: v })}
-                pilihan={[
-                  { v: "klasik", label: "Klasik", hint: "bingkai emas, huruf fantasi" },
-                  { v: "modern", label: "Modern", hint: "kotak gelap bersih (bawaan)" },
-                  { v: "futuristik", label: "Futuristik", hint: "neon cyan, sudut bracket" },
-                ]}
-              />
-            </div>
-            <p className="text-[11px] text-slate-500">
-              Tiap potongan diberi gambar thumbnail: frame dari video + JUDUL (dari nama
-              file) + label {opsiEkspor.thumbnailKata} + nomor part-nya — tersimpan di samping
-              hasil split, ikut unduhan &amp; ZIP. GABUNG VIDEO juga dapat 1 thumbnail.
-              {opsiEkspor.thumbnailMode === "satu"
-                ? " Cakupan SATU UNTUK SEMUA: satu frame video (menit 1–3) dipakai semua part — ekstraksi cuma 1×, ekspor lebih cepat, cover seragam."
-                : " Cakupan TIAP PART BEDA: tiap potongan punya frame-nya sendiri (dari menit 1–3 video)."}
-            </p>
-          </div>
-        )}
-      </div>
+      {/* v2.5.0 — THUMBNAIL OTOMATIS PINDAH ke menu "6. Cover & Intro — frame dari
+          video" (kolom kanan) sesuai permintaan user: "bisakah ke dua menu ini
+          kamu gabungkan dalam 1 menu (di dalam tempat yang sama)" — opsi
+          thumbnailAktif/Kata/Format/Mode/Gaya tetap global & tetap dikirim ke API. */}
 
       {/* v0.6.4 — folder tujuan hasil ekspor: pilih dulu, hasil otomatis tersalin */}
       <PanelTujuan job={job} setelan={setelanTujuan} onSetelan={setSetelanTujuan} />

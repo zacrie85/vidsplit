@@ -60,6 +60,7 @@ import {
   type ModePembicara,
   type ModeSplit,
   type NamaFont,
+  type OpsiThumbnail,
   type PosisiLogo,
   type Pengaturan,
   type Resolusi,
@@ -1861,14 +1862,13 @@ export function PanelFrame({
   );
 }
 
-/* ============ 6 — BACKGROUND INTRO (v2.2.0 — FRAME DARI VIDEO) ============ */
-
-/** v2.2.0 — GANTI TOTAL (permintaan user): background intro kini OTOMATIS dari
- *  frame video yang sedang diekspor — template 10 desain & unggah gambar DIHAPUS.
- *  Slider posisi 0–100% menentukan frame mana (per potongan), teks otomatis
- *  (judul dari NAMA FILE + label Part/Bagian/Episode NN), animasi Ken Burns,
- *  fade lembut, dan suara intro tetap tersedia. */
-export function PanelBackground({
+/* ============ 6 — COVER & INTRO (v2.5.0 — DUA MENU DIGABUNG) ============
+ * Permintaan user: "bisakah ke dua menu ini kamu gabungkan dalam 1 menu (di
+ * dalam tempat yang sama)" → Thumbnail otomatis (dulu di panel Ekspor) kini
+ * BERTEMPAT SATU KARTU dgn Background intro (menu 6), plus pilihan cakupan
+ * cover SAMA PERSIS SEMUA (cover identik tanpa nomor part) dan tombol
+ * "Terapkan setelan intro ke SEMUA video". */
+export function PanelCoverIntro({
   pengaturan,
   onChange,
   nomorVideo,
@@ -1878,6 +1878,11 @@ export function PanelBackground({
   onHapusSuara,
   suaraSibuk,
   bukaDialogAudio,
+  // v2.5.0 — thumbnail otomatis (opsi GLOBAL antrean) + terapkan intro ke semua
+  opsiThumb,
+  onOpsiThumb,
+  totalVideo,
+  onTerapkanIntroSemua,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -1889,183 +1894,302 @@ export function PanelBackground({
   suaraSibuk: boolean;
   /** v2.1.0 — mode desktop: dialog natif utk audio */
   bukaDialogAudio?: () => void;
+  /** v2.5.0 — opsi thumbnail GLOBAL (berlaku semua video otomatis) */
+  opsiThumb: OpsiThumbnail;
+  onOpsiThumb: (o: OpsiThumbnail) => void;
+  totalVideo: number;
+  /** v2.5.0 — terapkan setelan intro video aktif ke SEMUA video */
+  onTerapkanIntroSemua: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
   const aktif = pengaturan.introAktif === true;
   return (
     <Kartu
-      judul="6. Background intro — frame dari video"
-      deskripsi={`Pembuka otomatis: frame video ini + judul + Part + suara di awal potongan #${nomorVideo}`}
+      judul="6. Cover & Intro — frame dari video"
+      deskripsi={`Thumbnail otomatis semua part + pembuka intro — video #${nomorVideo}`}
       ikon={<ImageIcon className="h-4 w-4" />}
     >
-      {/* ---- v2.2.0 — SAKELAR UTAMA ---- */}
-      <ChipPilihan
-        nilai={aktif ? "on" : "off"}
-        onChange={(v) => set("introAktif", v === "on")}
-        pilihan={[
-          { v: "off", label: "Mati", hint: "tanpa intro (bawaan)" },
-          { v: "on", label: "Aktif", hint: "frame video jadi pembuka" },
-        ]}
-      />
-      {aktif && (
-        <div className="mt-3 space-y-3">
-          {/* ---- v2.2.0 — INFO SUMBER FRAME (v2.2.1: menit 1–3 utk kecepatan) ---- */}
-          <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
-            <p className="text-xs leading-relaxed text-amber-200/90">
-              Background diambil OTOMATIS dari video ini — frame diambil di antara
-              MENIT 1–3 video (permintaan: lebih cepat), lalu diberi animasi, judul,
-              dan label Part.
+      {/* ===== BAGIAN A — THUMBNAIL OTOMATIS (cover tiap part — GLOBAL, semua video) ===== */}
+      <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/5 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-cyan-200">
+          <ImageIcon className="h-3.5 w-3.5" /> Thumbnail otomatis — cover tiap potongan
+        </p>
+        <button
+          type="button"
+          onClick={() => onOpsiThumb({ ...opsiThumb, aktif: !opsiThumb.aktif })}
+          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
+            opsiThumb.aktif
+              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5" /> PAKAI — buat gambar cover tiap potongan
+          </span>
+          <span className="font-medium">{opsiThumb.aktif ? "Aktif" : "Mati"}</span>
+        </button>
+        {opsiThumb.aktif && (
+          <div className="mt-2 space-y-2">
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Kata label di cover</p>
+              <ChipPilihan
+                nilai={opsiThumb.kata}
+                onChange={(v) => onOpsiThumb({ ...opsiThumb, kata: v })}
+                pilihan={[
+                  { v: "Part", label: "Part" },
+                  { v: "Bagian", label: "Bagian" },
+                  { v: "Episode", label: "Episode" },
+                ]}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Format gambar</p>
+              <ChipPilihan
+                nilai={opsiThumb.format}
+                onChange={(v) => onOpsiThumb({ ...opsiThumb, format: v })}
+                pilihan={[
+                  { v: "jpg", label: "JPG", hint: "ringan, cocok upload" },
+                  { v: "png", label: "PNG", hint: "tajam, agak besar" },
+                ]}
+              />
+            </div>
+            {/* v2.3.0 + v2.5.0 — cakupan frame: tiap part beda / satu utk semua /
+                SAMA PERSIS SEMUA (cover identik tanpa nomor part) */}
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Cakupan cover</p>
+              <ChipPilihan
+                nilai={opsiThumb.mode}
+                onChange={(v) => onOpsiThumb({ ...opsiThumb, mode: v })}
+                pilihan={[
+                  { v: "per-part", label: "Tiap part beda", hint: "tiap potongan frame sendiri" },
+                  { v: "satu", label: "Satu untuk semua", hint: "1 frame video + nomor part tiap cover" },
+                  { v: "identik", label: "Sama persis semua", hint: "cover IDENTIK tanpa nomor part — paling seragam" },
+                ]}
+              />
+            </div>
+            {/* v2.3.0 — gaya bingkai cover: klasik / modern / futuristik */}
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Gaya cover</p>
+              <ChipPilihan
+                nilai={opsiThumb.gaya}
+                onChange={(v) => onOpsiThumb({ ...opsiThumb, gaya: v })}
+                pilihan={[
+                  { v: "klasik", label: "Klasik", hint: "bingkai emas, huruf fantasi" },
+                  { v: "modern", label: "Modern", hint: "kotak gelap bersih (bawaan)" },
+                  { v: "futuristik", label: "Futuristik", hint: "neon cyan, sudut bracket" },
+                ]}
+              />
+            </div>
+            <p className="text-[11px] leading-relaxed text-slate-500">
+              Tiap potongan diberi gambar cover: frame dari video + JUDUL (dari nama
+              file) + label {opsiThumb.kata} + nomor part — tersimpan di samping hasil
+              split, ikut unduhan &amp; ZIP. GABUNG VIDEO juga dapat 1 cover. Pilihan di
+              bagian ini berlaku otomatis untuk SEMUA video di antrean.
+              {opsiThumb.mode === "satu"
+                ? " Cakupan SATU UNTUK SEMUA: satu frame video (menit 1–3) dipakai semua part — ekstraksi cuma 1×, ekspor lebih cepat, frame seragam."
+                : opsiThumb.mode === "identik"
+                  ? " Cakupan SAMA PERSIS SEMUA: satu frame video (menit 1–3) dipakai SEMUA part dan TANPA nomor part → file cover 100% IDENTIK satu sama lain (persis sama semua)."
+                  : " Cakupan TIAP PART BEDA: tiap potongan punya frame-nya sendiri (dari menit 1–3 video)."}
             </p>
           </div>
-          {/* ---- v2.2.0 — POSISI FRAME (SLIDER BEBAS 0–100%) ---- */}
-          <BarisSlider
-            label="Posisi frame (antara menit 1–3)"
-            nilai={pengaturan.introPosisi}
-            min={0}
-            max={100}
-            onChange={(n) => set("introPosisi", n)}
-            fmt={(n) => `${n}%`}
-          />
-          <p className="-mt-2 text-[11px] text-slate-500">
-            0% = menit 1 · 35% = rekomendasi · 100% = menit 3 — dipetakan dari posisi potongan
-            (video &lt; 1¼ menit: frame diambil persis di potongan)
-          </p>
-          <BarisSlider
-            label="Durasi intro tiap potongan"
-            nilai={pengaturan.durasiIntro}
-            min={1}
-            max={10}
-            onChange={(n) => set("durasiIntro", n)}
-            fmt={(n) => `${n} detik`}
-          />
-          {/* ---- v2.1.0 — ANIMASI KEN BURNS ---- */}
-          <div>
-            <p className="mb-1 text-xs font-medium text-slate-300">Animasi gambar (Ken Burns)</p>
-            <ChipPilihan
-              nilai={pengaturan.introAnimasi}
-              onChange={(v) => set("introAnimasi", v)}
-              pilihan={[
-                { v: "mati", label: "Diam", hint: "tanpa gerak" },
-                { v: "zoom-masuk", label: "Zoom masuk", hint: "perlahan membesar" },
-                { v: "zoom-keluar", label: "Zoom keluar", hint: "besar → normal" },
-                { v: "geser-kiri", label: "Geser kiri", hint: "kamera meluncur" },
-                { v: "geser-kanan", label: "Geser kanan", hint: "kamera meluncur" },
-              ]}
-            />
-          </div>
-          {/* ---- v2.1.0 — TRANSISI KE VIDEO ---- */}
-          <div>
-            <p className="mb-1 text-xs font-medium text-slate-300">Pergantian ke video utama</p>
-            <ChipPilihan
-              nilai={pengaturan.introFade ? "fade" : "langsung"}
-              onChange={(v) => set("introFade", v === "fade")}
-              pilihan={[
-                { v: "fade", label: "Fade lembut", hint: "melebur 0,5 dtk (disarankan)" },
-                { v: "langsung", label: "Langsung", hint: "potong kering" },
-              ]}
-            />
-          </div>
-          {/* ---- v2.1.0 — MUNCUL DI POTONGAN MANA ---- */}
-          <div>
-            <p className="mb-1 text-xs font-medium text-slate-300">Muncul di potongan</p>
-            <ChipPilihan
-              nilai={pengaturan.introTampil}
-              onChange={(v) => set("introTampil", v)}
-              pilihan={[
-                { v: "semua", label: "Semua potongan" },
-                { v: "pertama", label: "Hanya potongan 1" },
-                { v: "pertama-terakhir", label: "Potongan 1 & terakhir" },
-              ]}
-            />
-          </div>
-          {/* ---- v2.2.0 — TEKS OTOMATIS DI ATAS INTRO ---- */}
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="mb-1 text-xs font-medium text-slate-300">Teks otomatis di atas intro</p>
-            <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
-              Judul diambil dari NAMA FILE video + label {pengaturan.kataPart || "Part"} 01, 02, …
-              (kata ikut setelan menu 3 Tulisan Part).
-            </p>
-            <div className="space-y-2">
-              <div>
-                <p className="mb-1 text-[11px] text-slate-400">Font teks intro</p>
-                <select
-                  value={pengaturan.introTeksFont}
-                  onChange={(e) => set("introTeksFont", e.target.value as NamaFont)}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
-                >
-                  {(Object.keys(INFO_FONT) as NamaFont[]).map((f) => (
-                    <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
-                      {INFO_FONT[f]}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <BarisSlider
-                label="Ukuran teks intro"
-                nilai={pengaturan.introTeksUkuran}
-                min={20}
-                max={160}
-                onChange={(n) => set("introTeksUkuran", n)}
-                fmt={(n) => `${n} px`}
-              />
-              <PilihWarna
-                label="Warna teks intro"
-                nilai={pengaturan.introTeksWarna}
-                onChange={(v) => set("introTeksWarna", v)}
-              />
-              <p className="text-[11px] text-slate-500">
-                Label Part tampil kuning di bawah judul; outline hitam otomatis agar selalu terbaca;
-                teks hanya tampil selama intro.
+        )}
+      </div>
+
+      {/* ===== BAGIAN B — BACKGROUND INTRO (pembuka — per video) ===== */}
+      <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-200">
+          <Sparkles className="h-3.5 w-3.5" /> Background intro — pembuka otomatis
+        </p>
+        {/* ---- v2.2.0 — SAKELAR UTAMA ---- */}
+        <ChipPilihan
+          nilai={aktif ? "on" : "off"}
+          onChange={(v) => set("introAktif", v === "on")}
+          pilihan={[
+            { v: "off", label: "Mati", hint: "tanpa intro (bawaan)" },
+            { v: "on", label: "Aktif", hint: "frame video jadi pembuka" },
+          ]}
+        />
+        {aktif && (
+          <div className="mt-3 space-y-3">
+            {/* ---- v2.2.0 — INFO SUMBER FRAME (v2.2.1: menit 1–3 utk kecepatan) ---- */}
+            <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
+              <p className="text-xs leading-relaxed text-amber-200/90">
+                Background diambil OTOMATIS dari video ini — frame diambil di antara
+                MENIT 1–3 video (permintaan: lebih cepat), lalu diberi animasi, judul,
+                dan label Part.
               </p>
             </div>
-          </div>
-          {/* ---- v2.1.0 — SUARA INTRO ---- */}
-          <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-            <p className="mb-1.5 text-xs font-medium text-slate-300">Suara intro (opsional)</p>
-            {suaraInfo ? (
-              <div className="rounded-lg bg-slate-800/60 px-3 py-2">
-                <p className="truncate text-xs text-slate-200">🎵 {suaraInfo.nama}</p>
-                <div className="mt-1.5">
-                  <BarisSlider
-                    label="Volume suara intro"
-                    nilai={pengaturan.introSuaraVolume}
-                    min={0}
-                    max={150}
-                    onChange={(n) => set("introSuaraVolume", n)}
-                    fmt={(n) => `${n}%`}
-                  />
-                </div>
-                <audio
-                  controls
-                  loop
-                  src={`/api/file?p=${encodeURIComponent(pengaturan.introSuaraFile)}`}
-                  className="mt-2 h-8 w-full"
-                />
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-[11px] text-slate-500">
-                    Diputar selama intro (berulang bila lebih pendek); memudar keluar saat fade.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={onHapusSuara}
-                    className="shrink-0 rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/10"
-                  >
-                    Hapus
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <JatuhBerkas
-                terima="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
-                hint="Taruh MP3/WAV di sini — musik pembuka"
-                sibuk={suaraSibuk}
-                onFile={onSuaraFile}
-                bukaDialog={bukaDialogAudio}
+            {/* ---- v2.2.0 — POSISI FRAME (SLIDER BEBAS 0–100%) ---- */}
+            <BarisSlider
+              label="Posisi frame (antara menit 1–3)"
+              nilai={pengaturan.introPosisi}
+              min={0}
+              max={100}
+              onChange={(n) => set("introPosisi", n)}
+              fmt={(n) => `${n}%`}
+            />
+            <p className="-mt-2 text-[11px] text-slate-500">
+              0% = menit 1 · 35% = rekomendasi · 100% = menit 3 — dipetakan dari posisi potongan
+              (video &lt; 1¼ menit: frame diambil persis di potongan)
+            </p>
+            <BarisSlider
+              label="Durasi intro tiap potongan"
+              nilai={pengaturan.durasiIntro}
+              min={1}
+              max={10}
+              onChange={(n) => set("durasiIntro", n)}
+              fmt={(n) => `${n} detik`}
+            />
+            {/* ---- v2.1.0 — ANIMASI KEN BURNS ---- */}
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-300">Animasi gambar (Ken Burns)</p>
+              <ChipPilihan
+                nilai={pengaturan.introAnimasi}
+                onChange={(v) => set("introAnimasi", v)}
+                pilihan={[
+                  { v: "mati", label: "Diam", hint: "tanpa gerak" },
+                  { v: "zoom-masuk", label: "Zoom masuk", hint: "perlahan membesar" },
+                  { v: "zoom-keluar", label: "Zoom keluar", hint: "besar → normal" },
+                  { v: "geser-kiri", label: "Geser kiri", hint: "kamera meluncur" },
+                  { v: "geser-kanan", label: "Geser kanan", hint: "kamera meluncur" },
+                ]}
               />
-            )}
+            </div>
+            {/* ---- v2.1.0 — TRANSISI KE VIDEO ---- */}
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-300">Pergantian ke video utama</p>
+              <ChipPilihan
+                nilai={pengaturan.introFade ? "fade" : "langsung"}
+                onChange={(v) => set("introFade", v === "fade")}
+                pilihan={[
+                  { v: "fade", label: "Fade lembut", hint: "melebur 0,5 dtk (disarankan)" },
+                  { v: "langsung", label: "Langsung", hint: "potong kering" },
+                ]}
+              />
+            </div>
+            {/* ---- v2.1.0 — MUNCUL DI POTONGAN MANA ---- */}
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-300">Muncul di potongan</p>
+              <ChipPilihan
+                nilai={pengaturan.introTampil}
+                onChange={(v) => set("introTampil", v)}
+                pilihan={[
+                  { v: "semua", label: "Semua potongan" },
+                  { v: "pertama", label: "Hanya potongan 1" },
+                  { v: "pertama-terakhir", label: "Potongan 1 & terakhir" },
+                ]}
+              />
+            </div>
+            {/* ---- v2.2.0 — TEKS OTOMATIS DI ATAS INTRO ---- */}
+            <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
+              <p className="mb-1 text-xs font-medium text-slate-300">Teks otomatis di atas intro</p>
+              <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
+                Judul diambil dari NAMA FILE video + label {pengaturan.kataPart || "Part"} 01, 02, …
+                (kata ikut setelan menu 3 Tulisan Part).
+              </p>
+              <div className="space-y-2">
+                <div>
+                  <p className="mb-1 text-[11px] text-slate-400">Font teks intro</p>
+                  <select
+                    value={pengaturan.introTeksFont}
+                    onChange={(e) => set("introTeksFont", e.target.value as NamaFont)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+                  >
+                    {(Object.keys(INFO_FONT) as NamaFont[]).map((f) => (
+                      <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
+                        {INFO_FONT[f]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <BarisSlider
+                  label="Ukuran teks intro"
+                  nilai={pengaturan.introTeksUkuran}
+                  min={20}
+                  max={160}
+                  onChange={(n) => set("introTeksUkuran", n)}
+                  fmt={(n) => `${n} px`}
+                />
+                <PilihWarna
+                  label="Warna teks intro"
+                  nilai={pengaturan.introTeksWarna}
+                  onChange={(v) => set("introTeksWarna", v)}
+                />
+                <p className="text-[11px] text-slate-500">
+                  Label Part tampil kuning di bawah judul; outline hitam otomatis agar selalu terbaca;
+                  teks hanya tampil selama intro.
+                </p>
+              </div>
+            </div>
+            {/* ---- v2.1.0 — SUARA INTRO ---- */}
+            <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
+              <p className="mb-1.5 text-xs font-medium text-slate-300">Suara intro (opsional)</p>
+              {suaraInfo ? (
+                <div className="rounded-lg bg-slate-800/60 px-3 py-2">
+                  <p className="truncate text-xs text-slate-200">🎵 {suaraInfo.nama}</p>
+                  <div className="mt-1.5">
+                    <BarisSlider
+                      label="Volume suara intro"
+                      nilai={pengaturan.introSuaraVolume}
+                      min={0}
+                      max={150}
+                      onChange={(n) => set("introSuaraVolume", n)}
+                      fmt={(n) => `${n}%`}
+                    />
+                  </div>
+                  <audio
+                    controls
+                    loop
+                    src={`/api/file?p=${encodeURIComponent(pengaturan.introSuaraFile)}`}
+                    className="mt-2 h-8 w-full"
+                  />
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-slate-500">
+                      Diputar selama intro (berulang bila lebih pendek); memudar keluar saat fade.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={onHapusSuara}
+                      className="shrink-0 rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/10"
+                    >
+                      Hapus
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <JatuhBerkas
+                  terima="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+                  hint="Taruh MP3/WAV di sini — musik pembuka"
+                  sibuk={suaraSibuk}
+                  onFile={onSuaraFile}
+                  bukaDialog={bukaDialogAudio}
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
+      </div>
+
+      {/* ===== v2.5.0 — TERAPKAN SETELAN INTRO KE SEMUA VIDEO (permintaan user:
+          "buatkan pilihan di terapkan kesemua video untuk settingannya yang telah
+          di pilih") — cover (Bagian A) memang global; yang disalin = Bagian B ===== */}
+      {totalVideo > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={onTerapkanIntroSemua}
+            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-cyan-400/50 bg-cyan-400/10 py-2 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Terapkan setelan intro video #{nomorVideo} ke SEMUA video ({totalVideo})
+          </button>
+          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+            Yang disalin: intro aktif/mati, posisi frame, durasi, animasi, fade, muncul di
+            potongan, teks intro, suara intro &amp; volume. Pilihan thumbnail di Bagian A
+            memang sudah berlaku otomatis untuk semua video.
+          </p>
+        </>
       )}
     </Kartu>
   );

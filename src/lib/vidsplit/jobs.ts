@@ -334,7 +334,11 @@ export function mulaiEksporAntrean(
      *  tulisan terbakar) + judul dr NAMA FILE + label Part/Bagian/Episode.
      *  Gagal thumbnail TIDAK menggagalkan job (null → dilewati senyap).
      *  v2.3.0 — + `vi` & `detikSatu`: mode "satu" memakai SATU gambar bersama
-     *  per video (diekstraksi 1× via janjiFrameSatu) + gaya bingkai pilihan. */
+     *  per video (diekstraksi 1× via janjiFrameSatu) + gaya bingkai pilihan.
+     *  v2.5.0 — mode "identik" ikut jalur frame bersama "satu" TAPI TANPA label
+     *  nomor part → semua file cover 100% IDENTIK (permintaan user: "1 cover
+     *  dari video ... untuk semua hasil splitannya jadi cover yang di pakai
+     *  sama semua"). */
     const buatThumbnailPart = async (
       it: ItemEkspor,
       n: number,
@@ -354,9 +358,10 @@ export function mulaiEksporAntrean(
       try {
         const gy = GAYA_COVER[thumb.gaya] ?? GAYA_COVER.modern;
         // v2.3.0 — mode "satu": frame bersama diambil SEKALI per video; semua
-        // part menyusun cover dr GAMBAR yang sama (tanpa seek ulang video)
+        // part menyusun cover dr GAMBAR yang sama (tanpa seek ulang video).
+        // v2.5.0 — mode "identik" memakai frame bersama yang sama + label kosong.
         let gambar = "";
-        if (thumb.mode === "satu") {
+        if (thumb.mode === "satu" || thumb.mode === "identik") {
           let janji = janjiFrameSatu.get(vi);
           if (!janji) {
             const fileFrame = path.join(dirTmp, `${id}-frame-satu-${vi}.png`);
@@ -376,7 +381,9 @@ export function mulaiEksporAntrean(
         }
         const skala = Math.min(W, H) / 1080;
         const teksJ = bungkusTeks(bersihkanNamaJudul(it.nama), W * 0.92, Math.max(14, 52 * skala), gy.fontJudul);
-        const lbl = labelThumbnail(thumb, n);
+        // v2.5.0 — identik → label kosong (bangunArgumenThumbnail membangun cover
+        // TANPA kotak/nomor part → judul sama utk semua part → file identik)
+        const lbl = thumb.mode === "identik" ? "" : labelThumbnail(thumb, n);
         writeFileSync(fileJ, teksJ, "utf8");
         writeFileSync(fileL, lbl, "utf8");
         const ekst = thumb.format === "png" ? "png" : "jpg";
@@ -489,8 +496,9 @@ export function mulaiEksporAntrean(
       // v2.3.0 — mode "satu": posisi frame cover BERSAMA = posisi part 1 (35%
       // bagian pertamanya) dipetakan menit 1–3 — deterministik (bukan dari part
       // yang kebetulan selesai duluan). Mode per-part tak memakai nilai ini.
+      // v2.5.0 — mode "identik" memakai jangkar bersama yang sama.
       let detikSatu = 0;
-      if (konteks.thumb.mode === "satu") {
+      if (konteks.thumb.mode === "satu" || konteks.thumb.mode === "identik") {
         const [m1, d1] = konteks.potonganAdgn.length
           ? [
               konteks.potonganAdgn[0].mulai,

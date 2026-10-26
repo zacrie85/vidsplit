@@ -70,8 +70,8 @@ console.log("\n== (1) rapikanThumbnail — mode & gaya v2.3.0 ==");
     JSON.stringify(lama),
   );
   cek(
-    JSON.stringify(MODE_THUMBNAIL) === JSON.stringify(["per-part", "satu"]),
-    "MODE_THUMBNAIL lengkap (urutan stabil utk UI)",
+    JSON.stringify(MODE_THUMBNAIL) === JSON.stringify(["per-part", "satu", "identik"]),
+    "MODE_THUMBNAIL lengkap (urutan stabil utk UI — v2.5.0 + identik)",
   );
   cek(
     JSON.stringify(GAYA_THUMBNAIL) === JSON.stringify(["modern", "klasik", "futuristik"]),

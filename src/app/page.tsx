@@ -21,7 +21,7 @@ import {
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import {
-  PanelBackground,
+  PanelCoverIntro,
   PanelBacksound,
   PanelDeskripsi,
   PanelFrame,
@@ -81,8 +81,8 @@ interface OpsiEkspor {
   thumbnailAktif: boolean;
   thumbnailKata: "Part" | "Bagian" | "Episode";
   thumbnailFormat: "jpg" | "png";
-  /** v2.3.0 — cakupan frame & gaya bingkai cover */
-  thumbnailMode: "per-part" | "satu";
+  /** v2.3.0 — cakupan frame & gaya bingkai cover (v2.5.0: + "identik") */
+  thumbnailMode: "per-part" | "satu" | "identik";
   thumbnailGaya: "modern" | "klasik" | "futuristik";
 }
 
@@ -156,7 +156,9 @@ export default function Halaman() {
           thumbnailKata: o.thumbnailKata === "Bagian" || o.thumbnailKata === "Episode" ? o.thumbnailKata : "Part",
           thumbnailFormat: o.thumbnailFormat === "png" ? "png" : "jpg",
           // v2.3.0 — cakupan & gaya: nilai lama tanpa field → bawaan (per-part/modern)
-          thumbnailMode: o.thumbnailMode === "satu" ? "satu" : "per-part",
+          // v2.5.0 — + "identik" (cover 100% sama semua, tanpa nomor part)
+          thumbnailMode:
+            o.thumbnailMode === "satu" || o.thumbnailMode === "identik" ? o.thumbnailMode : "per-part",
           thumbnailGaya:
             o.thumbnailGaya === "klasik" || o.thumbnailGaya === "futuristik" ? o.thumbnailGaya : "modern",
         });
@@ -512,6 +514,37 @@ export default function Halaman() {
     toast.success("Frame & bingkai diterapkan ke semua video dalam antrean");
   };
 
+  // v2.5.0 — TERAPKAN SETELAN INTRO (+ suara intro) video aktif ke SEMUA video
+  // (permintaan user: "buatkan pilihan di terapkan kesemua video untuk settingannya
+  // yang telah di pilih" di menu 6. Cover & Intro). Preferensi video baru (dasar)
+  // ikut disamakan agar impor berikutnya langsung seragam.
+  const terapkanIntroKeSemua = () => {
+    if (!videoAktif) return;
+    const s = videoAktif.pengaturan;
+    const inti = {
+      introAktif: s.introAktif,
+      introPosisi: s.introPosisi,
+      durasiIntro: s.durasiIntro,
+      introAnimasi: s.introAnimasi,
+      introFade: s.introFade,
+      introTampil: s.introTampil,
+      introTeksFont: s.introTeksFont,
+      introTeksUkuran: s.introTeksUkuran,
+      introTeksWarna: s.introTeksWarna,
+      introSuaraFile: s.introSuaraFile,
+      introSuaraVolume: s.introSuaraVolume,
+    } as const;
+    // info suara ikut tampil di semua kartu bila video aktif punya suara intro
+    const infoSuara = s.introSuaraFile ? videoAktif.suaraInfo : null;
+    setDaftar((d) =>
+      d.map((v) => ({ ...v, pengaturan: { ...v.pengaturan, ...inti }, suaraInfo: infoSuara })),
+    );
+    setDasar((p) => ({ ...p, ...inti }));
+    toast.success(
+      `Setelan intro (${s.introAktif ? "AKTIF" : "MATI"}, frame ${s.introPosisi}%, ${s.durasiIntro} dtk${s.introSuaraFile ? ", dgn suara intro" : ""}) diterapkan ke SEMUA video (${daftar.length}) — thumbnail cover memang global`,
+    );
+  };
+
   const terapkanSubtitleSemua = () => {
     if (!videoAktif) return;
     const s = videoAktif.pengaturan;
@@ -671,7 +704,7 @@ export default function Halaman() {
             Vid<span className="text-amber-400">Split</span>
           </h1>
           <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v2.4.0
+            v2.5.0
           </span>
           <TombolGantiPassword />
         </div>
@@ -979,7 +1012,9 @@ export default function Halaman() {
                 fileRel={videoAktif.info.file}
                 adaAudio={videoAktif.info.adaAudio}
               />
-              <PanelBackground
+              {/* v2.5.0 — menu 6 GABUNGAN: Thumbnail otomatis (global) + Background
+                  intro (per video) + tombol Terapkan intro ke semua — dulu dua tempat */}
+              <PanelCoverIntro
                 pengaturan={videoAktif.pengaturan}
                 onChange={gantiPengaturanAktif}
                 nomorVideo={aktif + 1}
@@ -989,6 +1024,26 @@ export default function Halaman() {
                 onHapusSuara={hapusSuaraIntro}
                 suaraSibuk={sibukSuaraIntro}
                 bukaDialogAudio={diDesktop ? pilihSuaraIntroDesktop : undefined}
+                // v2.5.0 — thumbnail global + terapkan intro ke semua
+                opsiThumb={{
+                  aktif: opsiEkspor.thumbnailAktif,
+                  kata: opsiEkspor.thumbnailKata,
+                  format: opsiEkspor.thumbnailFormat,
+                  mode: opsiEkspor.thumbnailMode,
+                  gaya: opsiEkspor.thumbnailGaya,
+                }}
+                onOpsiThumb={(o) =>
+                  setOpsiEkspor({
+                    ...opsiEkspor,
+                    thumbnailAktif: o.aktif,
+                    thumbnailKata: o.kata,
+                    thumbnailFormat: o.format,
+                    thumbnailMode: o.mode,
+                    thumbnailGaya: o.gaya,
+                  })
+                }
+                totalVideo={daftar.length}
+                onTerapkanIntroSemua={terapkanIntroKeSemua}
               />
               <PanelWatermark
                 pengaturan={videoAktif.pengaturan}
