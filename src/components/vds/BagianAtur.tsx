@@ -329,11 +329,27 @@ export function PanelMode({
         </div>
       )}
       {/* v2.7.0 — GESER BEBAS VIDEO (tombol panah ← ↑ ↓ →) menggantikan slider
-          "Zoom video" + "Geser kiri ↔ kanan" (permintaan user). Tekan ← / →
-          pertama otomatis memperbesar video ke 125% agar geser horizontal
-          berdampak; pratinjau mengikuti posisi live. */}
+          "Geser kiri ↔ kanan" (permintaan user). Tekan ← / → pertama otomatis
+          memperbesar video ke 125% agar geser horizontal berdampak; pratinjau
+          mengikuti posisi live.
+          v2.8.0 — slider "Zoom video" KEMBALI (permintaan user) di atas pad:
+          satu sumber zoomBlur yang sama — slider & pad selalu tersinkron. */}
       {pengaturan.mode === "blur" && (
         <div className="mt-3 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3">
+          <BarisSlider
+            label="Zoom video"
+            nilai={pengaturan.zoomBlur}
+            min={100}
+            max={300}
+            onChange={(n) => set("zoomBlur", n)}
+            fmt={(n) => labelZoomBlur(n)}
+          />
+          <p className="mb-2 mt-1 text-[11px] text-slate-400">
+            100% = video pas layar (perilaku lama). Naikkan untuk MEMPERBESAR video secara
+            manual — bagian yang melebihi frame terpotong otomatis, latar blur lembut tetap
+            terlihat di tepi atas &amp; bawah. Nilainya SINKRON dengan pad geser bebas di
+            bawah (tekan ← / → otomatis mengangkat zoom ke 125% bila masih 100%).
+          </p>
           <PenggeserVideo
             x={pengaturan.geserBlurX}
             y={pengaturan.geserBlurY}
@@ -716,7 +732,7 @@ export function PenggeserVideo({
         <div className="min-w-0 flex-1">
           <p className="text-[11px] leading-snug text-slate-500">
             {x === 0 && y === 0
-              ? "Video di tengah (perilaku lama). Tekan panah untuk menggeser bebas — kecilkan isi via Zoom bila perlu."
+              ? "Video di tengah (perilaku lama). Tekan panah untuk menggeser bebas — kecilkan/naikkan isi lewat slider Zoom video di atas bila perlu."
               : `Posisi: geser ${Math.round(x)}% horizontal · ${Math.round(y)}% vertikal.`}
           </p>
           <p className="mt-1 text-[11px] leading-snug text-slate-500">
