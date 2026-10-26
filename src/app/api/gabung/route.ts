@@ -65,6 +65,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.warnaLatar = /^#[0-9a-fA-F]{6,8}$/.test(p.warnaLatar) ? p.warnaLatar : "#111827";
   p.gayaJudul.ukuran = clamp(p.gayaJudul?.ukuran, 20, 160, 64);
   p.gayaJudul.outlineLebar = clamp(p.gayaJudul?.outlineLebar, 0, 12, 4);
+  // v2.7.0 — geser bebas video (panah) mode blur: −100..100, tengah 0
+  p.geserBlurX = clamp(p.geserBlurX, -100, 100, 0);
+  p.geserBlurY = clamp(p.geserBlurY, -100, 100, 0);
   // v2.4.0 — posisi bebas judul & part TERPISAH (-1 = otomatis); kunci lama dibuang
   delete (p as unknown as Record<string, unknown>).posisiTeks;
   p.judulX = rapikanPosisiXY(p.judulX, 50);

@@ -31,7 +31,7 @@ import {
   Zap,
   Globe,
 } from "lucide-react";
-import { BINGKAI_BAWAAN } from "@/lib/vidsplit/bingkaiBawaan";
+import { BINGKAI_BAWAAN, LABEL_KATEGORI, type KategoriBingkai } from "@/lib/vidsplit/bingkaiBawaan";
 import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
 import { PRESET_GRADASI } from "@/lib/vidsplit/templatLayar";
 import {
@@ -328,38 +328,27 @@ export function PanelMode({
           />
         </div>
       )}
-      {/* v0.51.0 — ZOOM MANUAL BLUR LEMBUT: 100% = perilaku lama (video pas layar);
-          di atasnya video diperbesar di atas latar blur + bisa digeser kiri/kanan */}
+      {/* v2.7.0 — GESER BEBAS VIDEO (tombol panah ← ↑ ↓ →) menggantikan slider
+          "Zoom video" + "Geser kiri ↔ kanan" (permintaan user). Tekan ← / →
+          pertama otomatis memperbesar video ke 125% agar geser horizontal
+          berdampak; pratinjau mengikuti posisi live. */}
       {pengaturan.mode === "blur" && (
         <div className="mt-3 rounded-xl border border-sky-400/30 bg-sky-400/5 p-3">
-          <BarisSlider
-            label="Zoom video"
-            nilai={pengaturan.zoomBlur}
-            min={100}
-            max={300}
-            onChange={(n) => set("zoomBlur", n)}
-            fmt={(n) => labelZoomBlur(n)}
-          />
-          <p className="mb-2 text-[11px] text-slate-400">
-            100% = video pas layar (perilaku lama). Naikkan untuk MEMPERBESAR video secara
-            manual — bagian yang melebihi frame terpotong otomatis, latar blur lembut tetap
-            terlihat di tepi atas &amp; bawah.
-          </p>
-          <BarisSlider
-            label="Geser kiri ↔ kanan"
-            nilai={pengaturan.posisiPotong}
-            min={0}
-            max={100}
-            onChange={(n) => set("posisiPotong", n)}
-            fmt={(n) => labelPosisiPotong(n)}
+          <PenggeserVideo
+            x={pengaturan.geserBlurX}
+            y={pengaturan.geserBlurY}
+            zoom={pengaturan.zoomBlur}
+            onChange={(gx, gy) => onChange({ ...pengaturan, geserBlurX: gx, geserBlurY: gy })}
+            onZoom={(z) => set("zoomBlur", z)}
           />
           <PratinjauBlurZoom
             srcUrl={srcUrl}
             lebar={lebarVideo}
             tinggi={tinggiVideo}
-            posisi={pengaturan.posisiPotong}
+            geserX={pengaturan.geserBlurX}
+            geserY={pengaturan.geserBlurY}
             zoom={pengaturan.zoomBlur}
-            onChange={(n) => set("posisiPotong", n)}
+            onChange={(gx, gy) => onChange({ ...pengaturan, geserBlurX: gx, geserBlurY: gy })}
           />
         </div>
       )}
@@ -650,6 +639,97 @@ export function PenggeserPosisi({
               className="mt-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] text-slate-300 transition hover:border-amber-400/70 hover:text-amber-200"
             >
               Kembalikan otomatis
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============ v2.7.0 — PENG GESER VIDEO BEBAS (mode Blur lembut) ============
+ * Permintaan user: "pengaturan Zoom video serta Geser kiri geser kanan
+ * gantikan dengan geser bebas pakai tombol panah ← ↑ ↓ → … seperti yang tadi
+ * kamu buat untuk posisi tulisan judul (geser bebas) jadi aku bisa menggeser
+ * videonya ke atas atau kebawah kekiri atau kekanan".
+ * X/Y = persen −100..100 (0 = tengah = perilaku lama). Tekan ← / → PERTAMA
+ * otomatis menaikkan Zoom ke 125% bila masih 100% — tanpa ruang horizontal
+ * (video pas lebar bingkai) geser kiri/kanan tidak akan berdampak. */
+
+const LANGKAH_VIDEO_X = 10; // % setengah-ruang horizontal per tekan
+const LANGKAH_VIDEO_Y = 6; // % setengah-ruang vertikal per tekan
+const ZOOM_AUTO_GESER = 125; // zoom minimum agar geser kiri/kanan terlihat
+
+export function PenggeserVideo({
+  x,
+  y,
+  zoom,
+  onChange,
+  onZoom,
+}: {
+  /** geser horizontal −100..100 (0 = tengah) */
+  x: number;
+  /** geser vertikal −100..100 (0 = tengah) */
+  y: number;
+  /** zoomBlur saat ini (utk auto-naik saat geser kiri/kanan) */
+  zoom: number;
+  onChange: (x: number, y: number) => void;
+  onZoom: (z: number) => void;
+}) {
+  const geser = (dx: number, dy: number) => {
+    const bulat = (n: number) => Math.round(n * 10) / 10;
+    // tekan horizontal pertama saat video masih pas layar (zoom 100) → naikkan
+    // zoom otomatis agar ruang geser kiri/kanan benar-benar ada
+    if (dx !== 0 && zoom < ZOOM_AUTO_GESER) onZoom(ZOOM_AUTO_GESER);
+    onChange(
+      Math.min(100, Math.max(-100, bulat(x + dx))),
+      Math.min(100, Math.max(-100, bulat(y + dy))),
+    );
+  };
+  const tombol =
+    "flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 bg-slate-800/70 text-slate-200 transition hover:border-sky-400/70 hover:text-sky-200 active:bg-sky-400/20";
+  return (
+    <div>
+      <p className="mb-1.5 text-xs text-slate-400">Geser bebas video (tombol panah)</p>
+      <div className="flex items-start gap-4">
+        <div className="grid grid-cols-3 gap-1.5">
+          <span />
+          <button type="button" className={tombol} title="Geser video ke atas" aria-label="Geser video ke atas" onClick={() => geser(0, -LANGKAH_VIDEO_Y)}>
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <span />
+          <button type="button" className={tombol} title="Geser video ke kiri" aria-label="Geser video ke kiri" onClick={() => geser(-LANGKAH_VIDEO_X, 0)}>
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-800/40 text-[10px] font-medium leading-tight text-slate-400">
+            {x === 0 && y === 0 ? "tengah" : `${Math.round(x)}·${Math.round(y)}`}
+          </span>
+          <button type="button" className={tombol} title="Geser video ke kanan" aria-label="Geser video ke kanan" onClick={() => geser(LANGKAH_VIDEO_X, 0)}>
+            <ChevronRight className="h-4 w-4" />
+          </button>
+          <span />
+          <button type="button" className={tombol} title="Geser video ke bawah" aria-label="Geser video ke bawah" onClick={() => geser(0, LANGKAH_VIDEO_Y)}>
+            <ChevronDown className="h-4 w-4" />
+          </button>
+          <span />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] leading-snug text-slate-500">
+            {x === 0 && y === 0
+              ? "Video di tengah (perilaku lama). Tekan panah untuk menggeser bebas — kecilkan isi via Zoom bila perlu."
+              : `Posisi: geser ${Math.round(x)}% horizontal · ${Math.round(y)}% vertikal.`}
+          </p>
+          <p className="mt-1 text-[11px] leading-snug text-slate-500">
+            Tekan <span className="font-medium text-sky-300">← / →</span> pertama otomatis
+            memperbesar video ke {ZOOM_AUTO_GESER}% agar geser kiri/kanan berdampak.
+          </p>
+          {(x !== 0 || y !== 0) && (
+            <button
+              type="button"
+              onClick={() => onChange(0, 0)}
+              className="mt-1.5 rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-1 text-[11px] text-slate-300 transition hover:border-sky-400/70 hover:text-sky-200"
+            >
+              Kembalikan tengah
             </button>
           )}
         </div>
@@ -1602,6 +1682,14 @@ export function PanelFrame({
     onChange({ ...pengaturan, [k]: v });
   const pakaiFrameBawaan = pengaturan.frameId.startsWith("bawaan:");
   const slugBawaan = pakaiFrameBawaan ? pengaturan.frameId.slice(7) : "";
+  // v2.7.0 — filter kategori frame (permintaan user: 40 frame kategori
+  // hiburan/movie/drama/cinema) — grid 67 frame terlalu panjang tanpa filter
+  const [filterBingkai, setFilterBingkai] = useState<KategoriBingkai | "semua">("semua");
+  const daftarFrame = BINGKAI_BAWAAN.filter(
+    (b) => filterBingkai === "semua" || (b.kategori || "dasar") === filterBingkai,
+  );
+  const hitungKategori = (k: KategoriBingkai) =>
+    BINGKAI_BAWAAN.filter((b) => (b.kategori || "dasar") === k).length;
 
   return (
     <Kartu
@@ -1614,6 +1702,28 @@ export function PanelFrame({
       <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-slate-300">
         <ImageIcon className="h-3.5 w-3.5" /> Frame hiasan
       </p>
+      {/* v2.7.0 — chip filter kategori: Semua / Dasar / Dangdut / Horor / Hiburan / Movie / Drama / Cinema */}
+      <div className="mb-2 flex flex-wrap gap-1.5">
+        {(["semua", "dasar", "dangdut", "horor", "hiburan", "movie", "drama", "cinema"] as const).map((k) => {
+          const aktif = filterBingkai === k;
+          const n = k === "semua" ? BINGKAI_BAWAAN.length : hitungKategori(k);
+          return (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setFilterBingkai(k)}
+              className={`rounded-full border px-2.5 py-1 text-[11px] transition ${
+                aktif
+                  ? "border-amber-400/80 bg-amber-400/15 text-amber-200"
+                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+              }`}
+            >
+              {k === "semua" ? "Semua" : LABEL_KATEGORI[k]}{" "}
+              <span className={aktif ? "text-amber-300/80" : "text-slate-500"}>{n}</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto rounded-xl border border-slate-800 bg-slate-900/40 p-2 sm:grid-cols-4">
         <button
           type="button"
@@ -1627,7 +1737,7 @@ export function PanelFrame({
           <Ban className="mb-1 h-5 w-5" />
           Tanpa frame
         </button>
-        {BINGKAI_BAWAAN.map((b) => (
+        {daftarFrame.map((b) => (
           <button
             key={b.slug}
             type="button"
@@ -2368,9 +2478,11 @@ export function PanelRingkasan({
         <dt className="text-slate-500">Mode konversi</dt>
         <dd className="text-right text-slate-200">
           {pengaturan.mode === "blur"
-            ? `Blur lembut · ${labelZoomBlur(pengaturan.zoomBlur)}${
-                pengaturan.zoomBlur > 100 ? ` · ${labelPosisiPotong(pengaturan.posisiPotong)}` : ""
-              }`
+            ? `Blur lembut${
+                pengaturan.geserBlurX !== 0 || pengaturan.geserBlurY !== 0
+                  ? ` · geser ${Math.round(pengaturan.geserBlurX)}·${Math.round(pengaturan.geserBlurY)}`
+                  : ""
+              }${pengaturan.zoomBlur > 100 ? ` · ${labelZoomBlur(pengaturan.zoomBlur)}` : ""}`
             : pengaturan.mode === "crop"
               ? `Potong penuh · ${labelPosisiPotong(pengaturan.posisiPotong)}`
               : pengaturan.mode === "warna"

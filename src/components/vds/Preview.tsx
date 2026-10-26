@@ -7,6 +7,7 @@ import { formatDurasi, FONT_CSS, neonDari, posisiTeksBlok, urlBingkaiWarna, type
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
 import { LapisanNeon } from "@/components/vds/Neon";
+import { LatarBlurVideo } from "@/components/vds/PratinjauBlurZoom";
 
 export function Preview({
   srcUrl,
@@ -84,17 +85,26 @@ export function Preview({
   const rasioBingkai = modeAsli ? `${lebar} / ${tinggi}` : "9 / 16";
   // v0.51.0 — zoom manual blur: ukuran & posisi video di pratinjau live = persis
   // rumus overlay rantaiUtama: skala contain × z → width/height/left/top persen.
+  // v2.7.0 — geser bebas 2 arah: rumus = PERSIS filter rantaiUtama
+  //   kiri% = (100−wPct)/2 × (1+gx/100) · atas% = (100−hPct)/2 × (1+gy/100)
+  // zoom ≤100 tanpa geser → null (jalur lama: video contain penuh di tengah)
   const blurZoom = useMemo(() => {
     if (modeTemplate || pengaturan.mode !== "blur") return null;
     const z = Math.min(300, Math.max(100, Number.isFinite(pengaturan.zoomBlur) ? pengaturan.zoomBlur : 100)) / 100;
-    if (!(lebar > 0) || !(tinggi > 0) || z <= 1.005) return null;
+    if (!(lebar > 0) || !(tinggi > 0)) return null;
+    const gx = Math.min(100, Math.max(-100, Number.isFinite(pengaturan.geserBlurX) ? pengaturan.geserBlurX : 0)) / 100;
+    const gy = Math.min(100, Math.max(-100, Number.isFinite(pengaturan.geserBlurY) ? pengaturan.geserBlurY : 0)) / 100;
+    if (z <= 1.005 && gx === 0 && gy === 0) return null;
     const skala = Math.min(1080 / lebar, 1920 / tinggi) * z;
+    const wPct = ((lebar * skala) / 1080) * 100;
+    const hPct = ((tinggi * skala) / 1920) * 100;
     return {
-      wPct: ((lebar * skala) / 1080) * 100,
-      hPct: ((tinggi * skala) / 1920) * 100,
-      pp: Math.min(100, Math.max(0, pengaturan.posisiPotong)),
+      wPct,
+      hPct,
+      kiri: ((100 - wPct) / 2) * (1 + gx),
+      atas: ((100 - hPct) / 2) * (1 + gy),
     };
-  }, [modeTemplate, pengaturan.mode, pengaturan.zoomBlur, pengaturan.posisiPotong, lebar, tinggi]);
+  }, [modeTemplate, pengaturan.mode, pengaturan.zoomBlur, pengaturan.geserBlurX, pengaturan.geserBlurY, lebar, tinggi]);
   // v0.9.0 — pratinjau tinggal di KOLOM TENGAH layout 3 kolom (50%):
   // · potret (9:16 / sumber vertikal) dibatasi TINGGI layar (76vh) agar dashboard
   //   tetap proporsional & Ekspor tak tenggelam — lebar mengikuti rasio;
@@ -359,11 +369,10 @@ export function Preview({
             />
           ) : pengaturan.mode === "blur" ? (
             <>
-              <video
-                src={srcUrl}
-                className="absolute inset-0 h-full w-full scale-125 object-cover opacity-70 blur-xl"
-                aria-hidden
-              />
+              {/* v2.7.0 — latar blur KANVAS (frame asli diburamkan) menggantikan
+                  <video> + CSS blur-xl yang kadang gagal dirender GPU (tampil
+                  hitam polos — laporan user pada mode Blur lembut) */}
+              <LatarBlurVideo sumberRef={refV} />
               {/* v0.51.0 — zoom >100%: video diperbesar + digeser persis filter ffmpeg
                   (skala contain × z, overlay x=(W-w)×pp/100, y=(H-h)/2); tanpa zoom
                   jalur lama: contain penuh di tengah */}
@@ -376,8 +385,8 @@ export function Preview({
                     ? {
                         width: `${blurZoom.wPct}%`,
                         height: `${blurZoom.hPct}%`,
-                        left: `${((100 - blurZoom.wPct) * blurZoom.pp) / 100}%`,
-                        top: `${(100 - blurZoom.hPct) / 2}%`,
+                        left: `${blurZoom.kiri}%`,
+                        top: `${blurZoom.atas}%`,
                         // v0.51.1 — WAJIB: Tailwind Preflight pasang `video { max-width:100% }`
                         // yang meng-clamp width>100% → video tidak pernah membesar, hanya
                         // bergeser mengikuti left (bug laporan user v0.51.0). max-width:none

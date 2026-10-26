@@ -62,6 +62,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   // v0.50.0 — zoom manual potong (50–100) · v0.51.0 — zoom manual blur (100–300)
   p.zoomPotong = clamp(p.zoomPotong, 50, 100, 100);
   p.zoomBlur = clamp(p.zoomBlur, 100, 300, 100);
+  // v2.7.0 — geser bebas video (panah) mode blur: −100..100, tengah 0
+  p.geserBlurX = clamp(p.geserBlurX, -100, 100, 0);
+  p.geserBlurY = clamp(p.geserBlurY, -100, 100, 0);
   p.mulaiDetik = clamp(p.mulaiDetik, 0, 86400, 0);
   p.akhirDetik = clamp(p.akhirDetik, 0, 86400, 0);
   p.codec = p.codec === "h265" ? "h265" : "h264";

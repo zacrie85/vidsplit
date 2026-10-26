@@ -245,8 +245,21 @@ export interface Pengaturan {
    *  100 = blur lembut seperti semula (video pas/contain di tengah). Di atas
    *  100 video DIPERBESAR (skala-contain × zoom) di ATAS latar blur — posisi
    *  geser kiri/kanan lewat posisiPotong (rumus overlay sama dgn zoomPotong).
-   *  300 = paling besar (±3×). */
+   *  300 = paling besar (±3×).
+   *  v2.7.0 — slider zoom DIHAPUS dari UI mode blur (permintaan user: "pengaturan
+   *  Zoom video serta Geser kiri geser kanan gantikan dengan geser bebas pakai
+   *  tombol panah") — state tetap ada untuk mesin render: tekan panah kiri/kanan
+   *  pertama otomatis menaikkan zoom ke 125 agar geser horizontal berdampak. */
   zoomBlur: number;
+  /** v2.7.0 — GESER BEBAS VIDEO mode "blur" (permintaan user: panah ← ↑ ↓ →
+   *  "seperti yang tadi kamu buat untuk posisi tulisan judul (geser bebas) jadi
+   *  aku bisa menggeser videonya ke atas atau kebawah kekiri atau kekanan").
+   *  Persen −100..100, 0 = tengah (perilaku lama PERSIS). X: −100 = menempel
+   *  kiri, +100 = menempel kanan (butuh zoom >100 agar ada ruang — auto-naik).
+   *  Y: −100 = menempel atas, +100 = menempel bawah. Rumus overlay:
+   *  x = (W−w)/2 × (1 + X/100), y = (H−h)/2 × (1 + Y/100). */
+  geserBlurX: number;
+  geserBlurY: number;
   /** v0.57.0 — kecepatan tayang video (0,5–2 ×; bawaan 1 = normal).
    *  Video & audio dipercepat/diperlambat seragam; subtitle ikut bergeser
    *  otomatis; durasi part hasil = durasi sumber ÷ kecepatan. */
@@ -401,6 +414,9 @@ export const pengaturanDefault: Pengaturan = {
   zoomPotong: 100,
   // v0.51.0 — zoom manual blur: bawaan 100 = perilaku lama (video pas layar)
   zoomBlur: 100,
+  // v2.7.0 — geser bebas video (panah) mode blur: 0/0 = tengah = perilaku lama
+  geserBlurX: 0,
+  geserBlurY: 0,
   // v0.57.0 — kecepatan normal, tanpa transisi, tanpa zona hapus (perilaku lama)
   kecepatanVideo: 1,
   transisiPart: "" as TransisiPart,
@@ -545,7 +561,23 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   hasil.judulY = rapikanPosisiY(hasil.judulY, -1);
   hasil.partX = rapikanPosisiXY(hasil.partX, 50);
   hasil.partY = rapikanPosisiY(hasil.partY, -1);
+  // v2.7.0 — simpanan lama tanpa geser bebas video (panah): isi bawaan tengah.
+  // Nilai posisiPotong lama yang dipakai mode blur utk geser kiri/kanan
+  // DIMIGRASI: pp 0–100 → geserBlurX −100..100 ((pp−50)×2) supaya hasil lama
+  // tetap sama persis; simpanan yang sudah punya geserBlurX tidak disentuh.
+  if (hasil.geserBlurX === undefined) {
+    const pp = Number(hasil.posisiPotong);
+    hasil.geserBlurX = Number.isFinite(pp) ? Math.min(100, Math.max(-100, Math.round((pp - 50) * 2))) : 0;
+  }
+  if (hasil.geserBlurY === undefined) hasil.geserBlurY = 0;
   return hasil;
+}
+
+/** Clamp geser bebas video (−100..100, bawaan bila NaN). Murni. */
+export function rapikanGeserBlur(n: unknown, bawaan = 0): number {
+  const v = Number(n);
+  if (!Number.isFinite(v)) return bawaan;
+  return Math.min(100, Math.max(-100, Math.round(v * 10) / 10));
 }
 
 /** Clamp X posisi bebas (0–100, bawaan bila NaN). Murni. */
@@ -941,6 +973,9 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     posisiPotong: sumber.posisiPotong,
     zoomPotong: sumber.zoomPotong,
     zoomBlur: sumber.zoomBlur,
+    // v2.7.0 — geser bebas video (panah) ikut kartu 01 saat "Terapkan ke SEMUA"
+    geserBlurX: sumber.geserBlurX ?? 0,
+    geserBlurY: sumber.geserBlurY ?? 0,
     resolusi: sumber.resolusi,
     codec: sumber.codec,
     mulaiDetik: sumber.mulaiDetik,

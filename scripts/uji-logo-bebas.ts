@@ -107,9 +107,18 @@ console.log("\n════ v0.42.0 — migrasiSimpanan (semua bawaan ukuran lam
   migrasiSimpanan(masuk);
   cek("input migrasi tidak diubah (murni)", masuk.gayaJudul?.ukuran === 40 && masuk.gayaJudul?.font === "tebal", "input berubah — tidak murni!");
 
-  // simpanan kosong aman
+  // simpanan kosong aman — migrasi mengisi bawaan fitur-fitur baru per versi
+  // (v0.57/v2.0/v2.2/v2.4/v2.7): semua field baru TERISI bawaan, tak ada undefined
   const kosong = migrasiSimpanan({});
-  cek("simpanan kosong → hasil kosong aman", Object.keys(kosong).length === 0, `ada ${Object.keys(kosong).length}`);
+  const kunciBaruV27 = Object.keys(kosong).filter((k) => k.startsWith("geserBlur"));
+  cek(
+    "simpanan kosong → field baru terisi bawaan (geserBlurX/Y = 0, tanpa undefined)",
+    kunciBaruV27.length === 2 &&
+      kosong.geserBlurX === 0 &&
+      kosong.geserBlurY === 0 &&
+      Object.values(kosong).every((v) => v !== undefined),
+    `ada ${Object.keys(kosong).length} kunci, geser=${kunciBaruV27.join(",")}`,
+  );
 }
 
 console.log("\n════ FITUR 2 — posisi bebas watermark ════");

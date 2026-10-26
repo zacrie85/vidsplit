@@ -795,11 +795,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v2.6.0
+                v2.7.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v2.6.0
+              Suite video otomatis · Desktop v2.7.0
             </span>
           </span>
         </div>
