@@ -356,7 +356,8 @@ export function PanelEkspor({
 
   return (
     <Kartu
-      judul="7. Ekspor & split antrean"
+      nomor="09"
+      judul="Ekspor & split antrean"
       deskripsi="Semua video dirender berurutan dari atas ke bawah"
       ikon={<Rocket className="h-4 w-4" />}
     >

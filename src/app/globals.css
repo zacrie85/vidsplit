@@ -2,6 +2,9 @@
 
 :root {
   color-scheme: dark;
+  /* v2.6.0 — skin KINOSTRA HUD: font monospace utk judul menu & label teknis */
+  --font-hud: ui-monospace, "JetBrains Mono", "SF Mono", SFMono-Regular, Menlo,
+    Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 html,
@@ -9,12 +12,59 @@ body {
   height: 100%;
 }
 
+/* v2.6.0 — LATAR FUTURISTIK KINOSTRA: hitam pekat + KISI (grid) samar
+ * seperti referensi — dua linear-gradient 1px tiap 44px sebagai garis kisi. */
 body {
-  background: radial-gradient(1200px 600px at 20% -10%, #16202c 0%, #0b0f14 55%) no-repeat,
-    #0b0f14;
+  background:
+    linear-gradient(rgba(148, 163, 184, 0.055) 1px, transparent 1px) 0 0 / 44px 44px,
+    linear-gradient(90deg, rgba(148, 163, 184, 0.055) 1px, transparent 1px) 0 0 / 44px 44px,
+    radial-gradient(1100px 520px at 18% -8%, rgba(245, 158, 11, 0.05) 0%, transparent 55%),
+    #060709;
+  background-attachment: fixed;
   color: #e6edf3;
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
+}
+
+/* v2.6.0 — kelas gaya HUD (dipakai judul menu, chip status, label teknis):
+ * monospace + HURUF BESAR + jarak huruf — persis rasa KINOSTRA. */
+.hud {
+  font-family: var(--font-hud);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+}
+
+/* v2.6.0 — SUDUT KURUNG KINOSTRA (corner bracket) utk bingkai pratinjau:
+ * pakai <span class="bracket bracket-tl" /> dst. di dalam wadah relative. */
+.bracket {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  pointer-events: none;
+}
+.bracket-tl {
+  top: -1px;
+  left: -1px;
+  border-top: 2px solid #f59e0b;
+  border-left: 2px solid #f59e0b;
+}
+.bracket-tr {
+  top: -1px;
+  right: -1px;
+  border-top: 2px solid #f59e0b;
+  border-right: 2px solid #f59e0b;
+}
+.bracket-bl {
+  bottom: -1px;
+  left: -1px;
+  border-bottom: 2px solid #f59e0b;
+  border-left: 2px solid #f59e0b;
+}
+.bracket-br {
+  bottom: -1px;
+  right: -1px;
+  border-bottom: 2px solid #f59e0b;
+  border-right: 2px solid #f59e0b;
 }
 
 /* stroke teks pratinjau — lebar diatur via CSS var dari komponen */

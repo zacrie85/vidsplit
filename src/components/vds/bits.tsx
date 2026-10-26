@@ -7,11 +7,13 @@ import { ChevronDown, Upload } from "lucide-react";
 /* ============ v2.5.0 — KARTU LIPAT FUTURISTIK (permintaan user: layout baru
  * futuristik — "menu menunya ada tanda panah ke bawah untuk di buka dan bisa
  * di klik lagi panah ke atas agar terlihat kecil lagi", acuan KINOSTRA) ============
- * • Header kartu = tombol klik utuh: panah ▼ saat TERTUTUP (klik = buka),
- *   panah ▲ (rotasi) saat TERBUKA (klik = lipat kecil lagi).
+ * v2.6.0 — SKIN KINOSTRA PENUH sesuai gambar referensi user:
+ * • Menu jadi BARIS HUD BERNOMOR: "01" oranye + judul MONOSPACES HURUF BESAR
+ *   (.hud) + badge versi kecil oranye + panah chevron kanan (▼ buka / ▲ lipat).
+ * • Kartu terbuka = border oranye (persis item aktif 01 di referensi).
+ * • Prop baru: nomor ("00","01",...), badge ("GABUNGAN",...) — opsional.
  * • Status buka/tutup DIINGAT per kartu (localStorage, kunci dari judul kartu).
- * • Animasi lipat halus (grid-rows 0fr↔1fr) + gaya neon: garis cyan di tepi
- *   atas, ikon bergradasi amber→fuchsia, badge panah menyala cyan saat hover.
+ * • Animasi lipat halus (grid-rows 0fr↔1fr).
  * Aman hidrasi: render pertama SELALU terbuka (sama dgn server), status
  * tersimpan diterapkan setelah mount — tanpa peringatan hydration. */
 const KUNCI_LIPAT = "vidsplit-lipat-v1";
@@ -40,6 +42,8 @@ export function Kartu({
   deskripsi,
   ikon,
   kanan,
+  nomor,
+  badge,
   children,
   className = "",
 }: {
@@ -47,6 +51,10 @@ export function Kartu({
   deskripsi?: string;
   ikon?: ReactNode;
   kanan?: ReactNode;
+  /** v2.6.0 — nomor HUD KINOSTRA ("00","01","3B",...) — oranye di kiri judul */
+  nomor?: string;
+  /** v2.6.0 — chip kecil oranye di kanan judul (contoh "GABUNGAN","BARU") */
+  badge?: string;
   children: ReactNode;
   className?: string;
 }) {
@@ -72,7 +80,7 @@ export function Kartu({
     // kartu tanpa judul/kanan — tampil polos seperti dulu (tidak perlu dilipat)
     return (
       <section
-        className={`rounded-2xl border border-slate-700/60 bg-slate-900/60 p-4 shadow-lg shadow-black/20 backdrop-blur sm:p-5 ${className}`}
+        className={`rounded-md border border-slate-800/80 bg-[#0b0d10]/85 p-4 shadow-lg shadow-black/30 backdrop-blur sm:p-5 ${className}`}
       >
         {children}
       </section>
@@ -81,12 +89,16 @@ export function Kartu({
 
   return (
     <section
-      className={`group relative overflow-hidden rounded-2xl border border-slate-700/50 bg-gradient-to-b from-slate-900/80 to-slate-950/80 shadow-lg shadow-black/30 backdrop-blur transition-[border-color,box-shadow] duration-300 hover:border-cyan-400/40 hover:shadow-[0_0_28px_rgba(34,211,238,0.08)] ${className}`}
+      className={`group relative overflow-hidden rounded-md border bg-[#0b0d10]/90 shadow-lg shadow-black/40 backdrop-blur transition-[border-color,box-shadow] duration-300 ${
+        terbuka
+          ? "border-amber-500/50 shadow-[0_0_24px_rgba(245,158,11,0.07)]"
+          : "border-slate-800 hover:border-slate-600"
+      } ${className}`}
     >
-      {/* garis neon di tepi atas — aksen futuristik */}
+      {/* v2.6.0 — garis aksen oranye di tepi atas (pengganti neon cyan lama) */}
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-cyan-400/60 to-transparent"
+        className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-500/50 to-transparent"
       />
       {/* HEADER = tombol lipat utuh (panah ▼ buka / ▲ lipat) */}
       <button
@@ -96,15 +108,27 @@ export function Kartu({
         title={terbuka ? "Klik untuk melipat kecil" : "Klik untuk membuka"}
         className="flex w-full items-start justify-between gap-3 p-4 text-left sm:p-5"
       >
-        <span className="flex items-start gap-2.5">
+        <span className="flex min-w-0 items-start gap-2.5">
+          {nomor !== undefined && (
+            <span className="hud mt-0.5 shrink-0 text-xs font-bold text-amber-500">
+              {nomor}
+            </span>
+          )}
           {ikon && (
-            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-400/30 bg-gradient-to-br from-amber-400/15 via-slate-900/0 to-fuchsia-400/15 text-amber-300">
+            <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
               {ikon}
             </span>
           )}
-          <span>
+          <span className="min-w-0">
             {judul && (
-              <h2 className="font-semibold tracking-tight text-slate-100">{judul}</h2>
+              <span className="flex flex-wrap items-center gap-2">
+                <h2 className="hud text-[13px] font-bold leading-5 text-slate-100">{judul}</h2>
+                {badge && (
+                  <span className="hud rounded-sm border border-amber-500/50 bg-amber-500/10 px-1.5 py-px text-[9px] font-bold text-amber-400">
+                    {badge}
+                  </span>
+                )}
+              </span>
             )}
             {deskripsi && (
               <span className={`mt-0.5 block text-xs text-slate-400 transition-opacity duration-200 ${terbuka ? "" : "opacity-70"}`}>
@@ -116,10 +140,10 @@ export function Kartu({
         <span className="flex shrink-0 items-center gap-2">
           {kanan}
           <span
-            className={`flex h-7 w-7 items-center justify-center rounded-lg border transition-all duration-300 ${
+            className={`flex h-7 w-7 items-center justify-center rounded border transition-all duration-300 ${
               terbuka
-                ? "border-amber-400/60 bg-amber-400/10 text-amber-300"
-                : "border-slate-600 bg-slate-800/60 text-slate-400 group-hover:border-cyan-400/60 group-hover:text-cyan-300"
+                ? "border-amber-500/60 bg-amber-500/10 text-amber-400"
+                : "border-slate-700 bg-slate-900/60 text-slate-400 group-hover:border-amber-500/60 group-hover:text-amber-400"
             }`}
           >
             <ChevronDown

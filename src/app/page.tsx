@@ -17,6 +17,7 @@ import {
   MonitorPlay,
   Music,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
@@ -40,11 +41,13 @@ import { GerbangLayar, TombolGantiPassword, sudahTerbuka } from "@/components/vd
 import { JatuhBerkas, Kartu, fmtUkuran } from "@/components/vds/bits";
 import {
   BATAS_VIDEO,
+  durasiPartDipakai,
   formatDurasi,
   hitungPartV2,
   judulDariNama,
   migrasiSimpanan,
   pengaturanDefault,
+  rentangPartHapus,
   terapkanFrame,
   terapkanSebagian,
   terapkanUkuranHuruf,
@@ -86,6 +89,82 @@ interface OpsiEkspor {
   thumbnailGaya: "modern" | "klasik" | "futuristik";
 }
 
+/* ============ v2.6.0 — GARIS WAKTU SPLIT (TIMELINE SPLIT gaya KINOSTRA) ============
+ * Strip horizontal di bawah pratinjau: satu blok per part (lebar = durasi part,
+ * persis perhitungan ekspor via rentangPartHapus) + kode waktu mulai–akhir.
+ * Murni tampilan — menghitung ulang dgn fungsi yang SAMA dipakai ekspor. */
+function waktuHud(s: number): string {
+  const t = Math.max(0, s);
+  const m = Math.floor(t / 60);
+  const d = Math.floor(t % 60);
+  const p = Math.floor((t % 1) * 10);
+  return `${String(m).padStart(2, "0")}:${String(d).padStart(2, "0")}.${p}`;
+}
+
+const MAKS_SEG_TIMELINE = 30;
+
+function GarisWaktuSplit({
+  pengaturan,
+  durasiVideo,
+  totalPart,
+}: {
+  pengaturan: Pengaturan;
+  durasiVideo: number;
+  totalPart: number;
+}) {
+  const n = Math.min(totalPart, MAKS_SEG_TIMELINE);
+  if (n < 1) return null;
+  const dp = durasiPartDipakai(
+    pengaturan,
+    durasiVideo,
+    pengaturan.mulaiDetik,
+    pengaturan.akhirDetik,
+    pengaturan.zonaHapus || [],
+  );
+  const segs = Array.from({ length: n }, (_, i) => {
+    const [mulai, lamanya] = rentangPartHapus(
+      i + 1,
+      durasiVideo,
+      dp,
+      pengaturan.mulaiDetik,
+      pengaturan.akhirDetik,
+      pengaturan.zonaHapus || [],
+    );
+    return { i, mulai, lamanya: Math.max(0.1, lamanya) };
+  });
+  const total = segs.reduce((a, s) => a + s.lamanya, 0);
+  return (
+    <div className="mt-3">
+      <div className="hud mb-1.5 flex items-center justify-between text-[10px] text-slate-500">
+        <span>Timeline split</span>
+        <span>
+          {totalPart} part
+          {totalPart > MAKS_SEG_TIMELINE ? " (30 pertama)" : ""} · total {waktuHud(total)}
+        </span>
+      </div>
+      <div className="flex h-14 w-full gap-px overflow-hidden rounded-sm border border-slate-800 bg-slate-950/60">
+        {segs.map((s) => (
+          <div
+            key={s.i}
+            style={{ flexGrow: s.lamanya, flexBasis: 0 }}
+            title={`Part ${String(s.i + 1).padStart(2, "0")} · ${waktuHud(s.mulai)}–${waktuHud(s.mulai + s.lamanya)}`}
+            className={`relative flex min-w-0 flex-col justify-between overflow-hidden px-1.5 py-1 ${
+              s.i % 2 === 0 ? "bg-slate-900/70" : "bg-slate-900/35"
+            } ${s.i === 0 ? "border-l-2 border-amber-500" : "border-l border-slate-800"}`}
+          >
+            <span className="hud truncate text-[9px] font-bold text-slate-300">
+              PART {String(s.i + 1).padStart(2, "0")}
+            </span>
+            <span className="hud truncate text-[8px] text-slate-500">
+              {waktuHud(s.mulai)}–{waktuHud(s.mulai + s.lamanya)}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Halaman() {
   // gerbang password — "muat" dulu agar tidak berkedip, lalu terkunci/terbuka
   const [gerbang, setGerbang] = useState<"muat" | "terkunci" | "terbuka">("muat");
@@ -116,6 +195,16 @@ export default function Halaman() {
   // v0.10.0 — sakelar Mode Video / Mode Musik (Studio Musik)
   // v0.25.0 — mode ketiga: Studio Horor (AI Cerita Horor)
   const [mode, setMode] = useState<"video" | "musik" | "horor">("video");
+  // v2.6.0 — tombol IMPOR MEDIA di topbar (input file tersembunyi; di desktop
+  // memakai dialog natif Electron yang sama dgn JatuhBerkas)
+  const refImpor = useRef<HTMLInputElement>(null);
+  const klikImporMedia = () => {
+    if (diDesktop) {
+      void pilihVideoDesktop();
+      return;
+    }
+    refImpor.current?.click();
+  };
   useEffect(() => {
     try {
       const m = localStorage.getItem("vidsplit-mode-v1");
@@ -693,57 +782,102 @@ export default function Halaman() {
   }
 
   return (
-    <main className="mx-auto max-w-[1720px] px-4 pb-16 pt-6 sm:px-6">
-      {/* kepala */}
-      <header className="mb-5 flex flex-col items-center text-center">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-400/15 text-amber-400">
-            <Clapperboard className="h-5 w-5" />
+    <main className="mx-auto max-w-[1720px] px-4 pb-16 pt-4 sm:px-6">
+      {/* ===== v2.6.0 — TOPBAR KINOSTRA (referensi user): logo + subjudul mono,
+           chip status 100% OFFLINE / FFMPEG AKTIF, sakelar mode, IMPOR MEDIA ===== */}
+      <header className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+        {/* logo: marka kurung oranye + nama + subjudul */}
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="hud text-2xl font-black leading-none text-amber-500">▮▮</span>
+          <span className="min-w-0">
+            <span className="flex items-center gap-2">
+              <h1 className="hud text-lg font-black leading-6 tracking-[0.18em] text-slate-50">
+                VID<span className="text-amber-500">SPLIT</span>
+              </h1>
+              <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
+                v2.6.0
+              </span>
+            </span>
+            <span className="hud block text-[9px] leading-3 text-slate-500">
+              Suite video otomatis · Desktop v2.6.0
+            </span>
           </span>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-50 sm:text-3xl">
-            Vid<span className="text-amber-400">Split</span>
-          </h1>
-          <span className="rounded-md border border-slate-700 px-1.5 py-0.5 text-[10px] text-slate-400">
-            v2.5.0
-          </span>
-          <TombolGantiPassword />
         </div>
-        <p className="mt-2 max-w-xl text-sm text-slate-400">
-          Antrean video (maks {BATAS_VIDEO}) → atur tiap video sendiri → ekspor & split
-          <b> berurutan dari atas ke bawah</b>, tiap potongan vertikal 9:16 + judul + Part
-          + deskripsi + background intro.
-        </p>
-        {/* v0.10.0 — sakelar dua mode */}
-        <div className="mt-4 inline-flex rounded-xl border border-slate-700 bg-slate-900/70 p-1">
+
+        {/* chip status gaya KINOSTRA */}
+        <span className="hud ml-auto hidden items-center gap-1.5 rounded-sm border border-slate-700 px-2 py-1 text-[9px] text-slate-400 md:inline-flex">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> 100% offline
+        </span>
+        <span className="hud hidden items-center gap-1.5 rounded-sm border border-slate-700 px-2 py-1 text-[9px] text-slate-400 md:inline-flex">
+          <span className="h-1.5 w-1.5 rounded-full bg-amber-400" /> ffmpeg aktif
+        </span>
+
+        {/* sakelar mode — gaya HUD */}
+        <div className="hud inline-flex rounded-sm border border-slate-700 bg-[#0b0d10]/80 p-0.5 text-[10px]">
           <button
             type="button"
             onClick={() => gantiMode("video")}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-              mode === "video" ? "bg-amber-400 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            className={`flex items-center gap-1.5 rounded-sm px-3 py-1.5 font-bold transition ${
+              mode === "video" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            <Clapperboard className="h-4 w-4" /> Mode Video
+            <Clapperboard className="h-3.5 w-3.5" /> Video
           </button>
           <button
             type="button"
             onClick={() => gantiMode("musik")}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-              mode === "musik" ? "bg-amber-400 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            className={`flex items-center gap-1.5 rounded-sm px-3 py-1.5 font-bold transition ${
+              mode === "musik" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            <Music className="h-4 w-4" /> Mode Musik
+            <Music className="h-3.5 w-3.5" /> Musik
           </button>
           <button
             type="button"
             onClick={() => gantiMode("horor")}
-            className={`flex items-center gap-1.5 rounded-lg px-4 py-1.5 text-sm font-medium transition ${
-              mode === "horor" ? "bg-amber-400 text-slate-950" : "text-slate-400 hover:text-slate-200"
+            className={`flex items-center gap-1.5 rounded-sm px-3 py-1.5 font-bold transition ${
+              mode === "horor" ? "bg-amber-500 text-slate-950" : "text-slate-400 hover:text-slate-200"
             }`}
           >
-            <Ghost className="h-4 w-4" /> Mode Cerita
+            <Ghost className="h-3.5 w-3.5" /> Cerita
           </button>
         </div>
+
+        <TombolGantiPassword />
+
+        {/* v2.6.0 — IMPOR MEDIA (persis tombol oranye di pojok kanan referensi) */}
+        <button
+          type="button"
+          onClick={klikImporMedia}
+          disabled={mode !== "video" || sibukVideo || daftar.length >= BATAS_VIDEO}
+          title={
+            daftar.length >= BATAS_VIDEO
+              ? `Antrean penuh (maks ${BATAS_VIDEO})`
+              : "Masukkan video ke antrean"
+          }
+          className="hud flex items-center gap-2 rounded-sm bg-amber-500 px-3.5 py-2 text-[11px] font-black text-slate-950 shadow-[0_0_18px_rgba(245,158,11,0.25)] transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Upload className="h-3.5 w-3.5" /> Impor media
+        </button>
+        <input
+          ref={refImpor}
+          type="file"
+          accept="video/*,.ts"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const fs = Array.from(e.target.files ?? []);
+            for (const f of fs) unggahVideo(f);
+            e.target.value = "";
+          }}
+        />
       </header>
+      <p className="mb-4 text-xs text-slate-500">
+        Antrean video (maks {BATAS_VIDEO}) → atur tiap video sendiri → ekspor &amp; split{" "}
+        <b className="text-slate-400">berurutan dari atas ke bawah</b>, tiap potongan vertikal 9:16 +
+        judul + Part + deskripsi + background intro. Klik judul menu (panah bawah/atas) untuk
+        membuka/melipat.
+      </p>
 
       {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
       {mode === "musik" && <StudioMusik onKirimKeVideo={kirimKeVideo} />}
@@ -762,7 +896,8 @@ export default function Halaman() {
         {/* ============ KOLOM KIRI (25%) ============ */}
         <div className="space-y-4">
           <Kartu
-            judul="Antrean video"
+            nomor="00"
+            judul="Antrean video · urutan"
             deskripsi="Urutan di sini = urutan proses ekspor (atas → bawah). Klik video untuk mengaturnya."
             ikon={<ListVideo className="h-4 w-4" />}
           >
@@ -908,27 +1043,51 @@ export default function Halaman() {
                 deskripsi={`Video #${aktif + 1} — ${videoAktif.info.nama}`}
                 ikon={<MonitorPlay className="h-4 w-4" />}
               >
-                <Preview
-                  srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
-                  pengaturan={videoAktif.pengaturan}
-                  durasi={videoAktif.info.durasi}
-                  lebar={videoAktif.info.lebar}
-                  tinggi={videoAktif.info.tinggi}
-                  totalPart={
-                    videoAktif.pengaturan.modeSplit === "adegan"
-                      ? 0 // jumlah adegan dipastikan saat ekspor (analisis AI)
-                      : Math.max(
-                          1,
-                          hitungPartV2(
-                            videoAktif.info.durasi,
-                            videoAktif.pengaturan,
-                            videoAktif.pengaturan.mulaiDetik,
-                            videoAktif.pengaturan.akhirDetik,
-                            videoAktif.pengaturan.zonaHapus || [],
-                          ),
-                        )
-                  }
-                />
+                {/* v2.6.0 — bingkai kurung sudut oranye gaya KINOSTRA */}
+                <div className="relative">
+                  <span aria-hidden className="bracket bracket-tl" />
+                  <span aria-hidden className="bracket bracket-tr" />
+                  <span aria-hidden className="bracket bracket-bl" />
+                  <span aria-hidden className="bracket bracket-br" />
+                  <Preview
+                    srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
+                    pengaturan={videoAktif.pengaturan}
+                    durasi={videoAktif.info.durasi}
+                    lebar={videoAktif.info.lebar}
+                    tinggi={videoAktif.info.tinggi}
+                    totalPart={
+                      videoAktif.pengaturan.modeSplit === "adegan"
+                        ? 0 // jumlah adegan dipastikan saat ekspor (analisis AI)
+                        : Math.max(
+                            1,
+                            hitungPartV2(
+                              videoAktif.info.durasi,
+                              videoAktif.pengaturan,
+                              videoAktif.pengaturan.mulaiDetik,
+                              videoAktif.pengaturan.akhirDetik,
+                              videoAktif.pengaturan.zonaHapus || [],
+                            ),
+                          )
+                    }
+                  />
+                </div>
+                {/* v2.6.0 — TIMELINE SPLIT gaya KINOSTRA (sembunyi pd mode adegan) */}
+                {videoAktif.pengaturan.modeSplit !== "adegan" && (
+                  <GarisWaktuSplit
+                    pengaturan={videoAktif.pengaturan}
+                    durasiVideo={videoAktif.info.durasi}
+                    totalPart={Math.max(
+                      1,
+                      hitungPartV2(
+                        videoAktif.info.durasi,
+                        videoAktif.pengaturan,
+                        videoAktif.pengaturan.mulaiDetik,
+                        videoAktif.pengaturan.akhirDetik,
+                        videoAktif.pengaturan.zonaHapus || [],
+                      ),
+                    )}
+                  />
+                )}
               </Kartu>
               <PanelEkspor
                 daftar={daftar.map((v) => ({

@@ -227,7 +227,8 @@ export function PanelMode({
 
   return (
     <Kartu
-      judul="1. Cara ubah ke vertikal"
+      nomor="01"
+      judul="Cara ubah ke vertikal"
       deskripsi="3 pilihan mengubah ke 9:16 — atau pilih Video original untuk rasio tetap seperti aslinya"
       ikon={<Scan className="h-4 w-4" />}
     >
@@ -673,7 +674,8 @@ export function PanelJudul({
     onChange({ ...pengaturan, [k]: v });
   return (
     <Kartu
-      judul="2. Tulisan judul"
+      nomor="02"
+      judul="Tulisan judul"
       deskripsi={`Terisi otomatis dari nama video saat diimpor — boleh diedit. Statis di semua potongan #${nomorVideo}`}
       ikon={<Type className="h-4 w-4" />}
     >
@@ -755,7 +757,8 @@ export function PanelPart({
 
   return (
     <Kartu
-      judul="3. Tulisan Part otomatis"
+      nomor="03"
+      judul="Tulisan Part otomatis"
       deskripsi={`Video #${nomorVideo}: berganti sendiri tiap batas durasi set — split mengikuti batas ini`}
       ikon={<Scissors className="h-4 w-4" />}
     >
@@ -957,7 +960,9 @@ export function PanelPembicara({
 
   return (
     <Kartu
-      judul="3b. Zoom pembicara otomatis (AI)"
+      nomor="03B"
+      judul="Zoom pembicara otomatis (AI)"
+      badge="AI"
       deskripsi={`Video #${nomorVideo}: kamera otomatis meng-zoom orang yang sedang bicara — podcast jadi konten vertikal`}
       ikon={<MonitorPlay className="h-4 w-4" />}
     >
@@ -1052,7 +1057,8 @@ export function PanelBacksound({
   const nama = (pengaturan.backsoundFile || "").split(/[\\/]/).pop() || "";
   return (
     <Kartu
-      judul="3c. Backsound musik sendiri"
+      nomor="03C"
+      judul="Backsound musik sendiri"
       deskripsi={`Video #${nomorVideo}: pakai MP3/WAV/M4A pilihanmu sebagai musik latar — bukan cuma skor AI`}
       ikon={<Sparkles className="h-4 w-4" />}
     >
@@ -1144,7 +1150,8 @@ export function PanelDeskripsi({
   const adaTeks = !!(pengaturan.deskripsi || "").trim();
   return (
     <Kartu
-      judul="4. Tulis Deskripsi"
+      nomor="04"
+      judul="Tulis Deskripsi"
       deskripsi={`Teks deskripsi bebas ikut terbakar ke dalam video #${nomorVideo} — letakkan di mana saja`}
       ikon={<AlignLeft className="h-4 w-4" />}
     >
@@ -1324,7 +1331,9 @@ export function PanelSubtitle({
 
   return (
     <Kartu
-      judul="8. Subtitle AI otomatis"
+      nomor="08"
+      judul="Subtitle AI otomatis"
+      badge="AI"
       deskripsi={`Suara di video #${nomorVideo} dikenali AI lokal — teks Indonesia otomatis tampil di video hasil ekspor & split`}
       ikon={<Captions className="h-4 w-4" />}
     >
@@ -1596,7 +1605,8 @@ export function PanelFrame({
 
   return (
     <Kartu
-      judul="5. Frame & bingkai (opsional)"
+      nomor="05"
+      judul="Frame & bingkai (opsional)"
       deskripsi="Frame hiasan + frame neon berputar — berlaku ke semua video lewat satu tombol"
       ikon={<IkonFrame className="h-4 w-4" />}
     >
@@ -1906,7 +1916,9 @@ export function PanelCoverIntro({
   const aktif = pengaturan.introAktif === true;
   return (
     <Kartu
-      judul="6. Cover & Intro — frame dari video"
+      nomor="06"
+      judul="Cover & Intro — frame dari video"
+      badge="Gabungan"
       deskripsi={`Thumbnail otomatis semua part + pembuka intro — video #${nomorVideo}`}
       ikon={<ImageIcon className="h-4 w-4" />}
     >
@@ -2227,7 +2239,8 @@ export function PanelWatermark({
     onChange({ ...pengaturan, [k]: v });
   return (
     <Kartu
-      judul="7. Watermark / logo (opsional)"
+      nomor="07"
+      judul="Watermark / logo (opsional)"
       deskripsi={`Gambar logo menempel di SETIAP potongan video #${nomorVideo} — pilih posisi & ukuran`}
       ikon={<Stamp className="h-4 w-4" />}
     >
@@ -2340,7 +2353,7 @@ export function PanelRingkasan({
   const adaTrim = pengaturan.mulaiDetik > 0 || pengaturan.akhirDetik > 0;
 
   return (
-    <Kartu judul="Ringkasan" ikon={<Film className="h-4 w-4" />}>
+    <Kartu nomor="RK" judul="Ringkasan" ikon={<Film className="h-4 w-4" />}>
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
         <dt className="text-slate-500">Video sumber</dt>
         <dd className="text-right text-slate-200">
@@ -2438,9 +2451,9 @@ export function PanelRingkasan({
               v0.39.0 — nomor kartu menyusut (deskripsi = kartu 4) + deskripsi tidak ikut
               v0.41.0 — ukuran huruf tiap video juga tidak ikut */}
           <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
-            Yang ikut: <b className="text-slate-400">1. Cara ubah ke vertikal</b> ·{" "}
-            <b className="text-slate-400">3. Tulisan Part otomatis</b> ·{" "}
-            <b className="text-slate-400">6. Watermark/logo</b> — logo cukup diunggah{" "}
+            Yang ikut: <b className="text-slate-400">01 Cara ubah ke vertikal</b> ·{" "}
+            <b className="text-slate-400">03 Tulisan Part otomatis</b> ·{" "}
+            <b className="text-slate-400">07 Watermark/logo</b> — logo cukup diunggah{" "}
             <b className="text-slate-400">sekali</b>, langsung terpasang di semua video.{" "}
             <b className="text-amber-300/80">Tulisan judul</b>,{" "}
             <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video &{" "}
