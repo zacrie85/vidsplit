@@ -182,9 +182,12 @@ exports.default = async function afterPack(context) {
       path.join(resDir, "whisper", "models", "ggml-base-q5_1.bin"),
       path.join(resDir, "whisper", "models", "ggml-small-q5_1.bin"),
     ];
+    // whisper-cli.exe sendiri HANYA ±300 KB — ambang 1 MB hanya utk MODEL;
+    // binary cukup wajib ada (≥100 KB, anti file kosong/halaman error)
     const kurangW = wWhisper.filter((p) => {
       try {
-        return !fs.existsSync(p) || fs.statSync(p).size < 1048576;
+        const ambang = p.endsWith(".exe") ? 102400 : 1048576;
+        return !fs.existsSync(p) || fs.statSync(p).size < ambang;
       } catch {
         return true;
       }
