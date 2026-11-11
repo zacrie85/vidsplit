@@ -795,11 +795,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v2.8.0
+                v2.9.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v2.8.0
+              Suite video otomatis · Desktop v2.9.0
             </span>
           </span>
         </div>
@@ -1095,6 +1095,12 @@ export default function Halaman() {
                   nama: v.info.nama,
                   durasi: v.info.durasi,
                   pengaturan: v.pengaturan,
+                  // v2.9.0 — info sumber utk MESIN KILAT (WebCodecs renderer)
+                  ukuran: v.info.ukuran,
+                  lebar: v.info.lebar,
+                  tinggi: v.info.tinggi,
+                  fps: v.info.fps,
+                  adaAudio: v.info.adaAudio,
                 }))}
                 opsiEkspor={opsiEkspor}
                 onOpsiEkspor={setOpsiEkspor}

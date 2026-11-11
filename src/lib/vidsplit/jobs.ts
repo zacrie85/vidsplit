@@ -42,6 +42,7 @@ import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import { jadwalkanPangkas } from "./kebersihan";
 import type { SeqNeon } from "./ffmpeg";
 import { analisisAdegan, potonganAdegan, type PotonganAdegan } from "./adegan";
+import { gerbangFastcut, potongLangsung } from "./fastcut";
 import {
   PembicaraLatar,
   cadanganDuaBagian,
@@ -88,6 +89,9 @@ export interface StatusVideoAntrean {
   status: StatusVideo;
   /** v0.44.0 — teks tahap khusus (mis. "Analisis suara AI… 12 dtk") saat status proses */
   tahap?: string;
+  /** v2.9.0 — mesin yang dipakai video ini: "POTONG LANGSUNG" (fastcut byte-level
+   *  KINOSTRA), "KILAT GPU" (WebCodecs renderer), "RENDER" (ffmpeg server) */
+  mesin?: string;
 }
 
 export interface InfoJob {
@@ -623,7 +627,8 @@ export function mulaiEksporAntrean(
         fps,
         adaAudio: it.info.adaAudio,
         judulTxt: p.judul || "",
-        partTxt: `${p.kataPart || "Part"} ${n}`,
+        // v2.9.0 — kataPart kosong = tanpa label part (bukan paksa "Part")
+        partTxt: p.kataPart ? `${p.kataPart} ${n}` : "",
         deskripsiTxt: p.deskripsi || "",
         fileSub,
         // v2.0.0 — backsound + zoom pembicara
@@ -847,10 +852,109 @@ export function mulaiEksporAntrean(
       };
 
       const nTotal = Math.max(1, job.antrean[vi].total);
+
+      // ---------- v2.9.0 — MESIN POTONG LANGSUNG (fastcut, transplantasi KINOSTRA) ----------
+      // Setelan bersih (mode asli tanpa satu pun efek bakar) → part dipotong di
+      // level byte MP4 TANPA re-encode: 10–60× lebih cepat, piksel 100% sumber,
+      // moov baru di depan (fastStart). Gagal bentuk apa pun → jatuh otomatis ke
+      // mesin render ffmpeg di bawah (anti-gagal, port batch.js v3.15).
+      {
+        const alasanFc = gerbangFastcut(p, it.info);
+        if (!alasanFc && !subLatar) {
+          try {
+            const slugFc = slugPerVideo[vi] || slugify(p.judul) || "vidsplit";
+            job.antrean[vi].tahap = "POTONG LANGSUNG · memeriksa struktur MP4…";
+            /* rentang part dihitung dgn fungsi ekspor YANG SAMA (identik renderSatu) */
+            const rentangFc: { start: number; end: number }[] = [];
+            for (let n = 1; n <= nTotal; n++) {
+              const [m, d] = konteks.potonganAdgn.length
+                ? (() => {
+                    const pot =
+                      konteks.potonganAdgn[
+                        Math.min(Math.max(1, n), konteks.potonganAdgn.length) - 1
+                      ];
+                    return [pot.mulai, Math.max(0.5, pot.akhir - pot.mulai)] as [number, number];
+                  })()
+                : p.zonaHapus && p.zonaHapus.length
+                  ? rentangPartHapus(
+                      n,
+                      it.info.durasi,
+                      konteks.durasiPartEff,
+                      p.mulaiDetik,
+                      p.akhirDetik,
+                      p.zonaHapus,
+                    )
+                  : rentangPart(n, it.info.durasi, konteks.durasiPartEff, p.mulaiDetik, p.akhirDetik);
+              rentangFc.push({ start: m, end: m + d });
+            }
+            const hasilFc = await potongLangsung(
+              it.srcAbs,
+              rentangFc,
+              (n) => path.join(folder, `${slugFc}-part-${String(n).padStart(2, "0")}.mp4`),
+              {
+                isAborted: () => apakahBatal(id),
+                prog: (partKe, f, sub) => {
+                  fraksi.set(`${vi}:${partKe}`, f);
+                  job.antrean[vi].selesai = partKe - 1;
+                  if (sub) job.antrean[vi].tahap = sub;
+                  perbaruiProgres();
+                },
+              },
+            );
+            /* thumbnail otomatis: dari SUMBER (mesin-independent) — sama dgn jalur ffmpeg */
+            if (konteks.thumb?.aktif) {
+              let detikSatuFc = 0;
+              if (konteks.thumb.mode === "satu" || konteks.thumb.mode === "identik") {
+                detikSatuFc = detikFrameThumbnail(rentangFc[0].start, rentangFc[0].end - rentangFc[0].start, it.info.durasi);
+              }
+              for (let n = 1; n <= hasilFc.length; n++) {
+                const { start: m, end: akhir } = rentangFc[n - 1];
+                janjiThumb.push(
+                  buatThumbnailPart(
+                    it, n, m, akhir - m, it.info.lebar, it.info.tinggi,
+                    slugFc, `${id}-${vi}-${n}`, konteks.thumb, vi, detikSatuFc,
+                  )
+                    .then((hasil) => {
+                      if (hasil) {
+                        slotThumb.push(hasil);
+                        segarkanOutput();
+                      }
+                    })
+                    .catch(() => {}),
+                );
+              }
+            }
+            fraksi.clear();
+            perbaruiProgres();
+            /* part masuk outputs (unduh/ZIP/riwayat) — persis perilaku renderSatu */
+            for (const h of hasilFc) {
+              slot[pengisi++] = { video: it.nama, file: path.basename(h.path), ukuran: h.size };
+            }
+            segarkanOutput();
+            job.antrean[vi].selesai = hasilFc.length;
+            job.antrean[vi].mesin = "POTONG LANGSUNG";
+            job.antrean[vi].status = "selesai";
+            return;
+          } catch (eFc) {
+            if (apakahBatal(id)) {
+              job.antrean[vi].status = "dibatalkan";
+              return;
+            }
+            /* ANTI-GAGAL: potong langsung tidak didukung sumber ini → mesin render */
+            const mFc = eFc instanceof Error ? eFc.message : String(eFc);
+            if (!job.peringatanSubtitle) {
+              job.peringatanSubtitle = `${it.nama}: potong langsung tidak jalan (${mFc.slice(0, 60)}) — mesin render dipakai`;
+            }
+          }
+        }
+      }
+
       let berikut = 1;
       let gagal = false;
       let sedangRender = 0; // jumlah ffmpeg aktif utk video ini
+      const diulangAman = new Set<string>(); // v2.9.0 — part yang sudah dicoba ulang
       const pekerja = Array.from({ length: Math.min(paralel, nTotal) }, async () => {
+        job.antrean[vi].mesin = job.antrean[vi].mesin || "RENDER";
         while (true) {
           if (apakahBatal(id)) return;
           // v0.56.0 — SELAMA transkrip AI latar masih berjalan, render aktif
@@ -867,23 +971,52 @@ export function mulaiEksporAntrean(
           berikut += 1;
           if (n > nTotal || gagal) return;
           sedangRender += 1;
+          /* v2.9.0 — ANTI-GAGAL (port batch.js KINOSTRA v3.15): part gagal bukan
+             karena batal pengguna → ulangi SEKALI dgn SETELAN AMAN (encoder CPU).
+             Kegagalan internal ≠ batal: satu part bermasalah tidak lagi langsung
+             menandai seluruh video gagal. */
+          const kunciUlang = `${vi}:${n}`;
           try {
             await renderSatu(vi, it, n, subLatar, aset46, konteks);
           } catch (e) {
-            // dibatalkan ≠ gagal — keluar senyap, status dibatalkan diset di luar
             if (apakahBatal(id)) return;
-            // v0.58.0 — encoder GPU gagal di runtime (driver reset/jatah habis)?
-            // kosongkan cache uji GPU + cache encoder job agar video BERIKUTNYA
-            // otomatis menguji ulang & jatuh ke CPU (dulu: gagal beruntun)
             const pesan = e instanceof Error ? e.message : String(e);
-            if (/nvenc|qsv|amf/i.test(pesan)) {
-              resetUjiGpu();
-              cacheEnc.clear();
-            }
-            // hentikan pengambilan part baru video INI; part berjalan biar selesai
-            if (!gagal) {
-              gagal = true;
-              job.error = `${it.nama}: ${pesan}`;
+            if (!/DIBATALKAN/i.test(pesan) && !diulangAman.has(kunciUlang)) {
+              diulangAman.add(kunciUlang);
+              if (!job.antrean[vi].tahap)
+                job.antrean[vi].tahap = `Part ${n} gagal — percobaan ulang setelan aman…`;
+              const gpuLama = it.pengaturan.pakaiGpu;
+              try {
+                it.pengaturan.pakaiGpu = false;
+                await renderSatu(vi, it, n, subLatar, aset46, konteks);
+                continue; // ulang aman SUKSES — finally luar menurunkan sedangRender
+              } catch (e2) {
+                if (apakahBatal(id)) return;
+                const pesan2 = e2 instanceof Error ? e2.message : String(e2);
+                if (/nvenc|qsv|amf/i.test(pesan2)) {
+                  resetUjiGpu();
+                  cacheEnc.clear();
+                }
+                if (!gagal) {
+                  gagal = true;
+                  job.error = `${it.nama} part ${n}: ${pesan2}`;
+                }
+              } finally {
+                it.pengaturan.pakaiGpu = gpuLama;
+              }
+            } else {
+              // v0.58.0 — encoder GPU gagal di runtime (driver reset/jatah habis)?
+              // kosongkan cache uji GPU + cache encoder job agar video BERIKUTNYA
+              // otomatis menguji ulang & jatuh ke CPU (dulu: gagal beruntun)
+              if (/nvenc|qsv|amf/i.test(pesan)) {
+                resetUjiGpu();
+                cacheEnc.clear();
+              }
+              // hentikan pengambilan part baru video INI; part berjalan biar selesai
+              if (!gagal) {
+                gagal = true;
+                job.error = `${it.nama}: ${pesan}`;
+              }
             }
           } finally {
             sedangRender -= 1;

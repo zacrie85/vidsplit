@@ -52,7 +52,10 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.durasiPart = clamp(p.durasiPart, 5, 3600, 20);
   p.durasiIntro = clamp(p.durasiIntro, 1, 10, 2);
   p.judul = String(p.judul || "").slice(0, 300);
-  p.kataPart = String(p.kataPart || "Part").slice(0, 30);
+  // v2.9.0 — kataPart KOSONG = tanpa tulisan part (juga membuka jalur POTONG
+  // LANGSUNG); dulu paksa "Part" — anggap kosong adalah niat pengguna.
+  // undefined (payload lama tanpa field) tetap diganti "Part".
+  p.kataPart = String(p.kataPart ?? "Part").slice(0, 30);
   p.warnaLatar = /^#[0-9a-fA-F]{6,8}$/.test(p.warnaLatar) ? p.warnaLatar : "#111827";
   p.gayaJudul.ukuran = clamp(p.gayaJudul?.ukuran, 20, 160, 64);
   p.gayaJudul.outlineLebar = clamp(p.gayaJudul?.outlineLebar, 0, 12, 4);

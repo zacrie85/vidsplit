@@ -18,9 +18,10 @@ import {
   XCircle,
   Zap,
 } from "lucide-react";
-import type { InfoJob } from "@/lib/vidsplit/jobs";
+import type { InfoJob, KeluaranJob } from "@/lib/vidsplit/jobs";
 import type { SetelanTujuan } from "@/lib/vidsplit/tujuan";
 import { hitungPartV2, slugify, type Pengaturan } from "@/lib/vidsplit/types";
+import { eksporVideoKilat, gerbangKilat } from "@/lib/vidsplit/kilat/eksporKilat";
 import { BarisSlider, Kartu, fmtUkuran } from "./bits";
 import { PanelTujuan } from "./PanelTujuan";
 
@@ -29,6 +30,12 @@ interface ItemVideo {
   nama: string;
   durasi: number;
   pengaturan: Pengaturan;
+  /** v2.9.0 — info sumber utk MESIN KILAT (WebCodecs renderer) */
+  ukuran?: number;
+  lebar?: number;
+  tinggi?: number;
+  fps?: number;
+  adaAudio?: boolean;
 }
 
 const LABEL_STATUS: Record<string, string> = {
@@ -80,6 +87,11 @@ export function PanelEkspor({
   // (status macet "Sedang merender…" selamanya tanpa pesan apa pun)
   const polingSibuk = useRef(false);
   const gagalBeruntun = useRef(0);
+  // v2.9.0 — MESIN KILAT (WebCodecs renderer): video bersih dirender GPU di
+  // perangkat ini SEBELUM antrean server; hasil tetap dicatat riwayat/tujuan.
+  const kilatAktif = useRef(false);
+  const kilatBatal = useRef(false);
+  const [hasilKilat, setHasilKilat] = useState<{ id: string; outputs: KeluaranJob[] } | null>(null);
 
   const hentikanPoling = () => {
     if (timer.current) {
@@ -162,13 +174,8 @@ export function PanelEkspor({
     return hentikanPoling;
   }, [job]);
 
-  const ekspor = async () => {
-    // v0.6.4 — ingatkan bila simpan otomatis aktif tapi folder tujuan belum dipilih
-    if (setelanTujuan?.otomatis && !setelanTujuan?.folder) {
-      toast.warning(
-        "Simpan otomatis aktif tapi folder tujuan belum dipilih — hasil hanya bisa diunduh dari aplikasi",
-      );
-    }
+  /** jalur SERVER (ffmpeg) — dipakai utk video yang tidak layak kilat / fallback */
+  const eksporServer = async (items: ItemVideo[]) => {
     setMulai(true);
     setBatalKirim(false);
     try {
@@ -177,7 +184,7 @@ export function PanelEkspor({
         headers: { "Content-Type": "application/json" },
         // daftar video diproses BERURUTAN dari atas; tiap video bawa pengaturannya sendiri
         body: JSON.stringify({
-          daftar: daftar.map((v) => ({
+          daftar: items.map((v) => ({
             file: v.file,
             nama: v.nama,
             logo: v.pengaturan.logoId || undefined,
@@ -200,7 +207,7 @@ export function PanelEkspor({
       if (!j.ok || !j.id) throw new Error(j.error || "Ekspor gagal dimulai");
       setJob({
         id: j.id,
-        antrean: daftar.map((v) => ({
+        antrean: items.map((v) => ({
           nama: v.nama,
           // v0.58.0 — estimasi part kini MENGHORMATI zona hapus (Potong & Hapus
           // Bagian) — sama dgn hitungan server, angka tidak lagi loncat saat
@@ -237,6 +244,201 @@ export function PanelEkspor({
       toast.error(e instanceof Error ? e.message : "Ekspor gagal");
     } finally {
       setMulai(false);
+    }
+  };
+
+  /**
+   * v2.9.0 — DISPATCHER EKSPOR (transplantasi mesin KINOSTRA):
+   * 1. video "bersih" (4 mode dasar tanpa teks/bingkai/intro/…, lihat
+   *    gerbangKilat) dirender dulu DI PERANGKAT INI via WebCodecs GPU
+   *    (mesin KILAT — dekoder+enkoder GPU, paralel per part, anti-gagal);
+   * 2. sisanya (dan video kilat yang gagal) diteruskan ke jalur server
+   *    ffmpeg seperti biasa — nol regresi untuk fitur apa pun.
+   * Server-set (potong langsung fastcut) jalan otomatis di jalur server.
+   */
+  const ekspor = async () => {
+    // v0.6.4 — ingatkan bila simpan otomatis aktif tapi folder tujuan belum dipilih
+    if (setelanTujuan?.otomatis && !setelanTujuan?.folder) {
+      toast.warning(
+        "Simpan otomatis aktif tapi folder tujuan belum dipilih — hasil hanya bisa diunduh dari aplikasi",
+      );
+    }
+    const siapKilat =
+      typeof window !== "undefined" &&
+      "VideoDecoder" in window &&
+      "VideoEncoder" in window &&
+      "VideoFrame" in window;
+    const targetMbAngka = Number(targetMb) > 0 ? Number(targetMb) : 0;
+    const layak = siapKilat
+      ? daftar.filter(
+          (v) =>
+            !gerbangKilat(v.pengaturan, targetMbAngka) &&
+            !!v.lebar && !!v.tinggi && !!v.durasi,
+        )
+      : [];
+    if (!layak.length) {
+      await eksporServer(daftar);
+      return;
+    }
+    /* ---------- FASE KILAT (klien) ---------- */
+    setMulai(true);
+    setBatalKirim(false);
+    kilatBatal.current = false;
+    kilatAktif.current = true;
+    setHasilKilat(null);
+    const idKilat = `kilat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const antreanLokal: InfoJob["antrean"] = daftar.map((v) => ({
+      nama: v.nama,
+      total: Math.max(
+        1,
+        hitungPartV2(
+          v.durasi,
+          v.pengaturan,
+          v.pengaturan.mulaiDetik,
+          v.pengaturan.akhirDetik,
+          v.pengaturan.zonaHapus || [],
+        ),
+      ),
+      selesai: 0,
+      status: "menunggu" as const,
+    }));
+    setJob({
+      id: idKilat,
+      antrean: antreanLokal,
+      videoAktif: 0,
+      partAktif: 0,
+      progresPart: 0,
+      progresTotal: 0,
+      outputs: [],
+      error: null,
+      adaGagal: false,
+      selesaiSemua: false,
+      batalDiminta: false,
+      dibatalkan: false,
+      dibuat: Date.now(),
+      akselerasi: "KILAT GPU (WebCodecs) + ffmpeg server",
+      paralel: opsiEkspor.paralel,
+    });
+    toast.info(`Mesin KILAT GPU aktif — ${layak.length} video dirender di perangkat ini dulu`);
+    const keluaranKilat: KeluaranJob[] = [];
+    let dibatalkan = false;
+    try {
+      for (const v of layak) {
+        if (kilatBatal.current) {
+          dibatalkan = true;
+          break;
+        }
+        const vi = daftar.indexOf(v);
+        const mutakhir = (m: Partial<InfoJob["antrean"][number]>) => {
+          antreanLokal[vi] = { ...antreanLokal[vi], ...m };
+          setJob((j) =>
+            j ? { ...j, antrean: antreanLokal.map((a, i) => (i === vi ? { ...a } : a)) } : j,
+          );
+        };
+        mutakhir({ status: "proses", tahap: "Menyiapkan dekoder GPU…", mesin: "KILAT GPU" });
+        try {
+          const parts = await eksporVideoKilat(
+            {
+              file: v.file,
+              nama: v.nama,
+              ukuran: v.ukuran || 0,
+              durasi: v.durasi,
+              lebar: v.lebar || 0,
+              tinggi: v.tinggi || 0,
+              fps: v.fps || 30,
+              adaAudio: v.adaAudio !== false,
+              pengaturan: v.pengaturan,
+            },
+            idKilat,
+            {
+              paralel: Math.max(1, Math.min(4, opsiEkspor.paralel)),
+              isAborted: () => kilatBatal.current,
+              onProgres: (p) =>
+                mutakhir({
+                  total: p.total,
+                  selesai: p.selesai,
+                  tahap: p.tahap || `${p.selesai}/${p.total} part`,
+                }),
+            },
+          );
+          /* finalisasi server: thumbnail dari sumber + tujuan + riwayat */
+          mutakhir({ tahap: "Menyusun cover & riwayat…" });
+          const r = await fetch("/api/kilat/selesai", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              idKilat,
+              hasil: parts,
+              sumber: v.file,
+              nama: v.nama,
+              pengaturan: v.pengaturan,
+              durasi: v.durasi,
+              lebar: v.lebar || 1080,
+              tinggi: v.tinggi || 1920,
+              thumbnail: opsiEkspor.thumbnailAktif
+                ? {
+                    aktif: true,
+                    kata: opsiEkspor.thumbnailKata,
+                    format: opsiEkspor.thumbnailFormat,
+                    mode: opsiEkspor.thumbnailMode,
+                    gaya: opsiEkspor.thumbnailGaya,
+                  }
+                : null,
+            }),
+          });
+          const j = (await r.json()) as {
+            ok: boolean;
+            outputs?: KeluaranJob[];
+            folderTersimpan?: string | null;
+            error?: string;
+          };
+          if (!j.ok || !j.outputs) throw new Error(j.error || "Finalisasi kilat gagal");
+          keluaranKilat.push(...j.outputs);
+          setHasilKilat({ id: idKilat, outputs: [...keluaranKilat] });
+          mutakhir({ status: "selesai", selesai: parts.length, tahap: undefined });
+        } catch (e) {
+          const m = e instanceof Error ? e.message : String(e);
+          if (kilatBatal.current || /DIBATALKAN/i.test(m)) {
+            dibatalkan = true;
+            mutakhir({ status: "dibatalkan", tahap: undefined });
+            break;
+          }
+          /* ANTI-GAGAL: kilat gagal utk video ini → jalur server menangani */
+          console.warn("kilat gagal, fallback server:", m);
+          mutakhir({ status: "menunggu", selesai: 0, tahap: undefined, mesin: "RENDER" });
+        }
+      }
+    } finally {
+      kilatAktif.current = false;
+      setMulai(false);
+      setBatalKirim(false);
+    }
+    /* ---------- SISA: jalur server ---------- */
+    const sisa = dibatalkan
+      ? []
+      : daftar.filter((v, i) => antreanLokal[i].status === "menunggu");
+    if (sisa.length && !dibatalkan) {
+      await eksporServer(sisa);
+      return;
+    }
+    /* semua selesai di fase kilat (atau dibatalkan) → tutup job lokal */
+    setJob((j) =>
+      j && j.id === idKilat
+        ? {
+            ...j,
+            outputs: keluaranKilat,
+            progresTotal: 100,
+            selesaiSemua: true,
+            dibatalkan,
+            batalDiminta: dibatalkan,
+            adaGagal: false,
+          }
+        : j,
+    );
+    if (dibatalkan) {
+      toast.warning(`Ekspor dibatalkan — ${keluaranKilat.length} file yang sudah jadi tetap bisa diunduh`);
+    } else {
+      toast.success(`Ekspor selesai — ${keluaranKilat.length} file siap (mesin KILAT GPU)`);
     }
   };
 
@@ -305,8 +507,16 @@ export function PanelEkspor({
     }
   };
 
-  /** tombol Batalkan: minta server membunuh ffmpeg yang sedang merender */
+  /** tombol Batalkan: minta server membunuh ffmpeg yang sedang merender
+   *  v2.9.0 — saat FASE KILAT: setel bendera batal lokal (engine berhenti),
+   *  part yang sudah terunggah tetap bisa diunduh & tercatat riwayat */
   const batalkan = async () => {
+    if (kilatAktif.current) {
+      kilatBatal.current = true;
+      setBatalKirim(true);
+      toast.info("Menghentikan mesin kilat… part yang sudah jadi tetap bisa diunduh");
+      return;
+    }
     if (!job || job.selesaiSemua || batalKirim) return;
     setBatalKirim(true);
     try {
@@ -496,6 +706,54 @@ export function PanelEkspor({
         </button>
       )}
 
+      {/* v2.9.0 — hasil FASE KILAT: tetap tampil saat antrean server berjalan
+          (job server hanya memuat daftarnya sendiri; hasil kilat disimpan di
+          output/<idKilat> dan tercatat di Riwayat) */}
+      {hasilKilat && hasilKilat.outputs.length > 0 && (
+        <div className="mt-3 space-y-1.5 rounded-xl border border-emerald-400/30 bg-emerald-400/5 p-2.5">
+          <div className="flex items-center justify-between">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-200">
+              <Zap className="h-3.5 w-3.5" /> Hasil mesin KILAT GPU ({hasilKilat.outputs.length})
+            </p>
+            {hasilKilat.outputs.length > 1 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const a = document.createElement("a");
+                  a.href = `/api/zip?id=${hasilKilat.id}`;
+                  a.download = "vidsplit-kilat-gpu.zip";
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-sky-400/50 px-2.5 py-1 text-xs text-sky-300 hover:bg-sky-400/10"
+              >
+                <FileArchive className="h-3.5 w-3.5" /> ZIP
+              </button>
+            )}
+          </div>
+          <ul className="max-h-40 space-y-1 overflow-auto pr-1">
+            {hasilKilat.outputs.map((o, i) => (
+              <li
+                key={`kilat-${o.video}-${o.file}-${i}`}
+                className="flex items-center justify-between gap-2 rounded-lg border border-slate-700/60 bg-slate-800/50 px-2.5 py-1.5"
+              >
+                <span className="min-w-0 truncate text-xs text-slate-200">{o.file}</span>
+                <span className="shrink-0 text-[10px] text-slate-500">{fmtUkuran(o.ukuran)}</span>
+                <a
+                  href={`/api/file?p=${encodeURIComponent(`output/${hasilKilat.id}/${o.file}`)}&dl=1`}
+                  download={o.file}
+                  className="shrink-0 rounded-md border border-slate-600 p-1 text-slate-300 hover:border-amber-400 hover:text-amber-300"
+                  title="Unduh file ini"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {job && (
         <div className="mt-3 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
@@ -549,7 +807,12 @@ export function PanelEkspor({
                       menggantikan sehingga hitungan part hilang saat AI aktif */}
                   {v.status === "proses"
                     ? [v.tahap, `${v.selesai}/${v.total} part`].filter(Boolean).join(" · ")
-                    : LABEL_STATUS[v.status] ?? v.status}
+                    : [
+                        LABEL_STATUS[v.status] ?? v.status,
+                        v.mesin && v.status === "selesai" ? v.mesin : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                 </span>
               </li>
             ))}
