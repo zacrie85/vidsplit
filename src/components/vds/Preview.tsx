@@ -541,24 +541,6 @@ export function Preview({
           {formatDurasi(t)} / {formatDurasi(durasi)}
           {modeAsli && <span className="ml-1 text-emerald-300">· rasio asli {lebar}×{tinggi}</span>}
         </p>
-
-        {/* peta part — klik untuk lompat */}
-        <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-          {Array.from({ length: totalPart }, (_, i) => i + 1).map((n) => (
-            <button
-              key={n}
-              type="button"
-              onClick={() => lompat((n - 1) * pengaturan.durasiPart + 0.01)}
-              className={`rounded-md border px-2 py-1 text-[10px] transition ${
-                n === partKini
-                  ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
-                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-              }`}
-            >
-              {pengaturan.kataPart || "Part"} {n}
-            </button>
-          ))}
-        </div>
       </div>
     </div>
   );

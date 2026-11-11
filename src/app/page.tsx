@@ -116,6 +116,11 @@ function GarisWaktuSplit({
 }) {
   const n = Math.min(totalPart, MAKS_SEG_TIMELINE);
   if (n < 1) return null;
+  // v3.1.1 — teks adaptif: timecode & label hanya tampil bila segmen cukup lebar.
+  // Dulu 189 part × timecode "00:00.0–00:20.0" dempet jadi satu deret huruf tak
+  // terbaca ("berantakan") — kini bar tetap rapi, detail tetap ada lewat tooltip.
+  const tampilWaktu = n <= 12;
+  const tampilLabel = n <= 20;
   const dp = durasiPartDipakai(
     pengaturan,
     durasiVideo,
@@ -136,12 +141,12 @@ function GarisWaktuSplit({
   });
   const total = segs.reduce((a, s) => a + s.lamanya, 0);
   return (
-    <div className="mt-3">
+    <div>
       <div className="hud mb-1.5 flex items-center justify-between text-[10px] text-slate-500">
         <span>Timeline split</span>
         <span>
           {totalPart} part
-          {totalPart > MAKS_SEG_TIMELINE ? " (30 pertama)" : ""} · total {waktuHud(total)}
+          {totalPart > MAKS_SEG_TIMELINE ? ` (${MAKS_SEG_TIMELINE} pertama)` : ""} · total {waktuHud(total)}
         </span>
       </div>
       <div className="flex h-14 w-full gap-px overflow-hidden rounded-sm border border-slate-800 bg-slate-950/60">
@@ -154,12 +159,16 @@ function GarisWaktuSplit({
               s.i % 2 === 0 ? "bg-slate-900/70" : "bg-slate-900/35"
             } ${s.i === 0 ? "border-l-2 border-amber-500" : "border-l border-slate-800"}`}
           >
-            <span className="hud truncate text-[9px] font-bold text-slate-300">
-              PART {String(s.i + 1).padStart(2, "0")}
-            </span>
-            <span className="hud truncate text-[8px] text-slate-500">
-              {waktuHud(s.mulai)}–{waktuHud(s.mulai + s.lamanya)}
-            </span>
+            {tampilLabel && (
+              <span className="hud truncate text-[9px] font-bold text-slate-300">
+                PART {String(s.i + 1).padStart(2, "0")}
+              </span>
+            )}
+            {tampilWaktu && (
+              <span className="hud truncate text-[8px] text-slate-500">
+                {waktuHud(s.mulai)}–{waktuHud(s.mulai + s.lamanya)}
+              </span>
+            )}
           </div>
         ))}
       </div>
@@ -797,11 +806,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.1.0
+                v3.1.1
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.1.0
+              Suite video otomatis · Desktop v3.1.1
             </span>
           </span>
         </div>
@@ -876,9 +885,9 @@ export default function Halaman() {
       </header>
       <p className="mb-4 text-xs text-slate-500">
         Kotak video (maks {BATAS_VIDEO}) di modul 00 panel kanan → klik baris video → atur di
-        modul bernomor → ekspor &amp; split dari modul 09 — <b className="text-slate-400">timeline
-        split full-width di bawah layar</b> persis KINOSTRA. Klik judul modul (panah bawah/atas)
-        untuk membuka/melipat.
+        modul bernomor (2 kolom menu) → ekspor &amp; split dari modul 09 — <b
+        className="text-slate-400">timeline split full-width di bawah layar</b>. Klik judul
+        modul (panah bawah/atas) untuk membuka/melipat.
       </p>
 
       {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
@@ -902,10 +911,13 @@ export default function Halaman() {
           disentuh sama sekali — murni tata letak mode Video. */}
       {mode === "video" && (
       <div className="grid xl:h-[calc(100vh-148px)] xl:grid-rows-[minmax(0,1fr)_auto]">
-        <div className="xl:grid xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_384px]">
+        {/* v3.1.1 — PANEL KANAN 2 KOLOM (sketsa referensi: "tempat menu dan sub menu"
+            × 2 berdampingan) — kolom kiri = menu potong & teks, kolom kanan = menu
+            hiasan & ekspor. Dulu 1 kolom 384px menumpuk 14 modul → scroll panjang. */}
+        <div className="xl:grid xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(0,372px)_minmax(0,372px)]">
           {/* ============ STAGEWRAP KIRI — latarkisi 38px persis KINOSTRA ============ */}
           <section
-            className="flex min-h-0 min-w-0 flex-col gap-3 p-4 pb-6 xl:pb-2"
+            className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto p-4 pb-6 xl:pb-2"
             style={{
               backgroundImage:
                 "linear-gradient(#1c2128 1px,transparent 1px),linear-gradient(90deg,#1c2128 1px,transparent 1px)",
@@ -962,8 +974,14 @@ export default function Halaman() {
             )}
           </section>
 
-          {/* ============ PANEL KANAN 384px — deretan modul bersambung KINOSTRA ============ */}
+          {/* ============ PANEL KANAN 2 KOLOM — v3.1.1 sesuai sketsa referensi:
+              "tempat menu dan sub menu" × 2 berdampingan. Kolom 1 = POTONG & TEKS
+              (modul 00–05) · Kolom 2 = HIASAN & EKSPOR (modul 06–09 + ringkasan) */}
+          {/* ---- KOLOM 1 · MENU POTONG & TEKS ---- */}
           <aside className="panel-kino min-h-0 space-y-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
+            <p className="hud border-b border-[#1c2128] bg-[#0a0c0f] px-4 py-2 text-[9px] font-bold tracking-[0.24em] text-amber-500/90">
+              MENU · POTONG &amp; TEKS
+            </p>
             {/* ---- 00 · KOTAK VIDEO · URUTAN (playlist — persis mod 00 KINOSTRA) ---- */}
             <Kartu
               nomor="00"
@@ -1126,6 +1144,25 @@ export default function Halaman() {
                   onTerapkanSemua={terapkanFrameKeSemua}
                   nomorVideo={aktif + 1}
                 />
+              </>
+            ) : (
+              <div className="px-4 py-6">
+                <p className="hud text-center text-[10px] leading-5 tracking-[0.14em] text-slate-500">
+                  Menu pengaturan aktif setelah ada video di KOTAK VIDEO —
+                  <br />
+                  impor lewat tombol IMPOR MEDIA (kanan atas) atau seret ke layar.
+                </p>
+              </div>
+            )}
+          </aside>
+
+          {/* ---- KOLOM 2 · MENU HIASAN & EKSPOR ---- */}
+          <aside className="panel-kino min-h-0 space-y-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
+            <p className="hud border-b border-[#1c2128] bg-[#0a0c0f] px-4 py-2 text-[9px] font-bold tracking-[0.24em] text-amber-500/90">
+              MENU · HIASAN &amp; EKSPOR
+            </p>
+            {videoAktif ? (
+              <>
                 {/* v2.5.0 — menu 6 GABUNGAN: Thumbnail otomatis (global) + Background
                     intro (per video) + tombol Terapkan intro ke semua */}
                 <PanelCoverIntro
@@ -1224,11 +1261,9 @@ export default function Halaman() {
                 <PanelRiwayat />
               </>
             ) : (
-              <div className="border-b border-[#1c2128] px-4 py-6">
+              <div className="px-4 py-6">
                 <p className="hud text-center text-[10px] leading-5 tracking-[0.14em] text-slate-500">
-                  Menu pengaturan aktif setelah ada video di KOTAK VIDEO —
-                  <br />
-                  impor lewat tombol IMPOR MEDIA (kanan atas) atau seret ke layar.
+                  Menu hiasan &amp; ekspor aktif setelah ada video di KOTAK VIDEO.
                 </p>
               </div>
             )}
