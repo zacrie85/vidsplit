@@ -114,3 +114,23 @@ input[type="color"] {
 @font-face { font-family: "VDS Black Ops One"; src: url("/fonts/BlackOpsOne.ttf") format("truetype"); font-display: swap; }
 @font-face { font-family: "VDS Creepster"; src: url("/fonts/Creepster.ttf") format("truetype"); font-display: swap; }
 @font-face { font-family: "VDS Monoton"; src: url("/fonts/Monoton.ttf") format("truetype"); font-display: swap; }
+
+/* v3.1.0 — PANEL KANAN GAYA KINOSTRA (aside #panel): deretan modul bersambung —
+ * tanpa rounded, tanpa jarak antar modul, pemisah cukup border-bottom 1px,
+ * latar tembus menyatu dgn panel (#0c0e11). Persis .mod KINOSTRA. */
+.panel-kino > section {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  border-color: #1c2128;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.panel-kino > section > button:first-child {
+  padding: 13px 16px;
+}
+.panel-kino > section > span:first-child {
+  display: none;
+}

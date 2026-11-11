@@ -797,11 +797,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.0.0
+                v3.1.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.0.0
+              Suite video otomatis · Desktop v3.1.0
             </span>
           </span>
         </div>
@@ -875,10 +875,10 @@ export default function Halaman() {
         />
       </header>
       <p className="mb-4 text-xs text-slate-500">
-        Playlist video (maks {BATAS_VIDEO}) di bawah → klik kartu video → atur di menu kanan →
-        ekspor &amp; split <b className="text-slate-400">berurutan dari area timeline kiri</b>, tiap
-        potongan vertikal 9:16 + judul + Part + deskripsi + background intro. Klik judul menu
-        (panah bawah/atas) untuk membuka/melipat.
+        Kotak video (maks {BATAS_VIDEO}) di modul 00 panel kanan → klik baris video → atur di
+        modul bernomor → ekspor &amp; split dari modul 09 — <b className="text-slate-400">timeline
+        split full-width di bawah layar</b> persis KINOSTRA. Klik judul modul (panah bawah/atas)
+        untuk membuka/melipat.
       </p>
 
       {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
@@ -887,63 +887,47 @@ export default function Halaman() {
       {/* v0.25.0 — Mode Cerita: Studio Horor (AI cerita + narasi + musik + video) */}
       {mode === "horor" && <StudioHoror onKirimKeVideo={kirimKeVideo} />}
 
-      {/* v3.0.0 — LAYOUT BARU MODE VIDEO — persis gambar referensi user (wireframe):
-          KIRI BESAR = tempat video (pratinjau live) · di bawahnya tempat time line
-          (timeline split + tombol ekspor & split) · KANAN = 2 kolom tempat menu &
-          sub menu · BAWAH = tempat playlist video yang diimpor (full width).
-          Murni tata letak — SEMUA fitur, logika, mesin (POTONG LANGSUNG / KILAT GPU /
-          ffmpeg) dan mode Musik & Cerita tidak disentuh sama sekali. */}
+      {/* v3.1.0 — LAYOUT PERSIS KINOSTRA — permintaan user ('hapus semua layout yang
+          sekarang kawan, tempelkan layout kinostra sebagai gantinya — setelah itu baru
+          sesuaikan nama menu sub menu dan fungsinya'). Struktur DIJIPLAK dari
+          kinostra-desktop v3.16.0 renderer/index.html + css/kinestra.css:
+          · grid 3 baris — topbar (sudah ada) / MAIN / FOOTER TIMELINE
+          · MAIN 2 kolom — 1fr = #stagewrap KIRI (latar kisi 38px + stage hitam ber-
+            bracket 2 sudut) · 384px = aside #panel KANAN (deretan modul bernomor
+            bersambung, scroll sendiri)
+          · KOTAK VIDEO (playlist) = modul 00 DI PALING ATAS PANEL — bukan strip bawah
+          · FOOTER = TIMELINE SPLIT full-width + meta, persis <footer> KINOSTRA
+          Isi tiap modul = fungsi asli VidSplit (nama menu VidSplit dipertahankan).
+          Mode Musik & Cerita dan mesin (POTONG LANGSUNG / KILAT GPU / ffmpeg) tidak
+          disentuh sama sekali — murni tata letak mode Video. */}
       {mode === "video" && (
-      <>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">
-          {/* ============ KIRI: TEMPAT VIDEO (atas) + TEMPAT TIME LINE (bawah) ============ */}
-          <div className="space-y-4">
+      <div className="grid xl:h-[calc(100vh-148px)] xl:grid-rows-[minmax(0,1fr)_auto]">
+        <div className="xl:grid xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_384px]">
+          {/* ============ STAGEWRAP KIRI — latarkisi 38px persis KINOSTRA ============ */}
+          <section
+            className="flex min-h-0 min-w-0 flex-col gap-3 p-4 pb-6 xl:pb-2"
+            style={{
+              backgroundImage:
+                "linear-gradient(#1c2128 1px,transparent 1px),linear-gradient(90deg,#1c2128 1px,transparent 1px)",
+              backgroundSize: "38px 38px",
+            }}
+          >
             {videoAktif ? (
-              <>
-                <Kartu
-                  judul="Pratinjau live"
-                  deskripsi={`Video #${aktif + 1} — ${videoAktif.info.nama}`}
-                  ikon={<MonitorPlay className="h-4 w-4" />}
-                >
-                  {/* bingkai kurung sudut oranye gaya KINOSTRA */}
-                  <div className="relative">
-                    <span aria-hidden className="bracket bracket-tl" />
-                    <span aria-hidden className="bracket bracket-tr" />
-                    <span aria-hidden className="bracket bracket-bl" />
-                    <span aria-hidden className="bracket bracket-br" />
-                    <Preview
-                      srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
-                      pengaturan={videoAktif.pengaturan}
-                      durasi={videoAktif.info.durasi}
-                      lebar={videoAktif.info.lebar}
-                      tinggi={videoAktif.info.tinggi}
-                      totalPart={
-                        videoAktif.pengaturan.modeSplit === "adegan"
-                          ? 0 // jumlah adegan dipastikan saat ekspor (analisis AI)
-                          : Math.max(
-                              1,
-                              hitungPartV2(
-                                videoAktif.info.durasi,
-                                videoAktif.pengaturan,
-                                videoAktif.pengaturan.mulaiDetik,
-                                videoAktif.pengaturan.akhirDetik,
-                                videoAktif.pengaturan.zonaHapus || [],
-                              ),
-                            )
-                      }
-                    />
-                  </div>
-                </Kartu>
-
-                {/* v3.0.0 — TEMPAT TIME LINE: timeline split dipromosikan jadi kartu
-                    sendiri (dulu menempel di kartu pratinjau) — persis strip
-                    "time line dan di export dan split" di gambar referensi */}
-                <Kartu
-                  judul="Timeline split"
-                  deskripsi={
+              <div className="relative mx-auto w-fit">
+                <span aria-hidden className="bracket bracket-tl" />
+                <span aria-hidden className="bracket bracket-br" />
+                <Preview
+                  srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
+                  pengaturan={videoAktif.pengaturan}
+                  durasi={videoAktif.info.durasi}
+                  lebar={videoAktif.info.lebar}
+                  tinggi={videoAktif.info.tinggi}
+                  // v3.1.0 — stage KINOSTRA: bingkai potret muat antara topbar & footer
+                  tinggiPotret="min(calc(100vh - 400px), 760px)"
+                  totalPart={
                     videoAktif.pengaturan.modeSplit === "adegan"
-                      ? "Mode adegan — potongan ditentukan analisis adegan saat ekspor"
-                      : `Pratinjau ${Math.max(
+                      ? 0 // jumlah adegan dipastikan saat ekspor (analisis AI)
+                      : Math.max(
                           1,
                           hitungPartV2(
                             videoAktif.info.durasi,
@@ -952,66 +936,156 @@ export default function Halaman() {
                             videoAktif.pengaturan.akhirDetik,
                             videoAktif.pengaturan.zonaHapus || [],
                           ),
-                        )} potongan — diekspor dari panel di bawah`
+                        )
                   }
-                  ikon={<Scissors className="h-4 w-4" />}
-                >
-                  {videoAktif.pengaturan.modeSplit !== "adegan" ? (
-                    <GarisWaktuSplit
-                      pengaturan={videoAktif.pengaturan}
-                      durasiVideo={videoAktif.info.durasi}
-                      totalPart={Math.max(
-                        1,
-                        hitungPartV2(
-                          videoAktif.info.durasi,
-                          videoAktif.pengaturan,
-                          videoAktif.pengaturan.mulaiDetik,
-                          videoAktif.pengaturan.akhirDetik,
-                          videoAktif.pengaturan.zonaHapus || [],
-                        ),
-                      )}
-                    />
-                  ) : (
-                    <p className="rounded-xl border border-dashed border-slate-700 bg-slate-800/30 px-4 py-6 text-center text-sm text-slate-500">
-                      Timeline tidak dipakai pada mode adegan — jumlah part ditentukan
-                      analisis adegan otomatis saat ekspor.
-                    </p>
-                  )}
-                </Kartu>
-
-                {/* tombol EKSPOR & SPLIT — satu area dgn timeline, persis referensi */}
-                <PanelEkspor
-                  daftar={daftar.map((v) => ({
-                    file: v.info.file,
-                    nama: v.info.nama,
-                    durasi: v.info.durasi,
-                    pengaturan: v.pengaturan,
-                    // v2.9.0 — info sumber utk MESIN KILAT (WebCodecs renderer)
-                    ukuran: v.info.ukuran,
-                    lebar: v.info.lebar,
-                    tinggi: v.info.tinggi,
-                    fps: v.info.fps,
-                    adaAudio: v.info.adaAudio,
-                  }))}
-                  opsiEkspor={opsiEkspor}
-                  onOpsiEkspor={setOpsiEkspor}
                 />
-              </>
+              </div>
             ) : (
-              <Kartu
-                judul="Pratinjau live"
-                deskripsi="Masukkan video lewat tombol Impor media (kanan atas) atau tempat playlist di bawah"
-                ikon={<MonitorPlay className="h-4 w-4" />}
-              >
-                <p className="rounded-xl border border-dashed border-slate-700 bg-slate-800/30 px-4 py-10 text-center text-sm text-slate-500">
-                  Tempat video &amp; timeline akan muncul di sini begitu ada video di playlist.
-                </p>
-              </Kartu>
+              <div className="relative m-auto flex aspect-video w-full max-w-[880px] flex-col items-center justify-center gap-3 border border-[#28303a] bg-black px-6">
+                <span aria-hidden className="bracket bracket-tl" />
+                <span aria-hidden className="bracket bracket-br" />
+                <span className="hud text-[12px] tracking-[0.24em] text-slate-600">
+                  Menunggu media
+                </span>
+                <span className="hud text-[11px] tracking-[0.22em] text-slate-700">
+                  Impor MP4 · MKV · TS · WebM
+                </span>
+                <JatuhBerkas
+                  terima="video/*,.ts"
+                  onFile={unggahVideo}
+                  hint={`Klik atau seret file ke sini — maks ${BATAS_VIDEO} video, maks 20 GB per video`}
+                  sibuk={sibukVideo}
+                  multiple
+                  bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
+                />
+              </div>
             )}
-          </div>
+          </section>
 
-          {/* ============ KANAN: TEMPAT MENU & SUB MENU (2 KOLOM) ============ */}
-          <div className="space-y-4">
+          {/* ============ PANEL KANAN 384px — deretan modul bersambung KINOSTRA ============ */}
+          <aside className="panel-kino min-h-0 space-y-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
+            {/* ---- 00 · KOTAK VIDEO · URUTAN (playlist — persis mod 00 KINOSTRA) ---- */}
+            <Kartu
+              nomor="00"
+              judul="Kotak video · urutan"
+              deskripsi="Semua video yang diimpor masuk ke sini — urutan atas → bawah = urutan proses. Klik baris untuk menonton & mengatur."
+              ikon={<ListVideo className="h-4 w-4" />}
+            >
+              {daftar.length === 0 ? (
+                <JatuhBerkas
+                  terima="video/*,.ts"
+                  onFile={unggahVideo}
+                  hint={`MP4, MOV, MKV, AVI, WebM, TS — maks ${BATAS_VIDEO} video, maks 20 GB per video`}
+                  sibuk={sibukVideo}
+                  multiple
+                  bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
+                />
+              ) : (
+                <div className="space-y-2">
+                  {/* daftar vertikal persis .qlist KINOSTRA (maks-h 296, scroll) */}
+                  <ul className="max-h-[296px] space-y-1 overflow-y-auto pr-0.5">
+                    {daftar.map((v, i) => (
+                      <li
+                        key={`${v.info.file}-${i}`}
+                        className={`flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition ${
+                          i === aktif
+                            ? "border-amber-500/60 bg-amber-500/10 shadow-[inset_2px_0_0_#f59e0b]"
+                            : "border-[#1c2128] bg-[#08090c] hover:border-[#28303a]"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setAktif(i)}
+                          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                        >
+                          <span
+                            className={`hud w-5 shrink-0 text-right text-[10px] font-bold ${
+                              i === aktif ? "text-amber-500" : "text-slate-500"
+                            }`}
+                          >
+                            {String(i + 1).padStart(2, "0")}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-[12px] text-slate-100">
+                              {v.info.nama}
+                            </span>
+                            <span
+                              className="hud block truncate text-[9px] tracking-[0.06em] text-slate-500"
+                              title={`${formatDurasi(v.info.durasi)} · ${v.info.lebar}×${v.info.tinggi} · ${Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))} part${v.pengaturan.judul ? ` · "${v.pengaturan.judul}"` : ""}${v.pengaturan.introAktif ? " · intro frame video" : ""}${v.logoInfo ? " · dgn logo" : ""}`}
+                            >
+                              {formatDurasi(v.info.durasi)} · {v.info.lebar}×{v.info.tinggi} ·{" "}
+                              {Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))}{" "}
+                              part
+                              {v.pengaturan.judul ? ` · "${v.pengaturan.judul.slice(0, 24)}"` : ""}
+                              {v.pengaturan.introAktif ? " · intro" : ""}
+                              {v.logoInfo ? " · logo" : ""}
+                            </span>
+                          </span>
+                        </button>
+                        <span className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => pindahVideo(i, -1)}
+                            disabled={i === 0}
+                            title="Naikkan urutan"
+                            className="rounded border border-[#28303a] bg-[#101318] p-1 text-slate-400 transition hover:border-amber-500 hover:text-amber-400 disabled:opacity-30"
+                          >
+                            <ArrowUp className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => pindahVideo(i, 1)}
+                            disabled={i === daftar.length - 1}
+                            title="Turunkan urutan"
+                            className="rounded border border-[#28303a] bg-[#101318] p-1 text-slate-400 transition hover:border-amber-500 hover:text-amber-400 disabled:opacity-30"
+                          >
+                            <ArrowDown className="h-3 w-3" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => hapusVideo(i)}
+                            title="Hapus dari kotak"
+                            className="rounded border border-[#28303a] bg-[#101318] p-1 text-slate-400 transition hover:border-red-500 hover:text-red-400"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center gap-2">
+                    {daftar.length < BATAS_VIDEO && (
+                      <div className="min-w-0 flex-1">
+                        <JatuhBerkas
+                          terima="video/*,.ts"
+                          onFile={unggahVideo}
+                          hint={`TAMBAH VIDEO… — sisa ${BATAS_VIDEO - daftar.length} slot`}
+                          sibuk={sibukVideo}
+                          multiple
+                          bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
+                        />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDaftar([]);
+                        setAktif(0);
+                      }}
+                      title="Kosongkan kotak"
+                      className="flex-none rounded border border-[#28303a] bg-[#101318] p-2 text-slate-400 transition hover:border-red-500 hover:text-red-400"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <p className="hud text-[9px] tracking-[0.1em] text-slate-500">
+                    {daftar.length} video dalam kotak · {totalPart} part ·{" "}
+                    {formatDurasi(totalDurasi)}
+                  </p>
+                </div>
+              )}
+            </Kartu>
+
             {videoAktif ? (
               <>
                 <PanelMode
@@ -1044,36 +1118,6 @@ export default function Halaman() {
                   tinggiVideo={videoAktif.info.tinggi}
                   onTerapkanUkuran={() => terapkanUkuranSemua("deskripsi")}
                 />
-                <PanelPembicara
-                  pengaturan={videoAktif.pengaturan}
-                  onChange={gantiPengaturanAktif}
-                  nomorVideo={aktif + 1}
-                />
-                <PanelBacksound
-                  pengaturan={videoAktif.pengaturan}
-                  onChange={gantiPengaturanAktif}
-                  nomorVideo={aktif + 1}
-                  onUnggahAudio={(f) => void unggahBacksound(f)}
-                  onPilihAudioDesktop={diDesktop ? pilihAudioDesktop : undefined}
-                  unggahSibuk={sibukBacksound}
-                />
-              </>
-            ) : (
-              <Kartu
-                judul="Menu pengaturan"
-                deskripsi="Aktif setelah ada video di playlist bawah"
-                ikon={<SlidersHorizontal className="h-4 w-4" />}
-              >
-                <p className="rounded-xl border border-dashed border-slate-700 bg-slate-800/30 px-4 py-8 text-center text-sm text-slate-500">
-                  Semua menu &amp; sub menu tampil di dua kolom ini — pilih dulu video di
-                  playlist bawah.
-                </p>
-              </Kartu>
-            )}
-          </div>
-          <div className="space-y-4">
-            {videoAktif && (
-              <>
                 <PanelFrame
                   pengaturan={videoAktif.pengaturan}
                   onChange={gantiPengaturanAktif}
@@ -1081,14 +1125,6 @@ export default function Halaman() {
                   frameSibuk={sibukFrame}
                   onTerapkanSemua={terapkanFrameKeSemua}
                   nomorVideo={aktif + 1}
-                />
-                <PanelSubtitle
-                  pengaturan={videoAktif.pengaturan}
-                  onChange={gantiPengaturanAktif}
-                  nomorVideo={aktif + 1}
-                  onTerapkanSemua={terapkanSubtitleSemua}
-                  fileRel={videoAktif.info.file}
-                  adaAudio={videoAktif.info.adaAudio}
                 />
                 {/* v2.5.0 — menu 6 GABUNGAN: Thumbnail otomatis (global) + Background
                     intro (per video) + tombol Terapkan intro ke semua */}
@@ -1136,6 +1172,44 @@ export default function Halaman() {
                   nomorVideo={aktif + 1}
                   bukaDialog={diDesktop ? pilihLogoDesktop : undefined}
                 />
+                <PanelSubtitle
+                  pengaturan={videoAktif.pengaturan}
+                  onChange={gantiPengaturanAktif}
+                  nomorVideo={aktif + 1}
+                  onTerapkanSemua={terapkanSubtitleSemua}
+                  fileRel={videoAktif.info.file}
+                  adaAudio={videoAktif.info.adaAudio}
+                />
+                {/* v2.0.0 — ZOOM PEMBICARA OTOMATIS + BACKSOUND MUSIK SENDIRI */}
+                <PanelPembicara
+                  pengaturan={videoAktif.pengaturan}
+                  onChange={gantiPengaturanAktif}
+                  nomorVideo={aktif + 1}
+                />
+                <PanelBacksound
+                  pengaturan={videoAktif.pengaturan}
+                  onChange={gantiPengaturanAktif}
+                  nomorVideo={aktif + 1}
+                  onUnggahAudio={(f) => void unggahBacksound(f)}
+                  onPilihAudioDesktop={diDesktop ? pilihAudioDesktop : undefined}
+                  unggahSibuk={sibukBacksound}
+                />
+                <PanelEkspor
+                  daftar={daftar.map((v) => ({
+                    file: v.info.file,
+                    nama: v.info.nama,
+                    durasi: v.info.durasi,
+                    pengaturan: v.pengaturan,
+                    // v2.9.0 — info sumber utk MESIN KILAT (WebCodecs renderer)
+                    ukuran: v.info.ukuran,
+                    lebar: v.info.lebar,
+                    tinggi: v.info.tinggi,
+                    fps: v.info.fps,
+                    adaAudio: v.info.adaAudio,
+                  }))}
+                  opsiEkspor={opsiEkspor}
+                  onOpsiEkspor={setOpsiEkspor}
+                />
                 <PanelRingkasan
                   pengaturan={videoAktif.pengaturan}
                   durasiVideo={videoAktif.info.durasi}
@@ -1149,133 +1223,48 @@ export default function Halaman() {
                 />
                 <PanelRiwayat />
               </>
-            )}
-          </div>
-        </div>
-
-        {/* ============ BAWAH: TEMPAT PLAYLIST VIDEO YANG DIIMPOR ============ */}
-        <div className="mt-4">
-          <Kartu
-            nomor="00"
-            judul="Playlist video yang diimpor · urutan"
-            deskripsi="Urutan di sini = urutan proses ekspor (kiri → kanan). Klik kartu video untuk mengaturnya di menu kanan."
-            ikon={<ListVideo className="h-4 w-4" />}
-          >
-            {daftar.length === 0 ? (
-              <JatuhBerkas
-                terima="video/*,.ts"
-                onFile={unggahVideo}
-                hint={`MP4, MOV, MKV, AVI, WebM, TS — maks ${BATAS_VIDEO} video, maks 20 GB per video`}
-                sibuk={sibukVideo}
-                multiple
-                bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
-              />
             ) : (
-              <div className="space-y-2">
-                {/* v3.0.0 — playlist jadi strip bawah full width: kartu per video
-                    mengalir kiri → kanan (urutan ekspor), scroll internal kalau ramai */}
-                <ul className="grid max-h-[420px] gap-2 overflow-y-auto pr-0.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-                  {daftar.map((v, i) => (
-                    <li
-                      key={`${v.info.file}-${i}`}
-                      className={`flex flex-col gap-2 rounded-xl border px-3 py-2.5 transition ${
-                        i === aktif
-                          ? "border-amber-400/70 bg-amber-400/10"
-                          : "border-slate-700/60 bg-slate-800/50 hover:border-slate-500"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setAktif(i)}
-                        className="min-w-0 text-left"
-                      >
-                        <span className="mb-1 flex items-center gap-2">
-                          <span
-                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-[11px] font-bold ${
-                              i === aktif
-                                ? "bg-amber-400 text-slate-900"
-                                : "bg-slate-700 text-slate-300"
-                            }`}
-                          >
-                            {i + 1}
-                          </span>
-                          <span className="truncate text-sm text-slate-100">
-                            {v.info.nama}
-                          </span>
-                        </span>
-                        <span
-                          className="block truncate text-[11px] text-slate-400"
-                          title={`${formatDurasi(v.info.durasi)} · ${v.info.lebar}×${v.info.tinggi} · ${Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))} part${v.pengaturan.judul ? ` · "${v.pengaturan.judul}"` : ""}${v.pengaturan.introAktif ? " · intro frame video" : ""}${v.logoInfo ? " · dgn logo" : ""}`}
-                        >
-                          {formatDurasi(v.info.durasi)} · {v.info.lebar}×{v.info.tinggi} ·{" "}
-                          {Math.max(1, Math.ceil(v.info.durasi / Math.max(1, v.pengaturan.durasiPart)))}{" "}
-                          part
-                          {v.pengaturan.judul ? ` · "${v.pengaturan.judul.slice(0, 24)}"` : ""}
-                          {v.pengaturan.introAktif ? " · intro" : ""}
-                          {v.logoInfo ? " · logo" : ""}
-                        </span>
-                      </button>
-                      <span className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => pindahVideo(i, -1)}
-                          disabled={i === 0}
-                          title="Naikkan urutan"
-                          className="rounded-md border border-slate-600 p-1 text-slate-400 transition hover:border-amber-400 hover:text-amber-300 disabled:opacity-30"
-                        >
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => pindahVideo(i, 1)}
-                          disabled={i === daftar.length - 1}
-                          title="Turunkan urutan"
-                          className="rounded-md border border-slate-600 p-1 text-slate-400 transition hover:border-amber-400 hover:text-amber-300 disabled:opacity-30"
-                        >
-                          <ArrowDown className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => hapusVideo(i)}
-                          title="Hapus dari antrean"
-                          className="ml-auto rounded-md border border-slate-600 p-1 text-slate-400 transition hover:border-red-400 hover:text-red-300"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-                {daftar.length < BATAS_VIDEO && (
-                  <JatuhBerkas
-                    terima="video/*,.ts"
-                    onFile={unggahVideo}
-                    hint={`Tambah lagi — sisa ${BATAS_VIDEO - daftar.length} slot`}
-                    sibuk={sibukVideo}
-                    multiple
-                    bukaDialog={diDesktop ? pilihVideoDesktop : undefined}
-                  />
-                )}
-                <p className="flex items-center gap-1.5 text-[11px] text-slate-500">
-                  <Info className="h-3 w-3 shrink-0" />
-                  Total {daftar.length} video · {totalPart} part ·{" "}
-                  {formatDurasi(totalDurasi)} video sumber. Klik video lalu atur di menu kanan.
+              <div className="border-b border-[#1c2128] px-4 py-6">
+                <p className="hud text-center text-[10px] leading-5 tracking-[0.14em] text-slate-500">
+                  Menu pengaturan aktif setelah ada video di KOTAK VIDEO —
+                  <br />
+                  impor lewat tombol IMPOR MEDIA (kanan atas) atau seret ke layar.
                 </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDaftar([]);
-                    setAktif(0);
-                  }}
-                  className="w-full rounded-xl border border-slate-700 py-2 text-xs text-slate-400 hover:border-slate-500 hover:text-slate-200"
-                >
-                  Bersihkan antrean
-                </button>
               </div>
             )}
-          </Kartu>
+          </aside>
         </div>
-      </>
+
+        {/* ============ FOOTER TIMELINE SPLIT — full width, persis <footer> KINOSTRA ============ */}
+        <footer className="min-h-0 border-t border-[#1c2128] bg-[#0c0e11] px-4 py-2.5">
+          <div className="min-h-0 flex-1">
+            {videoAktif && videoAktif.pengaturan.modeSplit !== "adegan" ? (
+              <GarisWaktuSplit
+                pengaturan={videoAktif.pengaturan}
+                durasiVideo={videoAktif.info.durasi}
+                totalPart={Math.max(
+                  1,
+                  hitungPartV2(
+                    videoAktif.info.durasi,
+                    videoAktif.pengaturan,
+                    videoAktif.pengaturan.mulaiDetik,
+                    videoAktif.pengaturan.akhirDetik,
+                    videoAktif.pengaturan.zonaHapus || [],
+                  ),
+                )}
+              />
+            ) : (
+              <div className="flex h-full min-h-[64px] items-center justify-center border border-[#1c2128] bg-[#08090c]">
+                <span className="hud text-[10px] tracking-[0.2em] text-slate-600">
+                  {videoAktif
+                    ? "Timeline tidak dipakai pada mode adegan"
+                    : "Menunggu media"}
+                </span>
+              </div>
+            )}
+          </div>
+        </footer>
+      </div>
       )}
 
       <footer className="mt-12 text-center text-[11px] text-slate-600">

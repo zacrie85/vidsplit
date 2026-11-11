@@ -16,6 +16,7 @@ export function Preview({
   totalPart,
   lebar = 0,
   tinggi = 0,
+  tinggiPotret,
 }: {
   srcUrl: string;
   pengaturan: Pengaturan;
@@ -24,6 +25,10 @@ export function Preview({
   /** dimensi sumber — dipakai mode "asli" agar pratinjau ikut rasio aslinya */
   lebar?: number;
   tinggi?: number;
+  /** v3.1.0 — tinggi bingkai potret (9:16) — dipakai stage KINOSTRA agar pratinjau
+   *  muat di antara topbar & footer timeline (dulu min(76vh,1500px) membuatnya
+   *  meluber menembus footer bila layar pendek). Tidak diisi = perilaku lama. */
+  tinggiPotret?: string;
 }) {
   const refV = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
@@ -238,7 +243,7 @@ export function Preview({
           className="relative overflow-hidden rounded-xl border border-slate-700/70 bg-black shadow-2xl shadow-black/50"
           style={
             potret
-              ? { containerType: "inline-size", aspectRatio: rasioBingkai, height: "min(76vh, 1500px)" }
+              ? { containerType: "inline-size", aspectRatio: rasioBingkai, height: tinggiPotret ?? "min(76vh, 1500px)" }
               : { containerType: "inline-size", aspectRatio: rasioBingkai }
           }
         >
