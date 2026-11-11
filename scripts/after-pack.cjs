@@ -5,6 +5,28 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+/**
+ * v2.9.0 — filter cpSync salinan standalone: relatif thd AKAR standalone.
+ * Terima folder "assets" agar traversal lanjut, tolak subfoldernya kecuali
+ * fonts; tolak work/ seluruhnya. Diekspor juga utk uji terisolasi.
+ */
+function filterBundel(akarStandalone) {
+  return function (src) {
+    const rel = path.relative(akarStandalone, src);
+    if (rel === "") return true; // akar
+    if (rel === "work" || rel.startsWith(`work${path.sep}`)) return false;
+    if (rel === "assets" || rel.startsWith(`assets${path.sep}`)) {
+      return (
+        rel === "assets" ||
+        rel === path.join("assets", "fonts") ||
+        rel === path.join("assets", "LISENSI-FONT.txt") ||
+        rel.startsWith(path.join("assets", "fonts") + path.sep)
+      );
+    }
+    return true;
+  };
+}
+
 exports.default = async function afterPack(context) {
   if (context.electronPlatformName !== "win32") return;
 
@@ -23,8 +45,27 @@ exports.default = async function afterPack(context) {
   // bersihkan salinan lama (dari extraResources / build sebelumnya)
   fs.rmSync(tujuanServer, { recursive: true, force: true });
 
-  // salin SELURUH isi standalone apa adanya (node_modules + .next + server.js ikut)
-  fs.cpSync(sumberStandalone, tujuanServer, { recursive: true, dereference: true });
+  // v2.9.0 — LAPIS ANTI-BOLOM: salin standalone TANPA berkas yang TIDAK dipakai
+  // aplikasi ter-install — dulu tersalin apa adanya dan menaikkan installer
+  // hingga ±1.2 GB. Yang dibuang dari salinan:
+  //   .next/standalone/work/        → folder kerja RUNTIME (output/upload/musik/
+  //                                   sampel/analisis-vokal) bekas uji build —
+  //                                   dibuat ulang otomatis oleh server saat jalan.
+  //   .next/standalone/assets/*     → salinan GANDA aset bundel (vokal-ai 64 MB,
+  //                                   tts-piper 99 MB, musik-horor 13 MB, hantu
+  //                                   8 MB, hantu-real 5 MB, ai-models ±200-300 MB
+  //                                   di CI): server selalu membaca semuanya dari
+  //                                   process.resourcesPath (resources/) lewat
+  //                                   extraResources — BUKAN dari server/assets.
+  //   HANYA assets/fonts (+ LISENSI-FONT.txt) dipertahankan di salinan server —
+  //   itu fallback PERTAMA pencarian font drawtext libass di ffmpeg.ts
+  //   (path.join(cwd,"assets","fonts") dgn cwd = resources/server).
+  fs.cpSync(sumberStandalone, tujuanServer, {
+    recursive: true,
+    dereference: true,
+    filter: filterBundel(sumberStandalone),
+  });
+  console.log("[afterPack] lapis anti-bolom: work/ + duplikat aset (vokal-ai, tts-piper, musik-horor, hantu*, ai-models) tidak ikut ke installer — font tetap di server/assets/fonts");
 
   // server.js bisa di root (CI: proyek = workspace root) atau nested vidsplit/ (sandbox/monorepo)
   const target = fs.existsSync(path.join(tujuanServer, "server.js"))
@@ -134,3 +175,6 @@ exports.default = async function afterPack(context) {
 
   console.log(`[afterPack] server terkemas utuh di ${target} (server.js + node_modules + .next + public)`);
 };
+
+// dipakai scripts/uji-afterpack-filter.cjs — uji terisolasi lapis anti-bolom
+exports.filterBundel = filterBundel;
