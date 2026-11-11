@@ -34,7 +34,7 @@ jobs:
           $zip = "whisper-bin-x64.zip"
           for ($i = 1; $i -le 5; $i++) {
             try {
-              Invoke-WebRequest -Uri "https://github.com/ggml-org/whisper.cpp/releases/download/$tag/$zip" -OutFile $zip -TimeoutSec 600
+              Invoke-WebRequest -Uri "https://github.com/ggml-org/whisper.cpp/releases/download/${tag}/${zip}" -OutFile $zip -TimeoutSec 600
               break
             } catch {
               if ($i -eq 5) { throw "Gagal unduh whisper-cli: $_" }
@@ -56,7 +56,7 @@ jobs:
                 Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$m-q5_1.bin" -OutFile $target -TimeoutSec 1800
                 break
               } catch {
-                if ($i -eq 5) { throw "Gagal unduh model $m: $_" }
+                if ($i -eq 5) { throw "Gagal unduh model ${m}: $_" }
                 Start-Sleep -Seconds 20
               }
             }
