@@ -5,8 +5,25 @@ import path from "node:path";
 import { teksSiapGambar, bungkusTeks } from "./bungkus";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import type { CodecVideo, GayaTeks, ModeKonversi, NamaFont, Pengaturan } from "./types";
-import { DURASI_TRANSISI, rapikanKecepatan, posisiTeksBlok, rapikanPosisiXY, rapikanPosisiY } from "./types";
+import { DURASI_ANIMASI_TEKS, DURASI_TRANSISI, rapikanKecepatan, posisiTeksBlok, rapikanPosisiXY, rapikanPosisiY } from "./types";
+import type { AnimasiTeks } from "./types";
 import { rantaiPembicara, type Keyframe } from "./pembicara";
+// v3.3.0 — MESIN EFEK NOVACUT: 28 transisi (xfade) + 20 efek klip (rantai filter)
+import { planEffects, getTransition, OVERLAY_EFFECTS as OVERLAY_NAMA } from "./efekNovacut";
+
+/** v3.3.0 — path folder overlay efek (scanline/spotlight/flare). Kandidat env
+ *  VIDSPLIT_EFEK + lokasi bawaan (assets/efek-novacut di dev, resources/ di paket). */
+export function dirOverlayEfek(): string {
+  const kandidat = [
+    process.env.VIDSPLIT_EFEK,
+    path.join(process.cwd(), "assets", "efek-novacut"),
+    path.join(process.cwd(), "..", "assets", "efek-novacut"),
+    path.join(process.cwd(), "..", "..", "assets", "efek-novacut"),
+    path.join((process as unknown as { resourcesPath?: string }).resourcesPath ?? "", "efek-novacut"),
+  ].filter(Boolean) as string[];
+  for (const d of kandidat) if (existsSync(path.join(d, "scanline.png"))) return d;
+  return kandidat[1] ?? "assets/efek-novacut";
+}
 
 export const ROOT_WORK = process.env.VIDSPLIT_WORK
   ? path.resolve(process.env.VIDSPLIT_WORK)
@@ -529,6 +546,39 @@ function rantaiTeks(
     x === 50
       ? "(w-text_w)/2"
       : `'min(max(0,W*${Number(x.toFixed(2))}/100-text_w/2),W-text_w)'`;
+  // v3.3.0 — ANIMASI MASUK TEKS (8 gaya): drawtext alpha/x/y ekspresi waktu.
+  // p = min(t/D,1) progres; semua ekspresi dikutip (berisi koma). Mati → null.
+  const anim = (p.animasiTeks ?? "") as AnimasiTeks;
+  const D = DURASI_ANIMASI_TEKS;
+  const prog = `min(t/${D.toFixed(2)},1)`;
+  const animAlpha: Record<string, string> = {
+    fade: prog,
+    naik: prog,
+    turun: prog,
+    "geser-kiri": prog,
+    "geser-kanan": prog,
+    neon: `min(${prog}*1.6,1)*(0.78+0.22*abs(sin(t*9)))`,
+    denyut: `${prog}*(0.85+0.15*sin(t*8))`,
+    slam: "min(t/0.15,1)",
+  };
+  const animY = (yPx: number): string => {
+    switch (anim) {
+      case "naik": return `'${Math.round(yPx)}+(1-${prog})*${(H * 0.06).toFixed(1)}'`;
+      case "turun": return `'${Math.round(yPx)}-(1-${prog})*${(H * 0.06).toFixed(1)}'`;
+      case "slam": return `'${Math.round(yPx)}-(1-pow(1-${prog.replace("t/" + D.toFixed(2), "t/0.45")},3))*${(H * 0.12).toFixed(1)}'`;
+      default: return String(Math.round(yPx));
+    }
+  };
+  const animX = (xExpr: string): string => {
+    if (anim === "geser-kiri") return `'(${xExpr})+(1-${prog})*${(W * 0.18).toFixed(1)}'`;
+    if (anim === "geser-kanan") return `'(${xExpr})-(1-${prog})*${(W * 0.18).toFixed(1)}'`;
+    return xExpr;
+  };
+  const animOpsi = (): string => {
+    const a = animAlpha[anim];
+    return a ? `:alpha='${a}'` : "";
+  };
+
   const opsiDasar = (
     fontsize: number,
     warna: string,
@@ -541,7 +591,9 @@ function rantaiTeks(
     if (outline.outlineLebar > 0) {
       s += `:borderw=${Math.max(1, Math.round(outline.outlineLebar * skala))}:bordercolor=${warnaFf(outline.outlineWarna)}`;
     }
-    s += `:x=${xExpr}:y=${Math.round(y)}`;
+    s += `:x=${xExpr}`;
+    // v3.3.0 — y TIDAK di sini: pemanggil menyisipkan :y= (ekspresi animasi ATAU
+    // angka statis) setelah opsiDasar
     if (ff) s += `:fontfile=${kutipFilter(ff)}`;
     // v0.58.0 — expansion=none: teks user berisi "%{" dulu membuat parser drawtext
     // gagal → seluruh part kena galat samar (aplikasi tak memakai fungsi %{...})
@@ -551,14 +603,17 @@ function rantaiTeks(
 
   if (teksJ.trim()) {
     const ffJ = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
+    // v3.3.0 — animasi: y/x berubah jadi ekspresi + alpha (mati → persis lama)
     bagian.push(
-      `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ, ekspresiX(xJ))}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
+      `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ, animX(ekspresiX(xJ)))}` +
+        `${animOpsi()}:y=${animY(yJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
     );
   }
   if (teksP.trim()) {
     const ffP = fontfile(p.gayaPart) || fontfile(p.gayaJudul);
     bagian.push(
-      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP, ekspresiX(xP))}:line_spacing=${(uP * 0.3).toFixed(1)}`,
+      `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP, animX(ekspresiX(xP)))}` +
+        `${animOpsi()}:y=${animY(yP)}:line_spacing=${(uP * 0.3).toFixed(1)}`,
     );
   }
   // v0.39.0 — deskripsi posisi BEBAS (persen frame): X = tengah blok teks,
@@ -694,6 +749,11 @@ export interface ArgPart {
    *  sini) + label "Part/Bagian/Episode NN". Kosong = tanpa teks itu. */
   introJudulTxt?: string;
   introLabelTxt?: string;
+  /** v3.3.0 — TRANSISI NOVACUT ANTAR PART: ekor part SEBELUMNYA diambil dari
+   *  SUMBER (mulaiPrev = detik sumber awal ekor, durasi = detik OUTPUT) lalu
+   *  dilebur xfade dgn kepala part ini — transisi silang sungguhan ala
+   *  KolosalCut/NOVACUT. null / part pertama = tanpa transisi. */
+  transisiMasuk?: { id: string; durasi: number; mulaiPrev: number; srcPrev?: string } | null;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -1092,6 +1152,66 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     }
   }
 
+  // v3.3.0 — EFEK KLIP NOVACUT + TRANSISI ANTAR PART (xfade antar ekor part
+  // sebelumnya & kepala part ini). Dijalankan SETELAH semua lapisan lain
+  // (kecepatan/transisiPart lama) sehingga seluruh gambar ikut ter efek,
+  // dan label [vout] selalu kembali utk -map.
+  // Indeks input overlay & transisi berlanjut SETELAH input suara intro
+  // (paling akhir) → indeks lama tidak pernah bergeser.
+  const inputEfekOv: string[] = [];
+  const inputTransisi: string[] = [];
+  const idxEkorBaru = pakaiSuaraIntro ? idxSuaraIntro + 1 : dasarAkhir;
+  const planEfek = p.efekKlip && p.efekKlip.length ? planEffects(p.efekKlip, W, H, a.durasi, fps) : null;
+  if (planEfek) {
+    const idxAkhir = filterVideo.length - 1;
+    filterVideo[idxAkhir] = filterVideo[idxAkhir].replace("[vout]", "[fx0]");
+    filterVideo.push(...planEfek.fragments);
+    let lblFx = planEfek.labelOut;
+    let jumlahOv = 0;
+    for (const id of planEfek.overlays) {
+      const file = path.join(dirOverlayEfek(), OVERLAY_NAMA[id] ?? "");
+      if (!file || !existsSync(file)) continue;
+      inputEfekOv.push("-loop", "1", "-i", file);
+      const idxOv = idxEkorBaru + jumlahOv;
+      jumlahOv++;
+      filterVideo.push(`[${idxOv}:v]scale=${W}:${H}[ovf${jumlahOv}]`);
+      filterVideo.push(`[${lblFx}][ovf${jumlahOv}]overlay=0:0[ovx${jumlahOv}]`);
+      lblFx = `ovx${jumlahOv}`;
+    }
+    filterVideo.push(`[${lblFx}]format=yuv420p[vout]`);
+  }
+  const infoTrans = (() => {
+    const t = p.efekTransisi ? getTransition(p.efekTransisi) : null;
+    if (!t || !a.transisiMasuk) return null;
+    const d = Math.min(1.5, Math.max(0.2, Number(a.transisiMasuk.durasi) || 0.6));
+    if (a.transisiMasuk.mulaiPrev < 0 || d <= 0.05 || d >= total - 0.05) return null;
+    return { xfade: t.xfade, d, mulaiPrev: Math.max(0, a.transisiMasuk.mulaiPrev) };
+  })();
+  if (infoTrans) {
+    const idxAkhir = filterVideo.length - 1;
+    filterVideo[idxAkhir] = filterVideo[idxAkhir].replace("[vout]", "[vtb]");
+    const d = infoTrans.d;
+    // ekor part sebelumnya dari SUMBER: durasi sumber = d × kecepatan;
+    // dinormalisasi persis ke W×H / fps / yuv420p / AVTB agar xfade diterima
+    inputTransisi.push(
+      "-ss", infoTrans.mulaiPrev.toFixed(3),
+      "-t", (d * kec + 0.25).toFixed(3),
+      "-i", a.transisiMasuk?.srcPrev || a.src,
+    );
+    const idxTrans = idxEkorBaru + inputEfekOv.length / 4;
+    filterVideo.push(
+      `[${idxTrans}:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},fps=${fps},format=yuv420p,setsar=1,settb=AVTB,` +
+        `trim=duration=${(d * kec).toFixed(3)},setpts=PTS-STARTPTS${kec !== 1 ? `,setpts=PTS/${kec.toFixed(4)},trim=duration=${d.toFixed(3)}` : ""}[vta]`,
+    );
+    filterVideo.push(
+      `[vtb]split=2[vb1][vb2];` +
+        `[vb1]trim=duration=${d.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps},format=yuv420p,setsar=1,settb=AVTB[vbh];` +
+        `[vb2]trim=start=${d.toFixed(3)},setpts=PTS-STARTPTS[vtl];` +
+        `[vta][vbh]xfade=transition=${infoTrans.xfade}:duration=${d.toFixed(3)}:offset=0,settb=AVTB[vtx];` +
+        `[vtx][vtl]concat=n=2:v=1:a=0[vout]`,
+    );
+  }
+
   const filter = [...filterVideo, ...filterAudio].join(";");
   const args = [
     "-y",
@@ -1104,6 +1224,8 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ...inputNeon,
     ...inputBacksound,
     ...inputSuaraIntro,
+    ...inputEfekOv,
+    ...inputTransisi,
     "-filter_complex",
     filter,
     "-map",

@@ -12,6 +12,7 @@ import {
   ArrowUp,
   AudioLines,
   Clapperboard,
+  Wand2,
   Clock3,
   Ghost,
   Image as ImageIcon,
@@ -37,7 +38,9 @@ import {
   PanelRingkasan,
   PanelSubtitle,
   PanelWatermark,
+  PanelEfek,
 } from "@/components/vds/BagianAtur";
+import { gayaCoverValid } from "@/lib/vidsplit/types";
 import { Preview } from "@/components/vds/Preview";
 import { StudioMusik } from "@/components/vds/StudioMusik";
 import { StudioHoror } from "@/components/vds/StudioHoror";
@@ -88,9 +91,10 @@ interface OpsiEkspor {
   thumbnailAktif: boolean;
   thumbnailKata: "Part" | "Bagian" | "Episode";
   thumbnailFormat: "jpg" | "png";
-  /** v2.3.0 — cakupan frame & gaya bingkai cover (v2.5.0: + "identik") */
+  /** v2.3.0 — cakupan frame & gaya bingkai cover (v2.5.0: + "identik")
+   *  v3.3.0 — gaya = id template cover (3 dasar / 100 NOVACUT) */
   thumbnailMode: "per-part" | "satu" | "identik";
-  thumbnailGaya: "modern" | "klasik" | "futuristik";
+  thumbnailGaya: string;
 }
 
 /* ============ v3.2.0 — GARIS WAKTU SPLIT ala KOLOSALCUT (components/kolosal/timeline.tsx)
@@ -238,7 +242,7 @@ export default function Halaman() {
   // v0.25.0 — mode ketiga: Studio Horor (AI Cerita Horor)
   const [mode, setMode] = useState<"video" | "musik" | "horor">("video");
   // v3.2.0 — tab pengaturan ala KolosalCut (Video / Teks / Gaya / Cover)
-  const [tabAtur, setTabAtur] = useState<"video" | "teks" | "gaya" | "cover">("video");
+  const [tabAtur, setTabAtur] = useState<"video" | "teks" | "gaya" | "efek" | "cover">("video");
   // v2.6.0 — tombol IMPOR MEDIA di topbar (input file tersembunyi; di desktop
   // memakai dialog natif Electron yang sama dgn JatuhBerkas)
   const refImpor = useRef<HTMLInputElement>(null);
@@ -292,8 +296,11 @@ export default function Halaman() {
           // v2.5.0 — + "identik" (cover 100% sama semua, tanpa nomor part)
           thumbnailMode:
             o.thumbnailMode === "satu" || o.thumbnailMode === "identik" ? o.thumbnailMode : "per-part",
+          // v3.3.0 — gaya kini id template: dasar lama ATAU "layout--palet"
           thumbnailGaya:
-            o.thumbnailGaya === "klasik" || o.thumbnailGaya === "futuristik" ? o.thumbnailGaya : "modern",
+            typeof o.thumbnailGaya === "string" && gayaCoverValid(o.thumbnailGaya)
+              ? o.thumbnailGaya
+              : "modern",
         });
       }
     } catch {
@@ -666,6 +673,7 @@ export default function Halaman() {
       introTeksWarna: s.introTeksWarna,
       introSuaraFile: s.introSuaraFile,
       introSuaraVolume: s.introSuaraVolume,
+          introTemplate: s.introTemplate, // v3.3.0 — template cover ikut
     } as const;
     // info suara ikut tampil di semua kartu bila video aktif punya suara intro
     const infoSuara = s.introSuaraFile ? videoAktif.suaraInfo : null;
@@ -691,6 +699,9 @@ export default function Halaman() {
           subtitleY: s.subtitleY,
           subtitleDeteksiBahasa: s.subtitleDeteksiBahasa,
           subtitleCepat: s.subtitleCepat,
+          // v3.3.0 — model whisper.cpp + bahasa suara ikut diterapkan
+          subtitleModel: s.subtitleModel,
+          subtitleBahasa: s.subtitleBahasa,
           // v0.54.0 — warna subtitle ikut diterapkan ke semua video
           subtitleWarna: s.subtitleWarna,
           subtitleOutlineWarna: s.subtitleOutlineWarna,
@@ -704,6 +715,8 @@ export default function Halaman() {
       subtitleY: s.subtitleY,
       subtitleDeteksiBahasa: s.subtitleDeteksiBahasa,
       subtitleCepat: s.subtitleCepat,
+      subtitleModel: s.subtitleModel,
+      subtitleBahasa: s.subtitleBahasa,
       // v0.54.0 — warna subtitle ikut diterapkan ke semua video
       subtitleWarna: s.subtitleWarna,
       subtitleOutlineWarna: s.subtitleOutlineWarna,
@@ -839,11 +852,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.2.0
+                v3.3.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.2.0
+              Suite video otomatis · Desktop v3.3.0
             </span>
           </span>
         </div>
@@ -918,9 +931,11 @@ export default function Halaman() {
       </header>
       <p className="mb-4 text-xs text-slate-500">
         Kotak video (maks {BATAS_VIDEO}) = kartu atas panel kanan → klik baris video → atur lewat
-        tab <b className="text-slate-400">Video / Teks / Gaya / Cover</b> → ekspor &amp; split
-        dari panel EKSPOR — <b className="text-slate-400">timeline split di kiri bawah
-        pratinjau</b>. Klik judul modul (panah bawah/atas) untuk membuka/melipat.
+        tab <b className="text-slate-400">Video / Teks / Gaya / Efek / Cover</b> (v3.3.0: 28
+        transisi + 20 efek NOVACUT di tab EFEK, cover 100 template di COVER, teks otomatis
+        whisper.cpp di TEKS) → ekspor &amp; split dari panel EKSPOR —{" "}
+        <b className="text-slate-400">timeline split di kiri bawah pratinjau</b>. &quot;Terapkan
+        ke semua&quot; kini SATU PUSAT di kartu RK Ringkasan. Klik judul modul untuk membuka/melipat.
       </p>
 
       {/* v0.10.0 — Mode Musik: Studio Musik menggantikan dasbor video seluruhnya */}
@@ -1170,18 +1185,19 @@ export default function Halaman() {
             )}
           </Kartu>
 
-          {/* ---- TAB PENGATURAN — 4 tab ala 5 tab KolosalCut (v1.3.5) ---- */}
+          {/* ---- TAB PENGATURAN — 5 tab PERSIS KolosalCut: Video/Teks/Gaya/Efek/Cover ---- */}
           <div className="border-b border-[#1c2128] bg-[#0a0c0f] p-3 pb-2.5">
             <div
               role="tablist"
               aria-label="Kelompok pengaturan"
-              className="grid grid-cols-4 gap-1 rounded-sm border border-[#28303a] bg-[#0b0d10]/80 p-1"
+              className="grid grid-cols-5 gap-1 rounded-sm border border-[#28303a] bg-[#0b0d10]/80 p-1"
             >
               {(
                 [
                   { kunci: "video", label: "Video", ikon: <Clapperboard className="h-3.5 w-3.5" /> },
                   { kunci: "teks", label: "Teks", ikon: <Type className="h-3.5 w-3.5" /> },
                   { kunci: "gaya", label: "Gaya", ikon: <Palette className="h-3.5 w-3.5" /> },
+                  { kunci: "efek", label: "Efek", ikon: <Wand2 className="h-3.5 w-3.5" /> },
                   { kunci: "cover", label: "Cover", ikon: <ImageIcon className="h-3.5 w-3.5" /> },
                 ] as const
               ).map((t) => (
@@ -1294,6 +1310,9 @@ export default function Halaman() {
                     />
                   </>
                 )}
+                {tabAtur === "efek" && (
+                  <PanelEfek pengaturan={videoAktif.pengaturan} onChange={gantiPengaturanAktif} />
+                )}
                 {tabAtur === "cover" && (
                   <>
                     {/* v2.5.0 — menu 6 GABUNGAN: Thumbnail otomatis (global) + Background
@@ -1372,6 +1391,45 @@ export default function Halaman() {
                 nomorVideo={aktif + 1}
                 totalVideo={daftar.length}
                 onTerapkanKeSemua={terapkanKeSemua}
+                // v3.3.0 — PUSAT TUNGGAL "Terapkan ke SEMUA" (dulu tersebar di 5 modul)
+                aksiTerapkan={[
+                  {
+                    kunci: "ukuran-judul",
+                    label: "Ukuran huruf judul (02)",
+                    hint: "Salin angka ukuran huruf judul video aktif ke semua video",
+                    onKlik: () => terapkanUkuranSemua("judul"),
+                  },
+                  {
+                    kunci: "ukuran-part",
+                    label: "Ukuran huruf Part (03)",
+                    hint: "Salin angka ukuran huruf Part video aktif ke semua video",
+                    onKlik: () => terapkanUkuranSemua("part"),
+                  },
+                  {
+                    kunci: "ukuran-deskripsi",
+                    label: "Ukuran huruf deskripsi (04)",
+                    hint: "Salin angka ukuran huruf deskripsi video aktif ke semua video",
+                    onKlik: () => terapkanUkuranSemua("deskripsi"),
+                  },
+                  {
+                    kunci: "frame",
+                    label: "Frame & bingkai (05)",
+                    hint: "Salin frame, neon, dan gradasi template ke semua video",
+                    onKlik: terapkanFrameKeSemua,
+                  },
+                  {
+                    kunci: "subtitle",
+                    label: "Subtitle AI (08)",
+                    hint: "Salin setelan subtitle (aktif/ukuran/posisi/bahasa/model/warna) ke semua video",
+                    onKlik: terapkanSubtitleSemua,
+                  },
+                  {
+                    kunci: "intro",
+                    label: "Cover & intro (06)",
+                    hint: "Salin setelan intro + template cover video aktif ke semua video",
+                    onKlik: terapkanIntroKeSemua,
+                  },
+                ]}
               />
               <PanelRiwayat />
             </>

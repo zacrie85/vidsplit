@@ -172,6 +172,29 @@ exports.default = async function afterPack(context) {
   if (kurang.length > 0) {
     throw new Error("afterPack: berkas wajib hilang:\n" + kurang.join("\n"));
   }
+  // v3.3.0 — whisper.cpp: bila folder assets/whisper ADA di build (CI mengunduhnya),
+  // binary + 3 model WAJIB ikut terkemas — bila tidak ada, build lokal lama tetap lolos
+  const srcWhisper = path.join(process.cwd(), "assets", "whisper");
+  if (fs.existsSync(path.join(srcWhisper, "bin"))) {
+    const wWhisper = [
+      path.join(resDir, "whisper", "bin", "whisper-cli.exe"),
+      path.join(resDir, "whisper", "models", "ggml-tiny-q5_1.bin"),
+      path.join(resDir, "whisper", "models", "ggml-base-q5_1.bin"),
+      path.join(resDir, "whisper", "models", "ggml-small-q5_1.bin"),
+    ];
+    const kurangW = wWhisper.filter((p) => {
+      try {
+        return !fs.existsSync(p) || fs.statSync(p).size < 1048576;
+      } catch {
+        return true;
+      }
+    });
+    if (kurangW.length > 0) {
+      throw new Error("afterPack: whisper.cpp tidak lengkap (v3.3.0):\n" + kurangW.join("\n"));
+    }
+  } else {
+    console.log("afterPack: assets/whisper tidak ada — build TANPA whisper.cpp (subtitle jatuh ke ONNX)");
+  }
 
   console.log(`[afterPack] server terkemas utuh di ${target} (server.js + node_modules + .next + public)`);
 };

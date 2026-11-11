@@ -60,6 +60,15 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   if (!/^#[0-9a-fA-F]{6}$/.test(p.subtitleOutlineWarna || "")) p.subtitleOutlineWarna = "#000000";
   // v0.47.0 — mode bahasa pratinjau = mode ekspor (cache hasil analisis sama)
   p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
+  // v3.3.0 — mesin & bahasa whisper.cpp pratinjau = ekspor
+  p.subtitleModel =
+    p.subtitleModel === "ringan" || p.subtitleModel === "akurat" ? p.subtitleModel : "cepat";
+  p.subtitleBahasa =
+    p.subtitleBahasa === "jw" || p.subtitleBahasa === "jwid" || p.subtitleBahasa === "enid"
+      ? p.subtitleBahasa
+      : "id";
+  p.subtitleCepat = p.subtitleModel !== "akurat";
+  p.subtitleDeteksiBahasa = p.subtitleBahasa === "enid";
   return p;
 }
 
@@ -97,6 +106,9 @@ async function kerjakan(
   //    v0.47.0 — mode bahasa ikut dipakai (fokus Indonesia bawaan / deteksi).
   const hasil = await siapkanSegmenSubtitle(srcAbs, mulaiTrim, akhirTrim, info.durasi, ff.bin, {
     modeBahasa: pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+    // v3.3.0 — mesin whisper.cpp + bahasa ikut dikirim (cache & ekspor konsisten)
+    model: pengaturan.subtitleModel,
+    bahasa: pengaturan.subtitleBahasa,
   });
   if (!hasil) return { ok: false, alasan: "model", pesan: "Mesin subtitle AI tidak bisa dimuat." };
   if (!hasil.segmen.length) {
@@ -146,7 +158,7 @@ async function kerjakan(
   } catch {
     /* sudah dicek exists di atas */
   }
-  const kunci = `${kunciCache(srcAbs, stat.size, stat.mtimeMs, mulaiTrim, akhirTrim, pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus")}-u${pengaturan.subtitleUkuran}-y${pengaturan.subtitleY}-w${(pengaturan.subtitleWarna || "").replace(/[^#0-9a-f]/gi, "")}-o${(pengaturan.subtitleOutlineWarna || "").replace(/[^#0-9a-f]/gi, "")}`;
+  const kunci = `${kunciCache(srcAbs, stat.size, stat.mtimeMs, mulaiTrim, akhirTrim, pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus", false, `|cpp:${pengaturan.subtitleModel}:${pengaturan.subtitleBahasa}`)}-u${pengaturan.subtitleUkuran}-y${pengaturan.subtitleY}-w${(pengaturan.subtitleWarna || "").replace(/[^#0-9a-f]/gi, "")}-o${(pengaturan.subtitleOutlineWarna || "").replace(/[^#0-9a-f]/gi, "")}`;
   const namaKlip = `${kunci}.mp4`;
   const keluar = path.join(dirWork("pratinjau-sub"), namaKlip);
   if (!existsSync(keluar)) {

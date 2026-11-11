@@ -22,3 +22,6 @@ assets/ai-models/
 # v0.58.0 — package-lock.json TIDAK lagi diabaikan: CI pakai npm ci (reproducible)
 scripts/uji-mini.mp4
 work-uji-latar/
+
+# v3.3.0 — binary whisper.cpp & model ggml (diunduh CI, jangan ikut repo)
+assets/whisper/

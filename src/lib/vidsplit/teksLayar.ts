@@ -6,7 +6,7 @@ import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
 // ---------- Parser TTF minimal (head, hhea, hmtx, cmap format 4/12) ----------
-interface InfoTtf {
+export interface InfoTtf {
   unitsPerEm: number;
   hmetrics: number;
   advances: number[];

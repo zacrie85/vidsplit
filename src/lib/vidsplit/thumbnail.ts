@@ -16,7 +16,17 @@
 // -ss, ekstraksi bersama cukup 1× per video); (2) preset GAYA_COVER — modern
 // (bawaan, rantai lama PERSIS), klasik (bingkai emas + Cinzel Decorative),
 // futuristik (neon cyan/magenta + bracket sudut + Anton/Monoton).
-import type { GayaThumbnail, NamaFont, OpsiThumbnail } from "./types";
+// v3.3.0 — GALERI COVER NOVACUT (port nccover.js KINOSTRA): gaya kini id
+// template — 3 gaya LAMA tetap dirantai drawbox/drawtext persis (nol regresi),
+// 100 template NOVACUT (10 layout × 10 palet) dirender SVG → PNG overlay
+// (coverNovacut.ts + @resvg/resvg-js) lalu ditumpuk ffmpeg di atas frame.
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { Resvg } from "@resvg/resvg-js";
+import type { GayaThumbnail, NamaFont, OpsiThumbnail, GayaCoverLanjutan } from "./types";
+import { GAYA_DASAR_COVER, cariTemplateCover, daftarTtfCover, FONT_COVER, svgCover, type KunciFontCover, type PengukurTeks } from "./coverNovacut";
+import { bacaTtf, lebarTeks, type InfoTtf } from "./teksLayar";
+import { dirFontKandidat } from "./ffmpeg";
 
 /** Kunci drawtext: nilai teks SELALU lewat textfile (aman unicode/koma) */
 
@@ -107,8 +117,15 @@ export interface ArgThumbnail {
   fontfile: string;
   /** v2.3.0 — file font TTF LABEL (kosong = ikut `fontfile` judul) */
   fontLabel?: string;
-  /** v2.3.0 — gaya bingkai (kosong = "modern" = rantai lama persis) */
-  gaya?: GayaThumbnail;
+  /** v2.3.0 — gaya bingkai (kosong = "modern" = rantai lama persis).
+   *  v3.3.0 — boleh juga id template NOVACUT ("layout--palet"). */
+  gaya?: GayaCoverLanjutan;
+  /** v3.3.0 — PNG overlay template NOVACUT (path, ditulis pemanggil via
+   *  tulisCoverTemplatePng). Diisi → rantai overlay sederhana dipakai. */
+  templatePng?: string;
+  /** v3.3.0 — latar template "hitam" → PNG opak TANPA frame video (input 0
+   *  langsung overlay); "adegan" → overlay di atas frame sumber. */
+  templateLatarHitam?: boolean;
   keluar: string;
   /** "jpg" (bawaan, -q:v 2) atau "png" */
   format: "jpg" | "png";
@@ -223,6 +240,97 @@ export function labelThumbnail(opsi: Pick<OpsiThumbnail, "kata">, n: number): st
   return `${kata} ${String(Math.max(1, Math.floor(n))).padStart(2, "0")}`;
 }
 
+// ==================== v3.3.0 — MESIN TEMPLATE NOVACUT ====================
+
+/** id gaya dasar (rantai lama) */
+const GAYA_DASAR_ID = GAYA_DASAR_COVER.map((g) => g.id);
+
+/** true bila gaya = template NOVACUT (bukan 3 gaya dasar) dan terdaftar */
+export function pakaiTemplateCover(gaya?: string): boolean {
+  return !!gaya && !GAYA_DASAR_ID.includes(gaya) && !!cariTemplateCover(gaya);
+}
+
+const cacheTtfCover = new Map<string, InfoTtf>();
+function ttfCover(k: KunciFontCover): InfoTtf | null {
+  const hit = cacheTtfCover.get(k);
+  if (hit !== undefined) return hit;
+  let hasil: InfoTtf | null = null;
+  const dirs = dirFontKandidat();
+  for (const nama of FONT_COVER[k]?.ttf ?? []) {
+    for (const d of dirs) {
+      try {
+        const p = path.join(d, nama);
+        if (existsSync(p)) {
+          hasil = bacaTtf(p);
+          break;
+        }
+      } catch {
+        /* lanjut */
+      }
+    }
+    if (hasil) break;
+  }
+  cacheTtfCover.set(k, hasil as InfoTtf);
+  return hasil;
+}
+
+/** Pengukur lebar teks SERVER — pakai TTF nyata bundel (akurat, ekspor =
+ *  pratinjau). Font tak ketemu → estimator rata-rata sbg cadangan. */
+export function pengukurTeksServer(): PengukurTeks {
+  return {
+    lebar: (teks, font, fs) => {
+      const info = ttfCover(font);
+      if (info) return lebarTeks(teks, info, fs);
+      return teks.length * fs * 0.5;
+    },
+  };
+}
+
+/** Render overlay PNG SATU template NOVACUT (W×H). Latar "adegan" → PNG
+ *  transparan (ditumpuk ffmpeg di atas frame); "hitam" → PNG opak. */
+export function renderCoverTemplatePng(opsi: {
+  template: string;
+  W: number;
+  H: number;
+  judul: string;
+  labelPart: string;
+  latar: "adegan" | "hitam";
+  skalaPart?: number;
+}): Buffer {
+  const svg = svgCover(
+    {
+      template: opsi.template,
+      W: opsi.W,
+      H: opsi.H,
+      judul: opsi.judul,
+      labelPart: opsi.labelPart,
+      latar: opsi.latar,
+      skalaPart: opsi.skalaPart,
+    },
+    pengukurTeksServer(),
+  );
+  const fontFiles: string[] = [];
+  for (const nama of daftarTtfCover()) {
+    for (const d of dirFontKandidat()) {
+      try {
+        const p = path.join(d, nama);
+        if (existsSync(p)) {
+          fontFiles.push(p);
+          break;
+        }
+      } catch {
+        /* lanjut */
+      }
+    }
+  }
+  const r = new Resvg(svg, {
+    fitTo: { mode: "original" },
+    font: { fontFiles, loadSystemFonts: false, defaultFontFamily: "DejaVu Sans" },
+    background: "rgba(0,0,0,0)",
+  });
+  return r.render().asPng() as Buffer;
+}
+
 /** Susun argumen ffmpeg: 1 frame sumber (atau GAMBAR frame bersama v2.3.0) →
  *  scale cover W×H → kotak+judul+label dgn gaya pilihan. Memakai -filter_complex
  *  (bukan -vf) karena rantai menghasilkan label [out].
@@ -231,11 +339,32 @@ export function labelThumbnail(opsi: Pick<OpsiThumbnail, "kata">, n: number): st
 export function bangunArgumenThumbnail(a: ArgThumbnail): string[] {
   const W = Math.max(2, Math.round(a.W / 2) * 2);
   const H = Math.max(2, Math.round(a.H / 2) * 2);
+  // v3.3.0 — CABANG TEMPLATE NOVACUT: PNG overlay (SVG → resvg) ditumpuk
+  // di atas frame; latar "hitam" → overlay opak tanpa frame video.
+  if (a.templatePng && existsSync(a.templatePng)) {
+    const latarHitam = !!a.templateLatarHitam;
+    const args: string[] = ["-y", "-hide_banner"];
+    if (latarHitam) {
+      args.push("-i", a.templatePng);
+    } else if (a.gambar) {
+      args.push("-i", a.gambar, "-i", a.templatePng);
+    } else {
+      args.push("-ss", Math.max(0, a.detik ?? 0).toFixed(3), "-i", a.src ?? "", "-i", a.templatePng);
+    }
+    const rantai = latarHitam
+      ? `[0:v]format=rgba,format=yuv420p[out]`
+      : `[0:v]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},setsar=1[bg];[bg][1:v]overlay=0:0,format=yuv420p[out]`;
+    args.push("-frames:v", "1", "-filter_complex", rantai, "-map", "[out]");
+    if (a.format === "png") args.push("-pred", "mixed");
+    else args.push("-q:v", "2");
+    args.push(a.keluar);
+    return args;
+  }
   const skala = Math.min(W, H) / 1080;
   const uJ = Math.max(12, a.ukuranJudul * skala);
   const uL = Math.max(12, a.ukuranLabel * skala);
   const amanFilter = (p: string) => p.replaceAll("\\", "/").replaceAll(":", "\\:").replaceAll("'", "\\'");
-  const gy = GAYA_COVER[a.gaya ?? "modern"];
+  const gy = GAYA_COVER[(a.gaya ?? "modern") as GayaThumbnail] ?? GAYA_COVER.modern;
   const ff = a.fontfile ? `:fontfile=${amanFilter(a.fontfile)}` : "";
   const fl = (a.fontLabel || a.fontfile) ? `:fontfile=${amanFilter(a.fontLabel || a.fontfile)}` : "";
   // tebal border teks: 0 = tanpa border (param borderw/bordercolor tak ditulis)

@@ -32,6 +32,13 @@ extraResources:
   # diunduh oleh workflow / scripts/unduh-model-ai.sh SEBELUM electron-builder jalan
   - from: assets/ai-models
     to: ai-models
+  # v3.3.0 — MESIN WHISPER.CPP (otak teks otomatis baru, port KolosalCut):
+  # binary whisper-cli + 3 model ggml q5_1 — diunduh workflow CI sebelum build
+  - from: assets/whisper
+    to: whisper
+  # v3.3.0 — overlay PNG efek NOVACUT (scanline/spotlight/flare, port KolosalCut)
+  - from: assets/efek-novacut
+    to: efek-novacut
 win:
   target:
     - nsis

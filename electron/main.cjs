@@ -135,6 +135,10 @@ function nyalakanServer() {
     VIDSPLIT_VOKAL_AI: path.join(res, "vokal-ai"),
     // v0.44.0 — model AI subtitle otomatis (Whisper ASR + opus-mt EN→ID), struktur repo HF
     VIDSPLIT_AI_MODELS: path.join(res, "ai-models"),
+    // v3.3.0 — otak whisper.cpp (binary + model ggml) & overlay efek NOVACUT
+    VIDSPLIT_WHISPER_BIN: path.join(res, "whisper", "bin", "whisper-cli.exe"),
+    VIDSPLIT_WHISPER_MODELS: path.join(res, "whisper", "models"),
+    VIDSPLIT_EFEK: path.join(res, "efek-novacut"),
     VIDSPLIT_ORT: path.join(res, "server"),
     VIDSPLIT_ELECTRON: "1",
   };

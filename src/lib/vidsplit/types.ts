@@ -72,6 +72,12 @@ export type ModeThumbnail = "per-part" | "satu" | "identik";
  *  "klasik" = bingkai emas ganda + huruf fantasi Cinzel Decorative,
  *  "futuristik" = aksen neon cyan/magenta + sudut bracket + huruf Anton/Monoton. */
 export type GayaThumbnail = "modern" | "klasik" | "futuristik";
+/** v3.3.0 — gaya cover diperluas: 3 gaya lama menjadi kategori "DASAR" di
+ *  dalam galeri 100 template NOVACUT (10 layout × 10 palet) — bukan menu
+ *  terpisah (permintaan user). Nilai valid = 3 gaya lama ATAU id template
+ *  dari daftarTemplateCover() di coverNovacut.ts (mis. "impact--cyber").
+ *  types.ts menyimpan string agar bebas dependensi; validasi di coverNovacut. */
+export type GayaCoverLanjutan = GayaThumbnail | (string & {});
 
 /** v2.1.0 — opsi THUMBNAIL OTOMATIS (per-JOB ekspor/gabung, bukan per-video):
  *  tiap part selesai dirender → ambil 1 frame dari video sumber (±35% awal part)
@@ -83,7 +89,8 @@ export interface OpsiThumbnail {
   kata: "Part" | "Bagian" | "Episode";
   format: "jpg" | "png";
   mode: ModeThumbnail;
-  gaya: GayaThumbnail;
+  /** v3.3.0 — id template cover (3 gaya dasar / 100 template NOVACUT) */
+  gaya: GayaCoverLanjutan;
 }
 export const KATA_THUMBNAIL: Array<OpsiThumbnail["kata"]> = ["Part", "Bagian", "Episode"];
 export const MODE_THUMBNAIL: Array<OpsiThumbnail["mode"]> = ["per-part", "satu", "identik"];
@@ -112,8 +119,18 @@ export function rapikanThumbnail(raw: unknown): OpsiThumbnail {
     kata: o.kata === "Bagian" || o.kata === "Episode" ? o.kata : "Part",
     format: o.format === "png" ? "png" : "jpg",
     mode: o.mode === "satu" || o.mode === "identik" ? o.mode : "per-part",
-    gaya: o.gaya === "klasik" || o.gaya === "futuristik" ? o.gaya : "modern",
+    // v3.3.0 — gaya divalidasi THD katalog (dasar + 100 template NOVACUT);
+    // katalog diimpor longgar agar types.ts tetap bebas dependensi berat
+    gaya: gayaCoverValid(o.gaya) ? String(o.gaya) : "modern",
   };
+}
+
+/** v3.3.0 — validasi longgar id gaya cover (3 dasar ATAU "layout--palet" NOVACUT).
+ *  Fungsi murni tanpa import katalog — pola id dijamin konsisten oleh generator. */
+export function gayaCoverValid(g: unknown): boolean {
+  if (typeof g !== "string") return false;
+  if (g === "modern" || g === "klasik" || g === "futuristik") return true;
+  return /^[a-z]+--[a-z]+$/.test(g);
 }
 
 /** durasi pindah fokus (detik, pada waktu HASIL) per laju */
@@ -128,10 +145,59 @@ export type PosisiTeks = "atas" | "tengah" | "bawah";
 
 /** v0.57.0 — transisi antar part: "" = tanpa transisi (perilaku lama),
  *  "fade" = pudar ke hitam (masuk + keluar tiap part),
- *  "slide" = geser (masuk dari kanan, keluar ke kiri) */
+ *  "slide" = geser (masuk dari kanan, keluar ke kiri).
+ *  v3.3.0 — USANG: digantikan mesin transisi NOVACUT 28 gaya (efekTransisi).
+ *  Field tetap ada agar simpanan lama tidak rusak; migrasi memetakan
+ *  "fade"→"crossfade" & "slide"→"slide-l" lalu mengosongkan field ini. */
 export type TransisiPart = "" | "fade" | "slide";
 /** durasi transisi tiap sisi (detik) */
 export const DURASI_TRANSISI = 0.5;
+
+/** v3.3.0 — MESIN EFEK NOVACUT (port novacut-fx KolosalCut v1.4.9):
+ *  28 transisi antar part (xfade ffmpeg asli antar ekor part sebelumnya &
+ *  kepala part sekarang) + 20 efek klip blockbuster (rantai filter ffmpeg).
+ *  Registry lengkap + pemetaan xfade ada di efekNovacut.ts — types.ts hanya
+ *  menyimpan id (string) agar modul ini bebas dependensi. */
+/** id transisi NOVACUT ("" = mati); validasi di efekNovacut.ts */
+export type IdTransisiNovacut = string;
+/** durasi transisi antar part NOVACUT (detik, 0.2–1.5) */
+export const DURASI_TRANSISI_NOVACUT_BAWAAN = 0.6;
+/** batas jumlah efek klip aktif bersamaan (mencegah rantai filter tak masuk akal) */
+export const MAKS_EFEK_KLIP = 6;
+
+/** v3.3.0 — MESIN SUBTITLE WHISPER.CPP (port transcribe.ts KolosalCut):
+ *  pilihan model ggml q5_1 — ringan=tiny (paling cepat), cepat=base, akurat=small */
+export type ModelSubtitle = "ringan" | "cepat" | "akurat";
+/** v3.3.0 — bahasa subtitle: id=Indonesia, jw=Jawa, jwid=probe ganda Jawa/
+ *  Indonesia (pola KINOSTRA), enid=Inggris→terjemah Indonesia (opus-mt) */
+
+export type BahasaSubtitle = "id" | "jw" | "jwid" | "enid";
+/** v3.3.0 — ANIMASI MASUK TEKS (judul & label part) — 8 gaya ala KINOSTRA/
+ *  NOVACUT, dieksekusi drawtext (ekspresi alpha/x/y): "" = mati (perilaku lama) */
+export type AnimasiTeks =
+  | ""
+  | "fade"
+  | "naik"
+  | "turun"
+  | "geser-kiri"
+  | "geser-kanan"
+  | "neon"
+  | "denyut"
+  | "slam";
+/** label ramah + urutan utk UI */
+export const ANIMASI_TEKS: Array<{ id: AnimasiTeks; nama: string }> = [
+  { id: "", nama: "Mati" },
+  { id: "fade", nama: "Fade" },
+  { id: "naik", nama: "Naik" },
+  { id: "turun", nama: "Turun" },
+  { id: "geser-kiri", nama: "Geser Kiri" },
+  { id: "geser-kanan", nama: "Geser Kanan" },
+  { id: "neon", nama: "Neon" },
+  { id: "denyut", nama: "Denyut" },
+  { id: "slam", nama: "Slam" },
+];
+/** durasi animasi masuk teks (detik) */
+export const DURASI_ANIMASI_TEKS = 0.7;
 /** v0.57.0 — langkah kecepatan tayang (×): 0,5 sampai 2 */
 export const LANGKAH_KECEPATAN = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 /** Rapikan kecepatan ke langkah terdekat — aman thd nilai aneh dari simpanan
@@ -233,6 +299,13 @@ export interface Pengaturan {
    *  saat judul kosong, agar hasil lama persis sama). */
   partX: number;
   partY: number;
+  /** v3.3.0 — animasi masuk judul & label part ("" = mati = perilaku lama).
+   *  Hanya berlaku saat teks itu tampil; drawtext alpha/x/y ekspresi. */
+  animasiTeks: AnimasiTeks;
+  /** v3.3.0 — template cover utk BACKGROUND INTRO ("" = gaya lama polos):
+   *  id dari daftarTemplateCover() (mis. "impact--cyber") — frame video +
+   *  overlay SVG template (judul & label part terbakar di PNG). */
+  introTemplate: string;
   /** posisi area potong horizontal utk mode "crop" — 0=kiri, 50=tengah, 100=kanan */
   posisiPotong: number;
   /** v0.50.0 — zoom manual utk mode "crop" (50–100, bawaan 100).
@@ -266,8 +339,19 @@ export interface Pengaturan {
   kecepatanVideo: number;
   /** v0.57.0 — transisi antar part ("" = tanpa; "fade" = pudar hitam;
    *  "slide" = geser dari kanan → keluar ke kiri). Diterapkan di AWAL & AKHIR
-   *  tiap part sehingga antar part terasa ada perpindahannya. */
+   *  tiap part sehingga antar part terasa ada perpindahannya.
+   *  v3.3.0 — USANG (lihat TransisiPart): selalu "" setelah migrasi. */
   transisiPart: TransisiPart;
+  /** v3.3.0 — TRANSISI ANTAR PART NOVACUT: id dari 28 transisi (efekNovacut.ts),
+ *  "" = mati. Di-render ffmpeg xfade ANTARA ekor part sebelumnya & kepala
+ *  part ini (transisi silang sungguhan, bukan fade ke hitam) — port dari
+ *  registry novacut-fx KolosalCut. Menggantikan transisiPart. */
+  efekTransisi: IdTransisiNovacut;
+  /** v3.3.0 — durasi transisi NOVACUT (0.2–1.5 dtk, bawaan 0.6) */
+  efekTransisiDurasi: number;
+  /** v3.3.0 — EFEK KLIP NOVACUT aktif (maks 6, diterapkan berurutan registry):
+ *  8 color grading + 12 efek visual ala KolosalCut/NOVACUT. */
+  efekKlip: string[];
   /** detik mulai rentang video yang diproses (0 = dari awal) */
   mulaiDetik: number;
   /** detik akhir rentang video yang diproses (0 = sampai habis) */
@@ -341,8 +425,15 @@ export interface Pengaturan {
    *  Inggris→Indonesia (untuk video bersuara Inggris, lebih lambat). */
   subtitleDeteksiBahasa: boolean;
   /** v0.51.0 — false (bawaan) = Whisper SMALL (paling tepat). true = Whisper
-   *  BASE — ±2–3× lebih cepat di CPU, ketepatan sedikit turun (video panjang). */
+   *  BASE — ±2–3× lebih cepat di CPU, ketepatan sedikit turun (video panjang).
+   *  v3.3.0 — USANG: digantikan subtitleModel; migrasi memetakannya. */
   subtitleCepat: boolean;
+  /** v3.3.0 — model mesin teks otomatis whisper.cpp: ringan=tiny q5_1 (paling
+   *  cepat), cepat=base q5_1 (bawaan), akurat=small q5_1 (paling tepat) */
+  subtitleModel: ModelSubtitle;
+  /** v3.3.0 — bahasa suara: "id" Indonesia (bawaan), "jw" Jawa, "jwid" probe
+   *  ganda Jawa/Indonesia (pola KINOSTRA), "enid" Inggris→terjemah Indonesia */
+  subtitleBahasa: BahasaSubtitle;
   /** v0.54.0 — warna teks subtitle (#rrggbb) — dibakar lewat gaya ASS */
   subtitleWarna: string;
   /** v0.54.0 — warna outline/bingkai huruf subtitle (#rrggbb) */
@@ -409,6 +500,8 @@ export const pengaturanDefault: Pengaturan = {
   judulY: -1,
   partX: 50,
   partY: -1,
+  // v3.3.0 — animasi teks mati bawaan (hasil lama persis)
+  animasiTeks: "" as AnimasiTeks,
   posisiPotong: 50,
   // v0.50.0 — zoom manual potong: bawaan 100 = perilaku lama (potong penuh)
   zoomPotong: 100,
@@ -469,7 +562,16 @@ export const pengaturanDefault: Pengaturan = {
   // v0.47.0 — bawaan FOKUS INDONESIA (paling cepat); deteksi ID/EN opt-in
   subtitleDeteksiBahasa: false,
   // v0.51.0 — bawaan Whisper Small (paling tepat); Base = pilihan "Cepat"
+  // v3.3.0 — otak baru whisper.cpp: model CEPAT (base q5_1), bahasa Indonesia
   subtitleCepat: false,
+  subtitleModel: "cepat" as ModelSubtitle,
+  subtitleBahasa: "id" as BahasaSubtitle,
+  // v3.3.0 — mesin efek NOVACUT: mati bawaan (ekspor lama persis sama)
+  efekTransisi: "" as IdTransisiNovacut,
+  efekTransisiDurasi: DURASI_TRANSISI_NOVACUT_BAWAAN,
+  efekKlip: [] as string[],
+  // v3.3.0 — template cover intro ("" = gaya lama polos persis)
+  introTemplate: "",
   // v0.54.0 — subtitle: putih + outline hitam (persis gaya lama yang hardcoded)
   subtitleWarna: "#ffffff",
   subtitleOutlineWarna: "#000000",
@@ -511,6 +613,33 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
     hasil.gayaDeskripsi = { ...hasil.gayaDeskripsi, ukuran: 23 };
   // v0.57.0 — simpanan lama tanpa fitur baru: isi bawaan agar tak pernah undefined
   if (hasil.transisiPart === undefined) hasil.transisiPart = "";
+  // v3.3.0 — MESIN EFEK NOVACUT: migrasi transisiPart lama → efekTransisi baru
+  // (fade→crossfade, slide→slide-l) lalu transisiPart dikosongkan (usang).
+  // Field baru diisi bawaan agar simpanan lama tak pernah undefined.
+  if (hasil.efekTransisi === undefined) {
+    hasil.efekTransisi =
+      hasil.transisiPart === "fade" ? "crossfade" : hasil.transisiPart === "slide" ? "slide-l" : "";
+  }
+  hasil.transisiPart = "";
+  if (hasil.efekTransisiDurasi === undefined)
+    hasil.efekTransisiDurasi = DURASI_TRANSISI_NOVACUT_BAWAAN;
+  else {
+    const d = Number(hasil.efekTransisiDurasi);
+    hasil.efekTransisiDurasi = Number.isFinite(d)
+      ? Math.min(1.5, Math.max(0.2, d))
+      : DURASI_TRANSISI_NOVACUT_BAWAAN;
+  }
+  if (!Array.isArray(hasil.efekKlip)) hasil.efekKlip = [];
+  else hasil.efekKlip = hasil.efekKlip.filter((x): x is string => typeof x === "string").slice(0, MAKS_EFEK_KLIP);
+  if (hasil.introTemplate === undefined) hasil.introTemplate = "";
+  // v3.3.0 — animasi teks: simpanan lama tanpa field → mati
+  if (hasil.animasiTeks === undefined) hasil.animasiTeks = "";
+  else if (!ANIMASI_TEKS.some((a) => a.id === hasil.animasiTeks)) hasil.animasiTeks = "";
+  // v3.3.0 — otak subtitle whisper.cpp: peta field usang → field baru
+  if (hasil.subtitleModel === undefined)
+    hasil.subtitleModel = hasil.subtitleCepat === true ? "cepat" : "akurat";
+  if (hasil.subtitleBahasa === undefined)
+    hasil.subtitleBahasa = hasil.subtitleDeteksiBahasa === true ? "enid" : "id";
   if (hasil.kecepatanVideo === undefined) hasil.kecepatanVideo = 1;
   else hasil.kecepatanVideo = rapikanKecepatan(hasil.kecepatanVideo);
   if (hasil.zonaHapus === undefined || !Array.isArray(hasil.zonaHapus))
@@ -982,8 +1111,13 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     akhirDetik: sumber.akhirDetik,
     // v0.57.0 — kecepatan tayang, transisi antar part & zona hapus ikut
     // diterapkan ke semua video (zona disalin dalam agar tak bersambung referensi)
+    // v3.3.0 — transisiPart usang → mesin NOVACUT: efekTransisi (+durasi) dan
+    // daftar efek klip (disalin dalam) ikut "Terapkan ke SEMUA"
     kecepatanVideo: sumber.kecepatanVideo,
-    transisiPart: sumber.transisiPart,
+    transisiPart: "",
+    efekTransisi: sumber.efekTransisi,
+    efekTransisiDurasi: sumber.efekTransisiDurasi,
+    efekKlip: (sumber.efekKlip || []).slice(0, MAKS_EFEK_KLIP),
     zonaHapus: (sumber.zonaHapus || []).map((z) => ({ ...z })),
     // v2.0.0 — mode split, jumlah otomatis, resolusi output, zoom pembicara &
     // backsound ikut diterapkan ke semua video (sesuai kartu 1 & 3 + panel baru)
@@ -1001,6 +1135,7 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     // video karena termasuk kartu 2)
     kataPart: sumber.kataPart,
     durasiPart: sumber.durasiPart,
+    animasiTeks: sumber.animasiTeks,
     gayaPart: { ...sumber.gayaPart, ukuran: target.gayaPart.ukuran },
     partX: sumber.partX,
     partY: sumber.partY,

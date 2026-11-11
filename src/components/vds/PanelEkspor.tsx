@@ -59,9 +59,10 @@ export function PanelEkspor({
     thumbnailAktif: boolean;
     thumbnailKata: "Part" | "Bagian" | "Episode";
     thumbnailFormat: "jpg" | "png";
-    /** v2.3.0 — cakupan frame & gaya bingkai cover (v2.5.0: + identik) */
+    /** v2.3.0 — cakupan frame & gaya bingkai cover (v2.5.0: + identik)
+     *  v3.3.0 — gaya = id template cover (3 dasar / 100 NOVACUT) */
     thumbnailMode: "per-part" | "satu" | "identik";
-    thumbnailGaya: "modern" | "klasik" | "futuristik";
+    thumbnailGaya: string;
   };
   onOpsiEkspor: (o: {
     paralel: number;
@@ -70,7 +71,7 @@ export function PanelEkspor({
     thumbnailKata: "Part" | "Bagian" | "Episode";
     thumbnailFormat: "jpg" | "png";
     thumbnailMode: "per-part" | "satu" | "identik";
-    thumbnailGaya: "modern" | "klasik" | "futuristik";
+    thumbnailGaya: string;
   }) => void;
 }) {
   const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("presisi");

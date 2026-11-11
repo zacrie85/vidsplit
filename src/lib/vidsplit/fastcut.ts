@@ -711,7 +711,11 @@ export function gerbangFastcut(
   if ((p.logoId || "").trim()) return "LOGO";
   if ((p.frameId || "").trim()) return "BINGKAI";
   if (p.neonAktif) return "FRAME NEON";
+  // v3.3.0 — mesin efek NOVACUT memaksa render ffmpeg (xfade/rantai filter);
+  // transisiPart lama tetap dicek utk jaga-jaga simpanan yang belum dimigrasi
   if (p.transisiPart) return "TRANSISI PART";
+  if (p.efekTransisi) return "TRANSISI NOVACUT";
+  if (p.efekKlip && p.efekKlip.length) return "EFEK NOVACUT";
   if (Math.abs((p.kecepatanVideo || 1) - 1) > 1e-9) return "KECEPATAN VIDEO";
   if (p.resolusiOutput !== "auto") return "RESOLUSI TETAP";
   if (p.zoomPembicara !== "mati") return "ZOOM PEMBICARA";

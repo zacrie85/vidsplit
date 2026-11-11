@@ -23,6 +23,53 @@ jobs:
         # v2.0.0 — yolo-pembicara: model deteksi orang ZOOM PEMBICARA (±12 MB)
         run: bash scripts/unduh-model-ai.sh whisper-small whisper-base yolo-pembicara
 
+      - name: Unduh mesin whisper.cpp + model ggml q5_1 (v3.3.0 — otak teks otomatis baru)
+        shell: pwsh
+        # Pola persis KolosalCut build-windows.yml: binary resmi ggml-org/whisper.cpp
+        # (tag b5454) + 3 model q5_1 dari HuggingFace; gerbang ukuran anti-HTML/terpotong.
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force -Path "assets/whisper/bin", "assets/whisper/models" | Out-Null
+          $tag = "b5454"
+          $zip = "whisper-bin-x64.zip"
+          for ($i = 1; $i -le 5; $i++) {
+            try {
+              Invoke-WebRequest -Uri "https://github.com/ggml-org/whisper.cpp/releases/download/$tag/$zip" -OutFile $zip -TimeoutSec 600
+              break
+            } catch {
+              if ($i -eq 5) { throw "Gagal unduh whisper-cli: $_" }
+              Start-Sleep -Seconds 20
+            }
+          }
+          Expand-Archive -Path $zip -DestinationPath "whisper-zip" -Force
+          $cli = Get-ChildItem -Path "whisper-zip" -Recurse -Filter "whisper-cli.exe" | Select-Object -First 1
+          if (-not $cli) { throw "whisper-cli.exe tidak ditemukan di $zip" }
+          Copy-Item $cli.FullName "assets/whisper/bin/whisper-cli.exe"
+          # DLL pendamping (whisper.dll, ggml*.dll, SDL2.dll, dst.) WAJIB ikut
+          Get-ChildItem -Path (Split-Path $cli.FullName) -Filter "*.dll" | ForEach-Object {
+            Copy-Item $_.FullName "assets/whisper/bin/"
+          }
+          foreach ($m in @("tiny", "base", "small")) {
+            $target = "assets/whisper/models/ggml-$m-q5_1.bin"
+            for ($i = 1; $i -le 5; $i++) {
+              try {
+                Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$m-q5_1.bin" -OutFile $target -TimeoutSec 1800
+                break
+              } catch {
+                if ($i -eq 5) { throw "Gagal unduh model $m: $_" }
+                Start-Sleep -Seconds 20
+              }
+            }
+          }
+          # GERBANG — binary jalan + model cukup besar (anti halaman error HTML)
+          & "assets/whisper/bin/whisper-cli.exe" --help *> $null
+          if ($LASTEXITCODE -ne 0 -and $null -ne $LASTEXITCODE) { throw "whisper-cli.exe gagal dijalankan" }
+          foreach ($m in @("tiny", "base", "small")) {
+            $f = Get-Item "assets/whisper/models/ggml-$m-q5_1.bin"
+            if ($f.Length -lt 20MB) { throw "Model $m terlalu kecil ($($f.Length) byte) — unduhan rusak" }
+          }
+          Write-Host "whisper.cpp + 3 model siap."
+
       - name: Pasang Node.js 22
         uses: actions/setup-node@v4
         with:

@@ -25,6 +25,10 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import type { BahasaSubtitle, ModelSubtitle } from "./types";
+// v3.3.0 — otak baru whisper.cpp (port KolosalCut) + fallback ONNX lama
+import { cariWhisperCpp, gabungKataWhisper, namaModelGgml, skorLeksikon, whisperCliJson } from "./whisperCpp";
+import { unlinkSync } from "node:fs";
 
 export interface SegmenSub {
   /** detik mulai (relatif rentang trim) */
@@ -153,6 +157,11 @@ export interface OpsiTranskrip {
    *  v0.51.2 — model Base tak ada di bundel? otomatis jatuh ke Small + peringatan
    *  (dulu: gagal diam-diam → video diekspor tanpa subtitle). */
   modelCepat?: boolean;
+  /** v3.3.0 — model whisper.cpp: ringan=tiny / cepat=base / akurat=small
+   *  (bila mesin whisper.cpp tidak ada → field diabaikan, jalur ONNX dipakai) */
+  model?: ModelSubtitle;
+  /** v3.3.0 — bahasa suara: id / jw / jwid (probe ganda) / enid (→ terjemah) */
+  bahasa?: BahasaSubtitle;
   /** v0.53.0 — blok PERTAMA dibuat lebih pendek (detik, "kickstart") supaya
    *  zona part-part awal cepat tercakup dan render part bisa mulai lebih awal.
    *  0/undefined = perilaku lama (blok seragam DURASI_BLOK). */
@@ -696,10 +705,210 @@ export function gabungSegmenBlok(
  * hasil dibersihkan dr halusinasi loop (bersihSegmenHalusinasi), dan opsi
  * modelCepat memilih Whisper Base (±2–3× lebih cepat, ketepatan sedikit turun).
  */
+// ================= v3.3.0 — JALUR WHISPER.CPP (port KolosalCut) =================
+
+// kamus leksikon Jawa/Indonesia (port KINOSTRA main.js — dipakai probe ganda)
+const W_ID_HINTS = ["yang", "dan", "di", "ini", "itu", "dengan", "untuk", "tidak", "saya", "kami", "kita",
+  "adalah", "akan", "sudah", "dari", "pada", "bisa", "karena", "juga", "para", "orang", "ke", "dalam",
+  "ada", "apa", "saat", "oleh", "agar", "banyak", "sekali", "belum", "kalau", "memang", "begini",
+  "semuanya", "selamat", "malam", "pagi", "datang", "kembali", "video", "hari", "belajar",
+  "memotong", "beberapa", "bagian", "cepat", "mudah", "jangan", "lupa", "tekan", "tombol", "suka",
+  "langganan", "gratis", "channel"];
+const W_JV_HINTS = ["aku", "awak", "dhewe", "iku", "iki", "kowe", "arep", "ora", "nggih", "ingkang",
+  "menika", "meniko", "mawon", "saged", "badhe", "dados", "kangge", "inggih", "panjenengan", "sami",
+  "wonten", "punika", "puniko", "sinau", "enggal", "gampil", "aja", "lali", "seneng", "sugeng",
+  "rawuh", "kumbali", "kanthi", "dinten", "kepengin", "lakoni", "nggeh", "tembang", "kusumaning",
+  "motong", "vidio", "sapanunggalane", "dumadi", "mesthine", "kedah", "boten", "saking"];
+
+
+/** Float32 mono → WAV PCM16 (satu berkas per blok, ala sliceWav16 KINOSTRA). */
+function tulisWav16(data: Float32Array, sr = 16000): Buffer {
+  const n = data.length;
+  const buf = Buffer.alloc(44 + n * 2);
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + n * 2, 4);
+  buf.write("WAVE", 8);
+  buf.write("fmt ", 12);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(sr, 24);
+  buf.writeUInt32LE(sr * 2, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write("data", 36);
+  buf.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) {
+    const v = Math.max(-1, Math.min(1, Number(data[i]) || 0));
+    buf.writeInt16LE(Math.round(v * 32767), 44 + i * 2);
+  }
+  return buf;
+}
+
+/** Terjemah EN→ID (opus-mt) — dipakai jalur cpp utk pilihan "enid". */
+async function terjemahSegmenKeId(
+  segmen: SegmenSub[],
+  tahap: (t: string) => void,
+): Promise<{ segmen: SegmenSub[]; diterjemahkan: boolean }> {
+  const penerjemah = await ambilPipaTerjemah();
+  if (!penerjemah) return { segmen, diterjemahkan: false };
+  const hasilBaru: SegmenSub[] = [];
+  for (let i = 0; i < segmen.length; i += BATCH_TERJEMAH) {
+    tahap(`terjemah Indonesia… ${Math.min(i + BATCH_TERJEMAH, segmen.length)}/${segmen.length}`);
+    const batch = segmen.slice(i, i + BATCH_TERJEMAH);
+    let keluar: Array<{ translation_text?: string }> = [];
+    try {
+      keluar = (await balapanWaktu(penerjemah(batch.map((s) => s.t)), MS_TAHAP_AI)) ?? [];
+    } catch {
+      keluar = [];
+    }
+    for (let j = 0; j < batch.length; j += 1) {
+      const t = bersihTeksSub(String(keluar[j]?.translation_text || "")) || batch[j].t;
+      hasilBaru.push({ a: batch[j].a, b: batch[j].b, t });
+    }
+  }
+  return { segmen: hasilBaru, diterjemahkan: true };
+}
+
+/**
+ * Transkrip via whisper-cli per blok (pola yang SAMA dgn jalur ONNX: kickstart,
+ * blok sunyi dilewati, zona dilaporkan → mode latar jobs.ts tak berubah).
+ * audio = PCM float32 mono 16 kHz rentang trim (waktu mulai 0).
+ */
+async function transkripDiterjemahkanCpp(
+  audio: Float32Array,
+  opsi?: OpsiTranskrip,
+): Promise<HasilTranskrip | null> {
+  const model = opsi?.model ?? "cepat";
+  const info = cariWhisperCpp(model);
+  if (!info) return null;
+  const tahap = opsi?.onTahap ?? (() => {});
+  const pilihan = opsi?.bahasa ?? "id";
+  const dirTmp = dirCache();
+  const modelPath = path.join(info.dirModel, namaModelGgml(model));
+
+  // blok + laporan zona — pola persis jalur ONNX (kickstart & sunyi tetap)
+  const semuaBlok = bagiBlokAudio(audio, DURASI_BLOK, OVERLAP_BLOK, opsi?.blokPertamaDtk || 0);
+  const indeksAktif: number[] = [];
+  let sunyi = 0;
+  semuaBlok.forEach((b, i) => {
+    if (apakahBlokSunyi(b.data)) sunyi += 1;
+    else indeksAktif.push(i);
+  });
+  opsi?.onBlokDaftar?.(
+    semuaBlok.map((b) => ({
+      mulai: b.mulai,
+      akhir: b.mulai + b.data.length / 16000,
+      sunyi: apakahBlokSunyi(b.data),
+    })),
+  );
+
+  // bahasa — probe ganda jw/id ala KINOSTRA (12 dtk pertama, skor leksikon)
+  let bahasa = pilihan === "enid" ? "en" : pilihan === "jw" ? "jw" : "id";
+  if (pilihan === "jwid" && indeksAktif.length) {
+    tahap("deteksi bahasa (Jawa/Indonesia)…");
+    try {
+      const cuplikan = audio.slice(0, Math.min(audio.length, 12 * 16000));
+      const wavP = path.join(dirTmp, `probe-${Date.now().toString(36)}.wav`);
+      const basis = wavP.slice(0, -4);
+      writeFileSync(wavP, tulisWav16(cuplikan));
+      const kataJ = await whisperCliJson({ bin: info.bin, modelPath, wavPath: wavP, bahasa: "jw", outBase: basis, isBatal: opsi?.apakahBerhenti });
+      const kataI = await whisperCliJson({ bin: info.bin, modelPath, wavPath: wavP, bahasa: "id", outBase: `${basis}2`, isBatal: opsi?.apakahBerhenti });
+      const sJ = skorLeksikon(kataJ.map((k) => k.t).join(" "), W_JV_HINTS);
+      const sI = skorLeksikon(kataI.map((k) => k.t).join(" "), W_ID_HINTS);
+      bahasa = sJ > sI + 0.02 ? "jw" : "id";
+      tahap(`bahasa terdeteksi: ${bahasa === "jw" ? "Jawa" : "Indonesia"}`);
+      for (const f of [wavP, `${basis}.json`, `${basis}2.json`]) {
+        try {
+          if (existsSync(f)) unlinkSync(f);
+        } catch { /* opsional */ }
+      }
+    } catch {
+      bahasa = "id";
+    }
+  }
+  const labelB = bahasa === "jw" ? "(Jawa)" : bahasa === "en" ? "(Inggris)" : "(Indonesia)";
+
+  const hasilBlok: Array<{ mulai: number; segmen: SegmenSub[] } | null> = semuaBlok.map(() => null);
+  let gagal = 0;
+  let selesai = 0;
+
+  for (const i of indeksAktif) {
+    if (opsi?.apakahBerhenti?.()) break;
+    const b = semuaBlok[i];
+    const stempel = `wsb-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const wavPath = path.join(dirTmp, `${stempel}.wav`);
+    const outBase = path.join(dirTmp, stempel);
+    let seg: SegmenSub[] | null = null;
+    try {
+      writeFileSync(wavPath, tulisWav16(b.data));
+      const kata = await whisperCliJson({
+        bin: info.bin,
+        modelPath,
+        wavPath,
+        bahasa,
+        outBase,
+        isBatal: opsi?.apakahBerhenti,
+      });
+      seg = gabungKataWhisper(kata);
+    } catch {
+      seg = null;
+    } finally {
+      for (const f of [wavPath, `${outBase}.json`]) {
+        try {
+          if (existsSync(f)) unlinkSync(f);
+        } catch { /* opsional */ }
+      }
+    }
+    if (seg) hasilBlok[i] = { mulai: b.mulai, segmen: seg };
+    else gagal += 1;
+    selesai += 1;
+    opsi?.onBlokSelesai?.({
+      indeks: i,
+      mulai: b.mulai,
+      akhir: b.mulai + b.data.length / 16000,
+      segmen: seg,
+    });
+    const pct = Math.round((selesai / Math.max(1, indeksAktif.length)) * 100);
+    tahap(
+      `teks otomatis whisper.cpp ${labelB}… ${pct}% (${selesai}/${indeksAktif.length} bagian)${sunyi > 0 ? ` — ${sunyi} bagian sunyi dilewati` : ""}`,
+    );
+  }
+
+  const segmenGabung = bersihSegmenHalusinasi(
+    gabungSegmenBlok(hasilBlok.filter((h): h is { mulai: number; segmen: SegmenSub[] } => h !== null)),
+  );
+  if (!segmenGabung.length) return { segmen: [], bahasa, diterjemahkan: false };
+
+  let segmen = segmenGabung;
+  let diterjemahkan = false;
+  if (bahasa === "en") {
+    const r = await terjemahSegmenKeId(segmen, tahap);
+    segmen = r.segmen;
+    diterjemahkan = r.diterjemahkan;
+  }
+  const peringatanGagal = gagal > 0
+    ? `${gagal} bagian audio gagal dianalisis — sebagian teks mungkin tidak muncul`
+    : undefined;
+  return { segmen, bahasa, diterjemahkan, peringatan: peringatanGagal };
+}
+
 export async function transkripDiterjemahkan(
   audio: Float32Array,
   opsi?: OpsiTranskrip,
 ): Promise<HasilTranskrip | null> {
+  // v3.3.0 — DISPATCHER MESIN: whisper.cpp (port KolosalCut) bila binary+model
+  // tersedia — jauh lebih cepat dr ONNX & fokus Jawa/Indonesia. Gagal/tidak ada
+  // → jatuh ke jalur ONNX lama persis (nol regresi).
+  const modelDiminta = opsi?.model ?? "cepat";
+  if (cariWhisperCpp(modelDiminta)) {
+    try {
+      const hasilCpp = await transkripDiterjemahkanCpp(audio, opsi);
+      if (hasilCpp !== null) return hasilCpp;
+    } catch {
+      /* jatuh ke ONNX */
+    }
+  }
   const cepatDiminta = opsi?.modelCepat === true;
   // v0.51.2 — model cepat WAJIB benar-benar ada; bila tidak, jatuh ke model Tepat
   // (dulu: pipeline Base gagal → null → ekspor berjalan TANPA subtitle — bug v0.51.0)
@@ -894,10 +1103,13 @@ export function kunciCache(
   akhirDetik: number,
   mode: ModeBahasa = "fokus",
   cepat = false,
+  /** v3.3.0 — identitas mesin (mis. "|cpp:cepat:id") — hasil whisper.cpp dan
+   *  ONNX TIDAK boleh satu slot cache */
+  ekstra = "",
 ): string {
   return createHash("sha1")
     .update(
-      `${file}|${ukuran}|${mtimeMs}|${mulaiDetik.toFixed(3)}|${akhirDetik.toFixed(3)}|${mode}${cepat ? "|cepat" : ""}`,
+      `${file}|${ukuran}|${mtimeMs}|${mulaiDetik.toFixed(3)}|${akhirDetik.toFixed(3)}|${mode}${cepat ? "|cepat" : ""}${ekstra}`,
     )
     .digest("hex")
     .slice(0, 24);
@@ -964,11 +1176,13 @@ export async function siapkanSegmenSubtitle(
   ffmpegBin: string,
   opsi?: OpsiTranskrip,
 ): Promise<HasilTranskrip | null> {
-  if (!modelTersedia()) return null;
+  if (!modelTersedia() && !cariWhisperCpp(opsi?.model ?? "cepat")) return null; // v3.3.0 — cukup salah satu mesin
   const mode: ModeBahasa = opsi?.modeBahasa === "deteksi" ? "deteksi" : "fokus";
   // v0.51.2 — kunci cache memakai model yang EFEKTIF dipakai (Base hanya bila
   // benar-benar ada) — hasil Small tak pernah salah slot di "|cepat"
   const cepat = opsi?.modelCepat === true && modelCepatTersedia();
+  // v3.3.0 — identitas mesin ikut kunci (whisper.cpp vs ONNX tak boleh berbagi slot)
+  const ekstraMesin = cariWhisperCpp(opsi?.model ?? "cepat") ? `|cpp:${opsi?.model ?? "cepat"}:${opsi?.bahasa ?? "id"}` : "";
   let stat: { size: number; mtimeMs: number } | null = null;
   try {
     const { statSync } = await import("node:fs");
@@ -976,7 +1190,7 @@ export async function siapkanSegmenSubtitle(
   } catch {
     return null;
   }
-  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode, cepat);
+  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode, cepat, ekstraMesin);
   const tersimpan = ambilCache(kunci);
   if (tersimpan) return tersimpan;
 
@@ -1064,10 +1278,12 @@ export async function mulaiTranskripLatar(
   ffmpegBin: string,
   opsi?: OpsiTranskrip,
 ): Promise<TranskripLatar | null> {
-  if (!modelTersedia()) return null;
+  if (!modelTersedia() && !cariWhisperCpp(opsi?.model ?? "cepat")) return null; // v3.3.0 — cukup salah satu mesin
   const mode: ModeBahasa = opsi?.modeBahasa === "deteksi" ? "deteksi" : "fokus";
   // kunci cache memakai model yang EFEKTIF dipakai (sama dgn siapkanSegmenSubtitle)
   const cepat = opsi?.modelCepat === true && modelCepatTersedia();
+  // v3.3.0 — identitas mesin ikut kunci (whisper.cpp vs ONNX tak boleh berbagi slot)
+  const ekstraMesin = cariWhisperCpp(opsi?.model ?? "cepat") ? `|cpp:${opsi?.model ?? "cepat"}:${opsi?.bahasa ?? "id"}` : "";
   let stat: { size: number; mtimeMs: number } | null = null;
   try {
     const { statSync } = await import("node:fs");
@@ -1075,7 +1291,7 @@ export async function mulaiTranskripLatar(
   } catch {
     return null;
   }
-  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode, cepat);
+  const kunci = kunciCache(file, stat.size, stat.mtimeMs, mulaiDetik, akhirDetik, mode, cepat, ekstraMesin);
   const tersimpan = ambilCache(kunci);
   if (tersimpan) {
     // cache kena — segmen penuh tersedia SEKETIKA, render tak pernah menunggu

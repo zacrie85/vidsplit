@@ -41,6 +41,8 @@ import { siapkanLatarTemplate } from "./templatRender";
 import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import { jadwalkanPangkas } from "./kebersihan";
 import type { SeqNeon } from "./ffmpeg";
+// v3.3.0 — mesin cover NOVACUT (thumbnail & intro template)
+import { pakaiTemplateCover, renderCoverTemplatePng } from "./thumbnail";
 import { analisisAdegan, potonganAdegan, type PotonganAdegan } from "./adegan";
 import { gerbangFastcut, potongLangsung } from "./fastcut";
 import {
@@ -360,7 +362,26 @@ export function mulaiEksporAntrean(
       const fileJ = path.join(dirTmp, `${tag}-thumb-j.txt`);
       const fileL = path.join(dirTmp, `${tag}-thumb-l.txt`);
       try {
-        const gy = GAYA_COVER[thumb.gaya] ?? GAYA_COVER.modern;
+        // v3.3.0 — template NOVACUT: overlay SVG→PNG ditulis sekali per part,
+        // rantai ffmpeg jadi overlay sederhana (gaya dasar → rantai lama persis)
+        const tpl = pakaiTemplateCover(thumb.gaya);
+        let templatePng: string | undefined;
+        if (tpl) {
+          const fileTpl = path.join(dirTmp, `${tag}-thumb-ov.png`);
+          writeFileSync(
+            fileTpl,
+            renderCoverTemplatePng({
+              template: String(thumb.gaya),
+              W,
+              H,
+              judul: bersihkanNamaJudul(it.nama),
+              labelPart: thumb.mode === "identik" ? "" : labelThumbnail(thumb, n),
+              latar: "adegan",
+            }),
+          );
+          templatePng = fileTpl;
+        }
+        const gy = GAYA_COVER[(tpl ? "modern" : thumb.gaya) as keyof typeof GAYA_COVER] ?? GAYA_COVER.modern;
         // v2.3.0 — mode "satu": frame bersama diambil SEKALI per video; semua
         // part menyusun cover dr GAMBAR yang sama (tanpa seek ulang video).
         // v2.5.0 — mode "identik" memakai frame bersama yang sama + label kosong.
@@ -411,6 +432,7 @@ export function mulaiEksporAntrean(
           fontfile: fontfileNama(gy.fontJudul),
           fontLabel: fontfileNama(gy.fontLabel),
           gaya: thumb.gaya,
+          ...(templatePng ? { templatePng, templateLatarHitam: false } : {}),
           keluar: keluarT,
           format: thumb.format,
         });
@@ -532,20 +554,66 @@ export function mulaiEksporAntrean(
       // gagal → part dirender TANPA intro (tidak menggagalkan job) + peringatan.
       const totalPartVid = konteks.potonganAdgn.length || Math.max(1, job.antrean[vi].total);
       let bgPart: string | null = null;
+      // v3.3.0 — intro template NOVACUT: frame + overlay SVG (judul & label sudah
+      // DI DALAM PNG → rantaiIntroBg TIDAK menggambar teks lagi)
+      const tplIntro = p.introTemplate && pakaiTemplateCover(p.introTemplate);
       if (p.introAktif && pilihBgPart(p.introTampil, n, totalPartVid)) {
         const fileFrame = path.join(dirTmp, `${tag}-introbg.png`);
         try {
-          // v2.2.1 — posisi frame DIPETAKAN ke MENIT 1–3 video (detikRentangCover
-          // via detikFrameIntro dgn durasi total) → seek dekat awal = cepat;
-          // frame langsung diskalakan ke W×H output (PNG kecil, intro ringan).
-          const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
-          await jalankanFfmpeg(
-            bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame, W, H),
-            1,
-            undefined,
-            ff.bin,
-          );
-          bgPart = existsSync(fileFrame) ? fileFrame : null;
+          if (tplIntro) {
+            // (1) overlay template SVG→PNG (transparan di area adegan)
+            const fileOv = path.join(dirTmp, `${tag}-introov.png`);
+            writeFileSync(
+              fileOv,
+              renderCoverTemplatePng({
+                template: String(p.introTemplate),
+                W,
+                H,
+                judul: bersihkanNamaJudul(it.nama),
+                labelPart: labelIntro(p.kataPart, n),
+                latar: "adegan",
+              }),
+            );
+            // (2) frame dari sumber (W×H, dipetakan menit 1–3)
+            const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
+            await jalankanFfmpeg(
+              bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame, W, H),
+              1,
+              undefined,
+              ff.bin,
+            );
+            // (3) komposit frame + overlay → PNG intro siap zoompan
+            if (existsSync(fileFrame)) {
+              const fileKomposit = path.join(dirTmp, `${tag}-introbg-c.png`);
+              await jalankanFfmpeg(
+                [
+                  "-y", "-hide_banner", "-loglevel", "error",
+                  "-i", fileFrame, "-i", fileOv,
+                  "-filter_complex", "[0:v][1:v]overlay=0:0,format=rgba",
+                  "-frames:v", "1",
+                  fileKomposit,
+                ],
+                1,
+                undefined,
+                ff.bin,
+              );
+              bgPart = existsSync(fileKomposit) ? fileKomposit : fileFrame;
+            } else {
+              bgPart = null;
+            }
+          } else {
+            // v2.2.1 — posisi frame DIPETAKAN ke MENIT 1–3 video (detikRentangCover
+            // via detikFrameIntro dgn durasi total) → seek dekat awal = cepat;
+            // frame langsung diskalakan ke W×H output (PNG kecil, intro ringan).
+            const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
+            await jalankanFfmpeg(
+              bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame, W, H),
+              1,
+              undefined,
+              ff.bin,
+            );
+            bgPart = existsSync(fileFrame) ? fileFrame : null;
+          }
         } catch {
           bgPart = null;
         }
@@ -640,9 +708,18 @@ export function mulaiEksporAntrean(
         sumberTinggi: it.info.tinggi,
         // v2.1.0 — suara intro
         fileSuaraIntro: konteks.suaraIntroAbs,
+        // v3.3.0 — TRANSISI NOVACUT: ekor part sebelumnya dari sumber (paralel-aman)
+        transisiMasuk: (() => {
+          if (!p.efekTransisi || n <= 1) return null;
+          const d = Math.min(1.5, Math.max(0.2, p.efekTransisiDurasi || 0.6));
+          const dSumber = d * kec2;
+          if (mulai - dSumber < 0.05) return null;
+          return { id: p.efekTransisi, durasi: d, mulaiPrev: mulai - dSumber };
+        })(),
         // v2.2.0 — teks intro OTOMATIS: judul dr nama file + label kata-part NN
-        introJudulTxt: bgPart ? bersihkanNamaJudul(it.nama) : "",
-        introLabelTxt: bgPart ? labelIntro(p.kataPart, n) : "",
+        // v3.3.0 — template intro: teks sudah terbakar di PNG → tanpa drawtext
+        introJudulTxt: bgPart && !tplIntro ? bersihkanNamaJudul(it.nama) : "",
+        introLabelTxt: bgPart && !tplIntro ? labelIntro(p.kataPart, n) : "",
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -1067,6 +1144,9 @@ export function mulaiEksporAntrean(
               onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; },
               // v0.47.0 — fokus Indonesia bawaan (cepat); deteksi ID/EN opt-in
               modeBahasa: it.pengaturan.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+              // v3.3.0 — otak whisper.cpp: model + bahasa pilihan user
+              model: it.pengaturan.subtitleModel,
+              bahasa: it.pengaturan.subtitleBahasa,
               // v0.51.0 — pilihan model: Whisper Base (cepat) vs Small (bawaan, tepat)
               modelCepat: it.pengaturan.subtitleCepat === true,
               // v0.53.0 — ekspor dibatalkan → transkrip berhenti ambil blok baru
@@ -1351,6 +1431,8 @@ export function mulaiGabungAntrean(
           subLatar = await mulaiTranskripLatar(it.srcAbs, p.mulaiDetik, p.akhirDetik, it.info.durasi, ff.bin, {
             onTahap: (t) => { job.antrean[vi].tahap = `AI: ${t}`; },
             modeBahasa: p.subtitleDeteksiBahasa ? "deteksi" : "fokus",
+            model: p.subtitleModel,
+            bahasa: p.subtitleBahasa,
             modelCepat: p.subtitleCepat === true,
             apakahBerhenti: () => apakahBatal(id),
           });
@@ -1480,6 +1562,21 @@ export function mulaiGabungAntrean(
         filePembicara,
         sumberLebar: it.info.lebar,
         sumberTinggi: it.info.tinggi,
+        // v3.3.0 — TRANSISI NOVACUT antar VIDEO: ekor video sebelumnya (file lain)
+        transisiMasuk: (() => {
+          if (!p.efekTransisi || vi <= 0) return null;
+          const prev = daftar[vi - 1];
+          const d = Math.min(1.5, Math.max(0.2, p.efekTransisiDurasi || 0.6));
+          const dSumber = d * kec;
+          const durasiPrev = prev.info.durasi;
+          if (durasiPrev - dSumber < 0.05) return null;
+          return {
+            id: p.efekTransisi,
+            durasi: d,
+            mulaiPrev: durasiPrev - dSumber,
+            srcPrev: prev.srcAbs,
+          };
+        })(),
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -1527,7 +1624,9 @@ export function mulaiGabungAntrean(
           const dT0 = durasiEfektif(it0t.info.durasi, it0t.pengaturan.mulaiDetik, it0t.pengaturan.akhirDetik);
           const skala0 = Math.min(W, H) / 1080;
           // v2.3.0 — gaya bingkai ikut pilihan user (gabung = 1 cover tanpa label)
-          const gy0 = GAYA_COVER[thumbnail.gaya] ?? GAYA_COVER.modern;
+          // v3.3.0 — template NOVACUT juga didukung (overlay SVG→PNG)
+          const tpl0 = pakaiTemplateCover(thumbnail.gaya);
+          const gy0 = GAYA_COVER[(tpl0 ? "modern" : thumbnail.gaya) as keyof typeof GAYA_COVER] ?? GAYA_COVER.modern;
           const teksJ = bungkusTeks(bersihkanNamaJudul(it0t.nama), W * 0.92, Math.max(14, 52 * skala0), gy0.fontJudul);
           const fileJ = path.join(dirTmp, `${id}-gab-thumb-j.txt`);
           const fileL = path.join(dirTmp, `${id}-gab-thumb-l.txt`);
@@ -1535,6 +1634,23 @@ export function mulaiGabungAntrean(
           writeFileSync(fileL, "", "utf8");
           const ekst = thumbnail.format === "png" ? "png" : "jpg";
           const keluarT = path.join(folder, `gabung-${slug}-thumbnail.${ekst}`);
+          // v3.3.0 — overlay template utk thumbnail GABUNG (tanpa label part)
+          let tplPng0: string | undefined;
+          if (tpl0) {
+            const fileTpl0 = path.join(dirTmp, `${id}-gab-thumb-ov.png`);
+            writeFileSync(
+              fileTpl0,
+              renderCoverTemplatePng({
+                template: String(thumbnail.gaya),
+                W,
+                H,
+                judul: bersihkanNamaJudul(it0t.nama),
+                labelPart: "",
+                latar: "adegan",
+              }),
+            );
+            tplPng0 = fileTpl0;
+          }
           const argsT = bangunArgumenThumbnail({
             src: it0t.srcAbs,
             // v2.2.1 — juga dipetakan ke menit 1–3 video pertama (cepat)
@@ -1550,6 +1666,7 @@ export function mulaiGabungAntrean(
             fontfile: fontfileNama(gy0.fontJudul),
             fontLabel: fontfileNama(gy0.fontLabel),
             gaya: thumbnail.gaya,
+            ...(tplPng0 ? { templatePng: tplPng0, templateLatarHitam: false } : {}),
             keluar: keluarT,
             format: thumbnail.format,
           });

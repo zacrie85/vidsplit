@@ -73,7 +73,10 @@ export function gerbangKilat(p: Pengaturan, targetMb = 0): string | null {
   if ((p.logoId || "").trim()) return "LOGO";
   if ((p.frameId || "").trim()) return "BINGKAI";
   if (p.neonAktif) return "NEON";
+  // v3.3.0 — mesin efek NOVACUT belum ada jalur WebCodecs → paksa ffmpeg
   if (p.transisiPart) return "TRANSISI";
+  if (p.efekTransisi) return "TRANSISI NOVACUT";
+  if (p.efekKlip && p.efekKlip.length) return "EFEK NOVACUT";
   if (Math.abs((p.kecepatanVideo || 1) - 1) > 1e-9) return "KECEPATAN";
   if (p.zoomPembicara !== "mati") return "AI PEMBICARA";
   if (p.subtitleAktif) return "SUBTITEL";

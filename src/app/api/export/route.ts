@@ -21,9 +21,12 @@ import {
   dariPosisiTeksLama,
   rapikanPosisiXY,
   rapikanPosisiY,
+  ANIMASI_TEKS,
   type NamaFont,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
+import { isTransisiValid, rapikanEfekKlip } from "@/lib/vidsplit/efekNovacut";
+import { templateCoverValid } from "@/lib/vidsplit/coverNovacut";
 
 export const runtime = "nodejs";
 
@@ -130,6 +133,27 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
   // v0.51.0 — pilihan model cepat (Whisper Base); bawaan Small (paling tepat)
   p.subtitleCepat = p.subtitleCepat === true;
+  // v3.3.0 — MESIN EFEK NOVACUT + otak whisper.cpp + template cover
+  if (p.transisiPart && !p.efekTransisi) {
+    // simpanan lama fade/slide → peta ke transisi NOVACUT lalu kosongkan
+    p.efekTransisi = p.transisiPart === "fade" ? "crossfade" : p.transisiPart === "slide" ? "slide-l" : "";
+    p.transisiPart = "";
+  } else p.transisiPart = "";
+  p.efekTransisi = isTransisiValid(String(p.efekTransisi || "")) ? String(p.efekTransisi || "") : "";
+  p.efekTransisiDurasi = clamp(p.efekTransisiDurasi, 0.2, 1.5, 0.6);
+  p.efekKlip = rapikanEfekKlip(p.efekKlip);
+  p.animasiTeks = ANIMASI_TEKS.some((a) => a.id === p.animasiTeks) ? p.animasiTeks : "";
+  p.introTemplate =
+    p.introTemplate && templateCoverValid(String(p.introTemplate)) ? String(p.introTemplate) : "";
+  p.subtitleModel =
+    p.subtitleModel === "ringan" || p.subtitleModel === "akurat" ? p.subtitleModel : "cepat";
+  p.subtitleBahasa =
+    p.subtitleBahasa === "jw" || p.subtitleBahasa === "jwid" || p.subtitleBahasa === "enid"
+      ? p.subtitleBahasa
+      : "id";
+  // sinkron field usang → mesin baru (jobs lama masih membacanya)
+  p.subtitleCepat = p.subtitleModel !== "akurat";
+  p.subtitleDeteksiBahasa = p.subtitleBahasa === "enid";
   return p;
 }
 

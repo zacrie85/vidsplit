@@ -30,6 +30,8 @@ import {
   Wand2,
   Zap,
   Globe,
+  Layers,
+  Timer,
 } from "lucide-react";
 import { BINGKAI_BAWAAN, LABEL_KATEGORI, type KategoriBingkai } from "@/lib/vidsplit/bingkaiBawaan";
 import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
@@ -65,12 +67,15 @@ import {
   type Pengaturan,
   type Resolusi,
   type ResolusiOutput,
-  type TransisiPart,
   type ZonaHapus,
   urlBingkai,
   urlBingkaiWarna,
+  ANIMASI_TEKS,
 } from "@/lib/vidsplit/types";
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
+// v3.3.0 — galeri cover NOVACUT + registry efek (murni — aman di client)
+import { daftarTemplateCover, pengukurPerkiraan, svgCoverDataUrl } from "@/lib/vidsplit/coverNovacut";
+import { CLIP_EFFECTS, TRANSITIONS, TRANSITION_CATS } from "@/lib/vidsplit/efekNovacut";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
@@ -134,17 +139,7 @@ function GayaEditor({
         max={maxUkuran}
         onChange={(n) => onChange({ ...gaya, ukuran: n })}
       />
-      {onTerapkanSemua && (
-        <button
-          type="button"
-          onClick={onTerapkanSemua}
-          title="Salin angka ukuran huruf ini ke SEMUA video di antrean"
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/60 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-amber-400 hover:text-amber-300"
-        >
-          <ListChecks className="h-3.5 w-3.5" />
-          Terapkan ukuran {gaya.ukuran} ke semua video
-        </button>
-      )}
+      {/* v3.3.0 — "Terapkan ukuran ke semua" pindah ke RK Ringkasan (pusat tunggal) */}
       <BarisSlider
         label="Ketebalan outline"
         nilai={gaya.outlineLebar}
@@ -560,23 +555,7 @@ export function PanelMode({
           30 detik. 0,5× = slow-motion, 2× = dipercepat dua kali lipat.
         </p>
       </div>
-      <div className="mt-3 border-t border-slate-700/50 pt-3">
-        <p className="mb-1 text-xs text-slate-400">Transisi antar part (opsional)</p>
-        <ChipPilihan<TransisiPart>
-          pilihan={[
-            { v: "", label: "Tanpa transisi", hint: "langsung nyambung (perilaku lama)" },
-            { v: "fade", label: "Fade", hint: "pudar ke hitam masuk & keluar tiap part" },
-            { v: "slide", label: "Slide", hint: "geser masuk dari kanan, keluar ke kiri" },
-          ]}
-          nilai={pengaturan.transisiPart}
-          onChange={(v) => set("transisiPart", v)}
-        />
-        <p className="mt-1.5 text-[11px] text-slate-500">
-          Diterapkan di awal &amp; akhir TIAP part (durasi 0,5 detik per sisi) — saat part
-diputar berurutan, antar part terasa ada perpindahannya. Gunakan tombol "Terapkan
-          ke SEMUA video" di bawah untuk menerapkan ke semua video yang diekspor.
-        </p>
-      </div>
+      {/* v3.3.0 — transisi antar part pindah ke TAB EFEK (28 transisi NOVACUT) */}
     </Kartu>
   );
 }
@@ -758,7 +737,6 @@ export function PanelJudul({
   pengaturan,
   onChange,
   nomorVideo,
-  onTerapkanUkuran,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -787,7 +765,6 @@ export function PanelJudul({
         gaya={pengaturan.gayaJudul}
         onChange={(g) => set("gayaJudul", g)}
         maxUkuran={160}
-        onTerapkanSemua={onTerapkanUkuran}
       />
       {/* v2.4.0 — posisi judul BEBAS (terpisah dr Part): -1 = otomatis margin atas */}
       <PenggeserPosisi
@@ -797,6 +774,21 @@ export function PanelJudul({
         yOtomatis={4.5}
         onChange={(x, y) => onChange({ ...pengaturan, judulX: x, judulY: y })}
       />
+      {/* v3.3.0 — ANIMASI MASUK TEKS (8 gaya, judul + label part) */}
+      <div className="mt-1 border-t border-slate-700/50 pt-2.5">
+        <p className="mb-1 text-[11px] font-medium text-slate-400">
+          Animasi masuk teks <span className="text-slate-500">(judul + label part)</span>
+        </p>
+        <ChipPilihan
+          nilai={pengaturan.animasiTeks}
+          onChange={(v) => set("animasiTeks", v)}
+          pilihan={ANIMASI_TEKS.map((a) => ({ v: a.id, label: a.nama }))}
+        />
+        <p className="mt-1 text-[10px] leading-snug text-slate-500">
+          8 gaya animasi masuk ala NOVACUT/KINOSTRA (0,7 detik) — dieksekusi saat ekspor.
+          Animasi teks memakai mesin render (bukan potong langsung).
+        </p>
+      </div>
     </Kartu>
   );
 }
@@ -1344,9 +1336,7 @@ export function PanelSubtitle({
   pengaturan,
   onChange,
   nomorVideo,
-  onTerapkanSemua,
   fileRel,
-  adaAudio,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -1396,6 +1386,8 @@ export function PanelSubtitle({
     pengaturan.subtitleOutlineWarna,
     pengaturan.subtitleDeteksiBahasa,
     pengaturan.subtitleCepat,
+    pengaturan.subtitleBahasa,
+    pengaturan.subtitleModel,
   ]);
 
   const jalankanPratinjau = async () => {
@@ -1455,90 +1447,74 @@ export function PanelSubtitle({
       </p>
       {pengaturan.subtitleAktif && (
         <div className="mt-3 space-y-3">
-          {/* ---- v0.47.0 MODE BAHASA: fokus Indonesia (cepat) vs deteksi ID/EN ---- */}
+          {/* ---- v3.3.0 BAHASA SUARA: Indonesia / Jawa / Otomatis jw-id / Inggris→ID ---- */}
           <div>
-            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Mode bahasa</p>
+            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Bahasa suara di video</p>
             <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => set("subtitleDeteksiBahasa", false)}
-                title="Langsung transkrip bahasa Indonesia sekali jalan — paling cepat"
-                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
-                  !pengaturan.subtitleDeteksiBahasa
-                    ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-                }`}
-              >
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Zap className="h-3.5 w-3.5" />
-                  Fokus Indonesia
-                </span>
-                <span className="mt-0.5 block text-[10px] opacity-70">Paling cepat</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => set("subtitleDeteksiBahasa", true)}
-                title="Uji bahasa dulu (Indonesia vs Inggris) + terjemah EN→ID — untuk video bersuara Inggris"
-                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
-                  pengaturan.subtitleDeteksiBahasa
-                    ? "border-sky-400/50 bg-sky-400/10 text-sky-200"
-                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-                }`}
-              >
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Globe className="h-3.5 w-3.5" />
-                  Deteksi ID/EN
-                </span>
-                <span className="mt-0.5 block text-[10px] opacity-70">Lama + terjemahan</span>
-              </button>
+              {([
+                { v: "id", nama: "Indonesia", hint: "Paling cepat", ikon: <Zap className="h-3.5 w-3.5" />, warna: "emerald" },
+                { v: "jw", nama: "Jawa", hint: "Khusus bahasa Jawa", ikon: <Captions className="h-3.5 w-3.5" />, warna: "violet" },
+                { v: "jwid", nama: "Otomatis (Jawa/ID)", hint: "Diujing otomatis", ikon: <Sparkles className="h-3.5 w-3.5" />, warna: "amber" },
+                { v: "enid", nama: "Inggris → ID", hint: "+ terjemahan", ikon: <Globe className="h-3.5 w-3.5" />, warna: "sky" },
+              ] as const).map((b) => (
+                <button
+                  key={b.v}
+                  type="button"
+                  onClick={() => set("subtitleBahasa", b.v)}
+                  title={`Bahasa suara: ${b.nama}`}
+                  className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
+                    pengaturan.subtitleBahasa === b.v
+                      ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                      : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+                  }`}
+                >
+                  <span className="flex items-center gap-1.5 font-medium">
+                    {b.ikon}
+                    {b.nama}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] opacity-70">{b.hint}</span>
+                </button>
+              ))}
             </div>
             <p className="mt-1 text-[10px] leading-snug text-slate-500">
-              {pengaturan.subtitleDeteksiBahasa
-                ? "Mode deteksi: bahasa diuji dulu (suara di-transkrip 2x) lalu Inggris diterjemahkan ke Indonesia — hasil paling lengkap tapi lebih lambat. Pakai bila video ada suara Inggris."
-                : "Mode fokus: suara langsung dibaca sebagai bahasa Indonesia sekali jalan — tanpa deteksi & tanpa terjemahan, jadi paling cepat."}
+              {pengaturan.subtitleBahasa === "jwid"
+                ? "Otomatis: 12 detik pertama diujing DUA KALI (Jawa & Indonesia), kata-kata khas dipakai memilih — pola deteksi KINOSTRA. Hasil diuji lebih tepat dari auto-detect biasa."
+                : pengaturan.subtitleBahasa === "enid"
+                  ? "Suara Inggris ditranskrip lalu DITERJEMAHKAN ke Indonesia (mesin terjemah offline) — paling lambat, pakai bila video ada suara Inggris."
+                  : pengaturan.subtitleBahasa === "jw"
+                    ? "Suara dibaca sebagai BAHASA JAWA langsung — pakai bila video seluruhnya berbahasa Jawa."
+                    : "Suara langsung dibaca sebagai bahasa Indonesia sekali jalan — paling cepat."}
             </p>
           </div>
-          {/* ---- v0.51.0 MODE KECOPATAN AI: Whisper Small (tepat) vs Base (cepat) ---- */}
+          {/* ---- v3.3.0 MODEL MESIN whisper.cpp: Ringan / Cepat / Akurat ---- */}
           <div>
-            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Kecepatan AI</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              <button
-                type="button"
-                onClick={() => set("subtitleCepat", false)}
-                title="Whisper Small — ejaan & kata paling tepat (bawaan)"
-                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
-                  !pengaturan.subtitleCepat
-                    ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-                }`}
-              >
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Tepat (Small)
-                </span>
-                <span className="mt-0.5 block text-[10px] opacity-70">Hasil paling akurat — kini lebih ngebut</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => set("subtitleCepat", true)}
-                title="Whisper Base — ±2–3× lebih cepat, ketepatan sedikit turun (video panjang)"
-                className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
-                  pengaturan.subtitleCepat
-                    ? "border-sky-400/50 bg-sky-400/10 text-sky-200"
-                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-                }`}
-              >
-                <span className="flex items-center gap-1.5 font-medium">
-                  <Zap className="h-3.5 w-3.5" />
-                  Cepat (Base)
-                </span>
-                <span className="mt-0.5 block text-[10px] opacity-70">±2–4× lebih cepat · lebih pas</span>
-              </button>
+            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Mesin &amp; ketepatan</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {([
+                { v: "ringan", nama: "Ringan", hint: "Tiny — paling ngebut" },
+                { v: "cepat", nama: "Cepat", hint: "Base — seimbang" },
+                { v: "akurat", nama: "Akurat", hint: "Small — paling tepat" },
+              ] as const).map((m) => (
+                <button
+                  key={m.v}
+                  type="button"
+                  onClick={() => set("subtitleModel", m.v)}
+                  title={`Model whisper.cpp ${m.nama} — ${m.hint}`}
+                  className={`rounded-lg border px-2 py-2 text-left text-[11px] transition ${
+                    pengaturan.subtitleModel === m.v
+                      ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                      : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+                  }`}
+                >
+                  <span className="block font-medium">{m.nama}</span>
+                  <span className="mt-0.5 block text-[10px] opacity-70">{m.hint}</span>
+                </button>
+              ))}
             </div>
             <p className="mt-1 text-[10px] leading-snug text-slate-500">
-              {pengaturan.subtitleCepat
-                ? "Mode cepat: model Whisper Base + benang CPU diatur otomatis (tidak saling rebutan), pemblokir kata berulang (anti halusinasi loop), dan perapian ejaan (-nya/-lah digabung otomatis) — transkrip JAUH lebih cepat dan lebih pas dari dulu."
-                : "Mode tepat: model Whisper Small — ejaan & istilah paling akurat, kini lebih responsif karena benang CPU tiap sesi diatur otomatis (tidak oversubscribe saat paralel)."}
+              v3.3.0 — otak baru <b>whisper.cpp</b> (mesin C++ murni, pola KolosalCut): jauh lebih
+              cepat dari mesin AI lama di CPU yang sama. Benang CPU diatur otomatis, pemblokir
+              kata berulang (anti halusinasi), dan perapian ejaan tetap jalan.
             </p>
           </div>
           <BarisSlider
@@ -1570,15 +1546,7 @@ export function PanelSubtitle({
               onChange={(v) => set("subtitleOutlineWarna", v)}
             />
           </div>
-          <button
-            type="button"
-            onClick={onTerapkanSemua}
-            title="Salin setelan subtitle (aktif/ukuran/posisi/warna) video ini ke SEMUA video"
-            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800/60 py-1.5 text-[11px] font-medium text-slate-300 transition hover:border-amber-400 hover:text-amber-300"
-          >
-            <ListChecks className="h-3.5 w-3.5" />
-            Terapkan subtitle ini ke semua video
-          </button>
+          {/* v3.3.0 — tombol "Terapkan ke semua" pindah ke RK Ringkasan (pusat tunggal) */}
 
           {/* ---- v0.45.0 PRATINJAU: bukti subtitle sebelum ekspor ---- */}
           <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5">
@@ -1681,8 +1649,6 @@ export function PanelFrame({
   onChange,
   onFrameFile,
   frameSibuk,
-  onTerapkanSemua,
-  nomorVideo,
   bukaDialog,
 }: {
   pengaturan: Pengaturan;
@@ -1982,18 +1948,7 @@ export function PanelFrame({
         </div>
       )}
 
-      {/* ---- terapkan ke semua ---- */}
-      <button
-        type="button"
-        onClick={onTerapkanSemua}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-xs font-medium text-amber-200 transition hover:bg-amber-400/20"
-      >
-        <Wand2 className="h-4 w-4" />
-        Terapkan frame &amp; bingkai ini ke SEMUA video (dari setelan video #{nomorVideo})
-      </button>
-      <p className="mt-1.5 text-center text-[11px] text-slate-500">
-        Menyalin pilihan frame, seluruh setelan neon, dan warna gradasi template ke semua video dalam antrean.
-      </p>
+      {/* v3.3.0 — "Terapkan frame ke semua" pindah ke RK Ringkasan (pusat tunggal) */}
     </Kartu>
   );
 }
@@ -2014,11 +1969,10 @@ export function PanelCoverIntro({
   onHapusSuara,
   suaraSibuk,
   bukaDialogAudio,
-  // v2.5.0 — thumbnail otomatis (opsi GLOBAL antrean) + terapkan intro ke semua
+  // v2.5.0 — thumbnail otomatis (opsi GLOBAL antrean)
   opsiThumb,
   onOpsiThumb,
   totalVideo,
-  onTerapkanIntroSemua,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
@@ -2106,19 +2060,13 @@ export function PanelCoverIntro({
                 ]}
               />
             </div>
-            {/* v2.3.0 — gaya bingkai cover: klasik / modern / futuristik */}
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Gaya cover</p>
-              <ChipPilihan
-                nilai={opsiThumb.gaya}
-                onChange={(v) => onOpsiThumb({ ...opsiThumb, gaya: v })}
-                pilihan={[
-                  { v: "klasik", label: "Klasik", hint: "bingkai emas, huruf fantasi" },
-                  { v: "modern", label: "Modern", hint: "kotak gelap bersih (bawaan)" },
-                  { v: "futuristik", label: "Futuristik", hint: "neon cyan, sudut bracket" },
-                ]}
-              />
-            </div>
+            {/* v3.3.0 — GALERI COVER: 3 gaya lama jadi kategori DASAR + 100 template NOVACUT */}
+            <PemilihCover
+              nilai={String(opsiThumb.gaya)}
+              onChange={(id) => onOpsiThumb({ ...opsiThumb, gaya: id })}
+              judulPratinjau={opsiThumb.aktif ? "Judul Video" : ""}
+              labelPratinjau="Part 01"
+            />
             <p className="text-[11px] leading-relaxed text-slate-500">
               Tiap potongan diberi gambar cover: frame dari video + JUDUL (dari nama
               file) + label {opsiThumb.kata} + nomor part — tersimpan di samping hasil
@@ -2156,6 +2104,22 @@ export function PanelCoverIntro({
                 Background diambil OTOMATIS dari video ini — frame diambil di antara
                 MENIT 1–3 video (permintaan: lebih cepat), lalu diberi animasi, judul,
                 dan label Part.
+              </p>
+            </div>
+            {/* ---- v3.3.0 — TEMPLATE COVER INTRO (galeri 100 template NOVACUT) ---- */}
+            <div>
+              <p className="mb-1 text-xs font-medium text-slate-300">Template cover intro</p>
+              <PemilihCover
+                nilai={pengaturan.introTemplate}
+                onChange={(id) => set("introTemplate", id)}
+                izinPolos
+                judulPratinjau="Judul Video"
+                labelPratinjau="Part 01"
+              />
+              <p className="mt-1 text-[11px] leading-snug text-slate-500">
+                {pengaturan.introTemplate
+                  ? "Template aktif: judul & label Part tercetak rapi di atas frame sesuai desain template (pratinjau = hasil ekspor)."
+                  : "Polos: tampilan intro lama (judul + label kuning sederhana di atas frame)."}
               </p>
             </div>
             {/* ---- v2.2.0 — POSISI FRAME (SLIDER BEBAS 0–100%) ---- */}
@@ -2314,14 +2278,7 @@ export function PanelCoverIntro({
           di pilih") — cover (Bagian A) memang global; yang disalin = Bagian B ===== */}
       {totalVideo > 1 && (
         <>
-          <button
-            type="button"
-            onClick={onTerapkanIntroSemua}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-cyan-400/50 bg-cyan-400/10 py-2 text-xs font-medium text-cyan-200 transition hover:bg-cyan-400/20"
-          >
-            <Copy className="h-3.5 w-3.5" />
-            Terapkan setelan intro video #{nomorVideo} ke SEMUA video ({totalVideo})
-          </button>
+          {/* v3.3.0 — tombol Terapkan intro pindah ke RK Ringkasan (pusat tunggal) */}
           <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
             Yang disalin: intro aktif/mati, posisi frame, durasi, animasi, fade, muncul di
             potongan, teks intro, suara intro &amp; volume. Pilihan thumbnail di Bagian A
@@ -2462,6 +2419,8 @@ export function PanelRingkasan({
   nomorVideo,
   totalVideo,
   onTerapkanKeSemua,
+  // v3.3.0 — PUSAT TUNGGAL "Terapkan ke SEMUA": semua aksi lintas-video
+  aksiTerapkan,
 }: {
   pengaturan: Pengaturan;
   durasiVideo: number;
@@ -2472,6 +2431,7 @@ export function PanelRingkasan({
   nomorVideo: number;
   totalVideo: number;
   onTerapkanKeSemua: () => void;
+  aksiTerapkan?: Array<{ kunci: string; label: string; hint?: string; onKlik: () => void }>;
 }) {
   const spanEfektif = durasiEfektif(durasiVideo, pengaturan.mulaiDetik, pengaturan.akhirDetik);
   const nPart = hitungPart(spanEfektif, pengaturan.durasiPart);
@@ -2565,32 +2525,355 @@ export function PanelRingkasan({
         )}
         Audio asli dipertahankan; intro diisi hening agar tetap sinkron.
       </p>
+      {/* ===== v3.3.0 — PUSAT TUNGGAL "TERAPKAN KE SEMUA" =====
+          Dulu tombol serupa tersebar di 5 modul (judul, part, deskripsi, frame,
+          subtitle) + intro → kini SEMUA aksi lintas-video berkumpul di RK,
+          sidebar makin ramping (permintaan user). */}
       {totalVideo > 1 && (
-        <>
+        <div className="mt-3 rounded-xl border border-sky-400/30 bg-sky-400/5 p-2.5">
+          <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-sky-200">
+            <ListChecks className="h-3.5 w-3.5" /> Terapkan ke semua video ({totalVideo})
+          </p>
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              onClick={onTerapkanKeSemua}
+              title="Salin mode konversi, trim, kecepatan, transisi/efek, split, backsound, logo — dari video aktif ke semua"
+              className="flex w-full items-center justify-between gap-2 rounded-lg border border-sky-400/40 bg-sky-400/10 px-2.5 py-2 text-left text-[11px] font-medium text-sky-100 transition hover:bg-sky-400/20"
+            >
+              <span>Pengaturan inti — 01 Cara ubah · 03 Part · 07 Logo</span>
+              <Copy className="h-3.5 w-3.5 shrink-0" />
+            </button>
+            {(aksiTerapkan ?? []).map((a) => (
+              <button
+                key={a.kunci}
+                type="button"
+                onClick={a.onKlik}
+                title={a.hint || a.label}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-slate-700 bg-slate-800/60 px-2.5 py-2 text-left text-[11px] font-medium text-slate-300 transition hover:border-amber-400/60 hover:text-amber-200"
+              >
+                <span>{a.label}</span>
+                <ListChecks className="h-3.5 w-3.5 shrink-0 opacity-70" />
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+            Semua aksi memakai setelan <b className="text-slate-400">video #{nomorVideo}</b> sbg
+            sumber. Tulisan judul &amp; deskripsi tiap video TIDAK ikut tersalin (tetap milik
+            masing-masing) — hanya ukuran huruf &amp; gayanya.
+          </p>
+        </div>
+      )}
+    </Kartu>
+  );
+}
+
+/* ========================================================================
+   v3.3.0 — PEMILIH COVER (galeri template)
+   3 gaya lama (modern/klasik/futuristik) = kategori "DASAR" di dalam galeri
+   yang sama dengan 100 template NOVACUT (10 layout × 10 palet) — BUKAN menu
+   terpisah (permintaan user). Pratinjau = SVG yang SAMA dengan mesin ekspor
+   (coverNovacut.ts) lewat pengukur perkiraan — ekspor server memakai TTF
+   nyata, jadi posisi wrap bisa beda beberapa piksel, desain identik.
+   ======================================================================== */
+export function PemilihCover({
+  nilai,
+  onChange,
+  izinPolos = false,
+  judulPratinjau = "Judul Video",
+  labelPratinjau = "Part 01",
+}: {
+  nilai: string;
+  onChange: (id: string) => void;
+  /** tampilkan tile "Polos (lama)" utk mengosongkan template (khusus intro) */
+  izinPolos?: boolean;
+  judulPratinjau?: string;
+  labelPratinjau?: string;
+}) {
+  const katalog = daftarTemplateCover();
+  const dasar = katalog.filter((t) => t.kategori === "dasar");
+  const novacut = katalog.filter((t) => t.kategori === "novacut");
+  const [kat, setKat] = useState<"dasar" | "novacut">(
+    nilai && !["modern", "klasik", "futuristik"].includes(nilai) ? "novacut" : "dasar",
+  );
+  const [buka, setBuka] = useState(false);
+  const ukur = pengukurPerkiraan();
+  const url = (id: string) =>
+    svgCoverDataUrl(
+      {
+        template: id,
+        W: 180,
+        H: 320,
+        judul: judulPratinjau,
+        labelPart: labelPratinjau,
+        latar: "adegan",
+        skalaPart: 1,
+      },
+      ukur,
+    );
+  const daftar = kat === "dasar" ? dasar : novacut;
+  const tampil = buka ? daftar : daftar.slice(0, 9);
+
+  return (
+    <div className="rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-medium text-slate-400">
+          Template cover — <span className="text-slate-300">{katalog.length + (izinPolos ? 1 : 0)} pilihan</span>
+        </p>
+        <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+          NOVACUT
+        </span>
+      </div>
+      {/* pratinjau besar nilai aktif */}
+      <div className="mt-2 flex items-center gap-2.5">
+        <div className="w-[84px] shrink-0 overflow-hidden rounded-md border border-amber-400/40 bg-slate-950">
+          {izinPolos && !nilai ? (
+            <div className="flex h-[149px] items-center justify-center text-[10px] text-slate-500">
+              Polos
+            </div>
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={url(nilai || "modern")} alt="Pratinjau cover aktif" className="h-[149px] w-[84px] object-cover" />
+          )}
+        </div>
+        <p className="text-[11px] leading-snug text-slate-500">
+          {izinPolos && !nilai
+            ? "Polos (tampilan lama) — tanpa template."
+            : (katalog.find((t) => t.id === nilai)?.nama ?? nilai)}
+        </p>
+      </div>
+      {/* kategori */}
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <button
+          type="button"
+          onClick={() => setKat("dasar")}
+          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+            kat === "dasar"
+              ? "border-amber-400/60 bg-amber-400/15 text-amber-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+          }`}
+        >
+          DASAR (3) — gaya lama
+        </button>
+        <button
+          type="button"
+          onClick={() => setKat("novacut")}
+          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
+            kat === "novacut"
+              ? "border-amber-400/60 bg-amber-400/15 text-amber-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+          }`}
+        >
+          NOVACUT (100)
+        </button>
+      </div>
+      {/* grid template */}
+      <div className="mt-2 grid grid-cols-3 gap-1.5">
+        {izinPolos && kat === "dasar" && (
           <button
             type="button"
-            onClick={onTerapkanKeSemua}
-            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-400/50 bg-sky-400/10 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-400/20"
+            onClick={() => onChange("")}
+            className={`flex h-[86px] items-center justify-center rounded border text-[10px] transition ${
+              nilai === ""
+                ? "border-amber-400 ring-1 ring-amber-400/60"
+                : "border-slate-700 hover:border-slate-500"
+            } bg-slate-900 text-slate-500`}
           >
-            <Copy className="h-3.5 w-3.5" />
-            Terapkan pengaturan video #{nomorVideo} ke SEMUA video ({totalVideo})
+            Polos (lama)
           </button>
-          {/* v0.38.0 — jelaskan BATASAN terapkan: judul & background tidak ikut.
-              v0.39.0 — nomor kartu menyusut (deskripsi = kartu 4) + deskripsi tidak ikut
-              v0.41.0 — ukuran huruf tiap video juga tidak ikut */}
-          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
-            Yang ikut: <b className="text-slate-400">01 Cara ubah ke vertikal</b> ·{" "}
-            <b className="text-slate-400">03 Tulisan Part otomatis</b> ·{" "}
-            <b className="text-slate-400">07 Watermark/logo</b> — logo cukup diunggah{" "}
-            <b className="text-slate-400">sekali</b>, langsung terpasang di semua video.{" "}
-            <b className="text-amber-300/80">Tulisan judul</b>,{" "}
-            <b className="text-amber-300/80">Tulis Deskripsi</b> tiap video &{" "}
-            <b className="text-amber-300/80">background intro</b> tidak diubah —
-            tapi ukuran huruf bisa diterapkan ke semua lewat tombol{" "}
-            <b className="text-amber-300/80">“Terapkan ukuran … ke semua video”</b> di tiap panel tulisan.
-          </p>
-        </>
+        )}
+        {tampil.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            title={t.nama}
+            onClick={() => onChange(t.id)}
+            className={`overflow-hidden rounded border transition hover:scale-[1.04] ${
+              nilai === t.id
+                ? "border-amber-400 ring-1 ring-amber-400/60"
+                : "border-slate-700 hover:border-slate-500"
+            }`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={url(t.id)} alt={t.nama} loading="lazy" className="h-[86px] w-full bg-slate-950 object-cover" />
+          </button>
+        ))}
+      </div>
+      {daftar.length > 9 && kat === "novacut" && (
+        <button
+          type="button"
+          onClick={() => setBuka(!buka)}
+          className="mt-1.5 w-full rounded-md border border-slate-700 py-1.5 text-[11px] text-slate-300 transition hover:border-amber-400/60 hover:text-amber-200"
+        >
+          {buka ? "Tutup" : `Lihat semua ${daftar.length} template`}
+        </button>
       )}
+    </div>
+  );
+}
+
+/* ========================================================================
+   v3.3.0 — PANEL EFEK (tab ke-5) — 28 TRANSISI + 20 EFEK KLIP NOVACUT
+   Port UI TransitionPicker/EffectPicker KolosalCut (settings-panel.tsx)
+   dengan warna amber VidSplit. Mesin: xfade ffmpeg antar ekor part
+   sebelumnya & kepala part ini (transisi silang sungguhan) + rantai
+   filter efek — keduanya memaksa jalur RENDER (bukan potong langsung/
+   KILAT) — dijelaskan di catatan bawah panel.
+   ======================================================================== */
+export function PanelEfek({
+  pengaturan,
+  onChange,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  const [kat, setKat] = useState<(typeof TRANSITION_CATS)[number]["id"]>("trailer");
+  const aktifEfek = pengaturan.efekKlip ?? [];
+  const toggleEfek = (id: string) => {
+    if (aktifEfek.includes(id)) set("efekKlip", aktifEfek.filter((x) => x !== id));
+    else if (aktifEfek.length < 6) set("efekKlip", [...aktifEfek, id]);
+  };
+
+  return (
+    <Kartu
+      nomor="EF"
+      judul="Efek & transisi NOVACUT"
+      badge="BARU"
+      deskripsi="28 transisi antar part + 20 efek klip blockbuster — port mesin NOVACUT/KolosalCut"
+      ikon={<Wand2 className="h-4 w-4" />}
+    >
+      {/* ===== 1 — TRANSISI ANTAR PART (28) ===== */}
+      <div>
+        <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-300">
+          <Timer className="h-3.5 w-3.5" /> Transisi antar part
+        </p>
+        <p className="mb-1.5 text-[11px] leading-snug text-slate-500">
+          Tampil di AWAL tiap part — dilebur <b>xfade sungguhan</b> dgn ekor part sebelumnya
+          (bukan sekadar fade hitam). GAYA (tab Video) lama fade/slide otomatis dipetakan ke sini.
+        </p>
+        <button
+          type="button"
+          onClick={() => set("efekTransisi", "")}
+          className={`mb-1.5 w-full rounded-lg border px-2.5 py-1.5 text-left text-[11px] transition ${
+            !pengaturan.efekTransisi
+              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+          }`}
+        >
+          Tanpa transisi (langsung nyambung)
+        </button>
+        <div className="mb-1.5 grid grid-cols-4 gap-1">
+          {TRANSITION_CATS.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setKat(c.id)}
+              className={`rounded-md border px-1 py-1 text-[9.5px] font-semibold uppercase tracking-wide transition ${
+                kat === c.id
+                  ? "border-amber-400/60 bg-amber-400/15 text-amber-200"
+                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {TRANSITIONS.filter((t) => t.cat === kat).map((t) => {
+            const on = pengaturan.efekTransisi === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                title={t.desc}
+                onClick={() => set("efekTransisi", t.id)}
+                className={`rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
+                  on
+                    ? "border-amber-400/70 bg-amber-400/15 text-amber-100"
+                    : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+                }`}
+              >
+                <span className="block font-medium leading-tight">{t.name}</span>
+                <span className="mt-0.5 block truncate text-[10px] opacity-70">{t.desc}</span>
+              </button>
+            );
+          })}
+        </div>
+        {!!pengaturan.efekTransisi && (
+          <div className="mt-2">
+            <BarisSlider
+              label="Durasi transisi"
+              nilai={pengaturan.efekTransisiDurasi}
+              min={0.2}
+              max={1.5}
+              step={0.1}
+              onChange={(n) => set("efekTransisiDurasi", n)}
+              fmt={(n) => `${n.toFixed(1)} detik`}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* ===== 2 — EFEK KLIP (20) ===== */}
+      <div className="mt-4 border-t border-slate-700/50 pt-3">
+        <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-300">
+          <Layers className="h-3.5 w-3.5" /> Efek klip — warna &amp; suasana
+          <span className="ml-auto rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300">
+            {aktifEfek.length}/6 aktif
+          </span>
+        </p>
+        <p className="mb-1.5 text-[11px] leading-snug text-slate-500">
+          Bisa dipadukan (maks 6) — mis. Teal &amp; Orange + Vignette + Film Grain.
+        </p>
+        {(["grade", "fx"] as const).map((grup) => (
+          <div key={grup} className="mb-2">
+            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+              {grup === "grade" ? "Color grading" : "Efek visual"}
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {CLIP_EFFECTS.filter((e) => e.group === grup).map((e) => {
+                const on = aktifEfek.includes(e.id);
+                return (
+                  <button
+                    key={e.id}
+                    type="button"
+                    title={e.desc}
+                    onClick={() => toggleEfek(e.id)}
+                    className={`rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
+                      on
+                        ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-100"
+                        : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
+                    }`}
+                  >
+                    <span className="block font-medium leading-tight">{e.name}</span>
+                    <span className="mt-0.5 block truncate text-[10px] opacity-70">{e.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {aktifEfek.length > 0 && (
+          <button
+            type="button"
+            onClick={() => set("efekKlip", [])}
+            className="w-full rounded-lg border border-slate-700 py-1.5 text-[11px] text-slate-300 transition hover:border-rose-400/60 hover:text-rose-200"
+          >
+            Bersihkan efek ({aktifEfek.length} aktif)
+          </button>
+        )}
+      </div>
+
+      {/* ===== catatan mesin ===== */}
+      <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2.5">
+        <p className="text-[11px] leading-snug text-amber-200/90">
+          Transisi/efek aktif → part dirender ulang dgn mesin RENDER ffmpeg (bukan Potong
+          Langsung/KILAT) — hasil lebih kaya tapi ekspor lebih lama. Matikan keduanya untuk
+          kembali ke pemotongan kilat tanpa render.
+        </p>
+      </div>
     </Kartu>
   );
 }

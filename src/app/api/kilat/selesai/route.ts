@@ -18,6 +18,8 @@ import {
   labelThumbnail,
 } from "@/lib/vidsplit/thumbnail";
 import { muatSetelanTujuan, salinHasilKeTujuan } from "@/lib/vidsplit/tujuan";
+// v3.3.0 — mesin cover NOVACUT (thumbnail template)
+import { pakaiTemplateCover, renderCoverTemplatePng } from "@/lib/vidsplit/thumbnail";
 import { catatRiwayat } from "@/lib/vidsplit/riwayat";
 import type { InfoJob, KeluaranJob, StatusVideoAntrean } from "@/lib/vidsplit/jobs";
 import type { ModeThumbnail, Pengaturan } from "@/lib/vidsplit/types";
@@ -33,7 +35,7 @@ interface Body {
   durasi?: number;
   lebar?: number;
   tinggi?: number;
-  thumbnail?: { aktif: boolean; kata: "Part" | "Bagian" | "Episode"; format: "jpg" | "png"; mode: ModeThumbnail; gaya: "modern" | "klasik" | "futuristik" } | null;
+  thumbnail?: { aktif: boolean; kata: "Part" | "Bagian" | "Episode"; format: "jpg" | "png"; mode: ModeThumbnail; gaya: string } | null;
   folderTujuan?: string | null;
 }
 
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
       const { bin } = await pilihFfmpeg();
       const srcAbs = pathAman(String((body as { sumber?: string }).sumber || ""));
       if (existsSync(srcAbs)) {
-        const gy = GAYA_COVER[thumb.gaya] ?? GAYA_COVER.modern;
+        const gy = GAYA_COVER[(pakaiTemplateCover(thumb.gaya) ? "modern" : thumb.gaya) as keyof typeof GAYA_COVER] ?? GAYA_COVER.modern;
         const slug = slugify(p.judul) || "vidsplit";
         const durasi = Number(body.durasi) || 0;
         for (let n = 1; n <= hasil.length; n++) {
@@ -83,6 +85,23 @@ export async function POST(req: NextRequest) {
             writeFileSync(fileL, lbl, "utf8");
             const ekst = thumb.format === "png" ? "png" : "jpg";
             const keluarT = path.join(folder, `${slug}-part-${String(n).padStart(2, "0")}-thumbnail.${ekst}`);
+            // v3.3.0 — overlay template per part (judul + label di dalam PNG)
+            let tplPng: string | undefined;
+            if (pakaiTemplateCover(thumb.gaya)) {
+              const fileTpl = path.join(dirWork("tmp"), `${id}-kilat-thumb-${n}-ov.png`);
+              writeFileSync(
+                fileTpl,
+                renderCoverTemplatePng({
+                  template: String(thumb.gaya),
+                  W: Number(body.lebar) || 1080,
+                  H: Number(body.tinggi) || 1920,
+                  judul: bersihkanNamaJudul(nama),
+                  labelPart: lbl,
+                  latar: "adegan",
+                }),
+              );
+              tplPng = fileTpl;
+            }
             const argsT = bangunArgumenThumbnail({
               src: srcAbs,
               detik: detikFrameThumbnail(m, d, durasi),
@@ -97,6 +116,7 @@ export async function POST(req: NextRequest) {
               fontfile: fontfileNama(gy.fontJudul),
               fontLabel: fontfileNama(gy.fontLabel),
               gaya: thumb.gaya,
+              ...(tplPng ? { templatePng: tplPng, templateLatarHitam: false } : {}),
               keluar: keluarT,
               format: thumb.format,
             });
