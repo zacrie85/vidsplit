@@ -27,7 +27,7 @@ import {
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import {
-  PanelCoverKino,
+  PanelCoverKinostra,
   PanelBacksound,
   PanelDeskripsi,
   PanelEfekKino,
@@ -901,11 +901,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.6.0
+                v3.7.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.6.0
+              Suite video otomatis · Desktop v3.7.0
             </span>
           </span>
         </div>
@@ -1393,12 +1393,15 @@ export default function Halaman() {
                 )}
                 {tabAtur === "cover" && (
                   <>
-                    {/* v3.4.0 — mod 13 KINOSTRA: COVER VIDEO PEMBUKA · NOVACUT
-                        (menu cover lama DIHAPUS SEMUA — PemilihCover & PanelCoverIntro) */}
-                    <PanelCoverKino
+                    {/* v3.7.0 — TRANSPLANT PENUH menu cover KINOSTRA: menu cover
+                        NOVACUT lama (dgn seg "GAYA LAMA" + thumbnail GLOBAL yang
+                        membingungkan) DIHAPUS; kini pratinjau CANVAS port engine
+                        KINOSTRA + tombol MAINKAN PRATINJAU COVER + TRANSISI */}
+                    <PanelCoverKinostra
                       pengaturan={videoAktif.pengaturan}
                       onChange={gantiPengaturanAktif}
                       nomorVideo={aktif + 1}
+                      srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
                       onImporCover={unggahCover}
                       coverSibuk={sibukCover}
                       // v2.1.0 — suara intro (fitur VidSplit tetap)
@@ -1407,32 +1410,6 @@ export default function Halaman() {
                       onHapusSuara={hapusSuaraIntro}
                       suaraSibuk={sibukSuaraIntro}
                       bukaDialogAudio={diDesktop ? pilihSuaraIntroDesktop : undefined}
-                      // v2.5.0 — thumbnail global (desain ikut setelan cover di atas)
-                      opsiThumb={{
-                        aktif: opsiEkspor.thumbnailAktif,
-                        kata: opsiEkspor.thumbnailKata,
-                        format: opsiEkspor.thumbnailFormat,
-                        mode: opsiEkspor.thumbnailMode,
-                        gaya: opsiEkspor.thumbnailGaya,
-                      }}
-                      onOpsiThumb={(
-                        o: {
-                          aktif: boolean;
-                          format: "jpg" | "png";
-                          mode: "per-part" | "satu" | "identik";
-                          kata: string;
-                          gaya: string;
-                        },
-                      ) =>
-                        setOpsiEkspor({
-                          ...opsiEkspor,
-                          thumbnailAktif: o.aktif,
-                          thumbnailKata: o.kata as "Part" | "Bagian" | "Episode",
-                          thumbnailFormat: o.format,
-                          thumbnailMode: o.mode,
-                          thumbnailGaya: o.gaya,
-                        })
-                      }
                     />
                   </>
                 )}

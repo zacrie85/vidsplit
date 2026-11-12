@@ -77,7 +77,10 @@ export function PanelEkspor({
     thumbnailGaya: string;
   }) => void;
 }) {
-  const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("presisi");
+  // v3.7.0 — BAWAAN = CEPAT (permintaan user: "proses render export & split
+  // menjadi 100 kali lebih cepat"): preset veryfast + part paralel — dulu bawaan
+  // "presisi" (preset medium) yang bikin render terasa lambat. "presisi" tetap ada.
+  const [modeEkspor, setModeEkspor] = useState<"presisi" | "cepat">("cepat");
   const [job, setJob] = useState<InfoJob | null>(null);
   const [mulai, setMulai] = useState(false);
   const [batalKirim, setBatalKirim] = useState(false);

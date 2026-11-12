@@ -304,8 +304,10 @@ export function mulaiEksporAntrean(
         `ffmpeg yang terpilih (${ff.bin}) tidak mendukung filter drawtext (libfreetype), padahal ada tulisan judul/Part. Pasang ffmpeg lengkap atau arahkan VIDSPLIT_FFMPEG ke ffmpeg yang punya libfreetype.`,
       );
     }
-    const preset = modeEkspor === "cepat" ? "ultrafast" : "medium";
-    const crf = modeEkspor === "cepat" ? 23 : 20;
+    // v3.7.0 — MODE CEPAT (kini BAWAAN): veryfast ±3-4× lebih cepat dari medium
+    // dgn kualitas jauh lebih baik dr ultrafast; presisi tetap medium crf 20.
+    const preset = modeEkspor === "cepat" ? "veryfast" : "medium";
+    const crf = modeEkspor === "cepat" ? 22 : 20;
     // v2.0.0 — KOMPRES PINTAR: target MB global → bitrate kbps per video (durasi beda)
     const targetMb = (daftar[0]?.pengaturan as Pengaturan & { targetMb?: number }).targetMb || 0;
     // encoder per (codec, level, bitrate): hasil uji GPU di-cache per kunci
@@ -1552,8 +1554,10 @@ export function mulaiGabungAntrean(
         `ffmpeg yang terpilih (${ff.bin}) tidak mendukung filter drawtext (libfreetype), padahal ada tulisan judul. Pasang ffmpeg lengkap atau arahkan VIDSPLIT_FFMPEG ke ffmpeg yang punya libfreetype.`,
       );
     }
-    const preset = modeEkspor === "cepat" ? "ultrafast" : "medium";
-    const crf = modeEkspor === "cepat" ? 23 : 20;
+    // v3.7.0 — MODE CEPAT (kini BAWAAN): veryfast ±3-4× lebih cepat dari medium
+    // dgn kualitas jauh lebih baik dr ultrafast; presisi tetap medium crf 20.
+    const preset = modeEkspor === "cepat" ? "veryfast" : "medium";
+    const crf = modeEkspor === "cepat" ? 22 : 20;
     const targetMb = (daftar[0]?.pengaturan as Pengaturan & { targetMb?: number }).targetMb || 0;
     const br = targetMb > 0 ? bitrateKbpsTarget(targetMb, durasiTotal) : null;
     const codec: CodecVideo = it0.pengaturan.codec === "h265" ? "h265" : "h264";

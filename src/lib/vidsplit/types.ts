@@ -789,7 +789,8 @@ export const pengaturanDefault: Pengaturan = {
   logoX: 81.5,
   logoY: 88.5,
   ukuranLogo: 15,
-  prosesParalel: 2,
+  // v3.7.0 — bawaan 4 part paralel (dulu 2 — render split terasa lambat)
+  prosesParalel: 4,
   pakaiGpu: true,
 
   /* v3.4.0 — MENU KINOSTRA (semua mati/normal bawaan KECUALI animasi cover
@@ -937,6 +938,23 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   }
   if (hasil.coverLatar === undefined) hasil.coverLatar = "adegan";
   if (hasil.coverBingkai === undefined) hasil.coverBingkai = "none";
+  // v3.7.0 — TRANSPLANT KINOSTRA: seg "GAYA LAMA" (POLOS/MODERN/KLASIK/
+  // FUTURISTIK) dihapus dr UI karena membingungkan → nilai lama dipetakan ke
+  // layout KINOSTRA terdekat agar simpanan lama tetap tampil wajar:
+  // polos→impact, modern→boxed (kotak judul), klasik→impact, futuristik→neon.
+  {
+    const KINO_LAYOUT_KEYS = new Set([
+      "impact", "lower", "banner", "side", "boxed", "neon", "bars", "sticker", "outline", "band",
+    ]);
+    const petaLama: Record<string, string> = {
+      "": "impact",
+      modern: "boxed",
+      klasik: "impact",
+      futuristik: "neon",
+    };
+    if (petaLama[hasil.coverLayout] !== undefined) hasil.coverLayout = petaLama[hasil.coverLayout];
+    if (!KINO_LAYOUT_KEYS.has(hasil.coverLayout)) hasil.coverLayout = "impact";
+  }
   if (hasil.coverKataPart === undefined) hasil.coverKataPart = "";
   if (hasil.coverSkalaPart === undefined) hasil.coverSkalaPart = 1;
   else hasil.coverSkalaPart = Math.min(2.5, Math.max(0.5, Number(hasil.coverSkalaPart) || 1));

@@ -3,7 +3,7 @@
 // VidSplit — v0.9.0: bagian-bagian pengaturan yang DIPISAH per kartu agar bebas
 // ditempatkan di layout 3 kolom (kiri: mode/judul/part, kanan: background/logo/ringkasan).
 // Isi masing-masing kartu IDENTIK dengan PanelAtur lama — hanya tata letak yang berubah.
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlignLeft,
   Captions,
@@ -57,12 +57,12 @@ import {
   uraiWaktu,
   type CodecVideo,
   type GayaTeks,
+  type BingkaiCover,
   type LajuPindah,
   type ModeKonversi,
   type ModePembicara,
   type ModeSplit,
   type NamaFont,
-  type OpsiThumbnail,
   type PosisiLogo,
   type Pengaturan,
   type ResolusiOutput,
@@ -78,13 +78,19 @@ import {
   type KataPartCover,
 } from "@/lib/vidsplit/types";
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
-// v3.3.0 — galeri cover NOVACUT + registry efek (murni — aman di client)
+// v3.7.0 — engine canvas cover KINOSTRA (port penuh nccover.js — pratinjau)
 import {
-  pengukurPerkiraan,
-  svgCoverDataUrl,
-  NOVACUT_LAYOUTS,
-  NOVACUT_PALETTES,
-} from "@/lib/vidsplit/coverNovacut";
+  KINO_BINGKAI,
+  KINO_LAYOUTS,
+  KINO_PALETTES,
+  ncApplyTransition,
+  ncBuildCoverLayers,
+  ncClamp01,
+  ncComposeCoverFrame,
+  siapkanFontKino,
+  type LapisCoverKino,
+  type SetelanCoverKino,
+} from "@/lib/vidsplit/coverKinostraGambar";
 import { CLIP_EFFECTS, TRANSITIONS, getTransition } from "@/lib/vidsplit/efekNovacut";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna } from "./bits";
@@ -2005,28 +2011,28 @@ function Cek({ nilai, onChange, label }: { nilai: boolean; onChange: (v: boolean
   );
 }
 
-/* ---------- template id efektif (satu sumber kebenaran dgn jobs.ts) ---------- */
-function idTemplateEfektif(p: Pengaturan): string {
-  if (p.coverLayout) {
-    if (p.coverLayout === "modern" || p.coverLayout === "klasik" || p.coverLayout === "futuristik")
-      return p.coverLayout;
-    if (p.coverPalet) return `${p.coverLayout}--${p.coverPalet}`;
-  }
-  return "";
-}
+/* idTemplateEfektif DIHAPUS v3.7.0 — seg GAYA LAMA sudah tidak ada (UI KINOSTRA murni) */
 
 /* ================================================================
-   13 · COVER VIDEO PEMBUKA · NOVACUT (mod 13 KINOSTRA)
+   13 · COVER VIDEO PEMBUKA · KINOSTRA — TRANSPLANT PENUH (v3.7.0)
+   Permintaan user: hapus total menu cover lama (NOVACUT v3.4.0 dgn seg
+   "GAYA LAMA" yang membingungkan + seksi "Gambar thumbnail GLOBAL"),
+   lalu tempelkan langsung menu cover KINOSTRA BESERTA PRATINJAU-nya:
+   pratinjau dulu pakai SVG statis; kini CANVAS dgn engine port penuh
+   coverKinostraGambar.ts (10 layout × 10 palet, Ken Burns, animasi teks
+   KINOSTRA, bingkai) + tombol MAINKAN PRATINJAU COVER + TRANSISI (28
+   transisi dianimasikan ke frame video — persis Studio Sampul KINOSTRA).
+   Setelan TETAP memakai field v3.4.0 (coverLayout/coverPalet/…) → mesin
+   ekspor server (coverNovacut.ts + introAnimasi + coverTrans) tak berubah.
    ================================================================ */
-export function PanelCoverKino({
+export function PanelCoverKinostra({
   pengaturan,
   onChange,
   nomorVideo,
-  opsiThumb,
-  onOpsiThumb,
+  srcUrl,
   onImporCover,
   coverSibuk,
-  // v2.1.0 — suara intro (fitur VidSplit, tetap di menu cover baru)
+  // v2.1.0 — suara intro (fitur VidSplit, tetap di menu cover)
   suaraInfo,
   onSuaraFile,
   onHapusSuara,
@@ -2036,9 +2042,8 @@ export function PanelCoverKino({
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
   nomorVideo: number;
-  /** v2.5.0 — opsi thumbnail GLOBAL (berlaku semua video otomatis) */
-  opsiThumb: OpsiThumbnail;
-  onOpsiThumb: (o: OpsiThumbnail) => void;
+  /** URL video aktif — sumber ADEGAN utk pratinjau canvas ("" = latar palet) */
+  srcUrl: string;
   /** v3.4.0 — sumber MANUAL: unggah gambar cover */
   onImporCover: (f: File) => void;
   coverSibuk: boolean;
@@ -2052,51 +2057,199 @@ export function PanelCoverKino({
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
-  const ukur = pengukurPerkiraan();
   const aktif = pengaturan.introAktif === true;
-  const tplId = idTemplateEfektif(pengaturan) || "impact--cyber";
-  const urlPratinjau = svgCoverDataUrl(
-    {
-      template: tplId,
-      W: 162,
-      H: 288,
-      judul: pengaturan.coverJudul.trim() || "Judul Video",
-      labelPart:
-        pengaturan.coverKataPart === "" ? "" : pengaturan.coverKataPart === "#" ? "#1" : `${pengaturan.coverKataPart} 01`,
-      latar: pengaturan.coverLatar,
-      skalaPart: pengaturan.coverSkalaPart,
-      bingkai: pengaturan.coverBingkai,
-    },
-    ukur,
-  );
-  // pemetaan seg EFEK COVER KINOSTRA ↔ AnimasiIntro VidSplit
-  const fxNilai: "in" | "out" | "panx" | "pany" | "off" =
-    pengaturan.introAnimasi === "zoom-masuk"
-      ? "in"
-      : pengaturan.introAnimasi === "zoom-keluar"
-        ? "out"
-        : pengaturan.introAnimasi === "geser-kiri"
-          ? "panx"
-          : pengaturan.introAnimasi === "geser-atas" || pengaturan.introAnimasi === "geser-bawah"
-            ? "pany"
-            : "off";
+
+  /* ---------- pratinjau canvas KINOSTRA (engine port penuh) ---------- */
+  const PB_W = 360, PB_H = 640;
+  const kanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const frameVideoRef = useRef<HTMLCanvasElement | null>(null);
+  const lapisRef = useRef<LapisCoverKino | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const [frameSiap, setFrameSiap] = useState(0);
+  const [mainik, setMainik] = useState(false);
+  const [fontSiap, setFontSiap] = useState(false);
+
+  useEffect(() => {
+    siapkanFontKino().then(() => setFontSiap(true));
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  // tangkap 1 frame video utk latar ADEGAN (persis pratinjau KINOSTRA).
+  // v3.7.0 FIX: bergantung juga pada `aktif` — video baru dirender saat cover
+  // dinyalakan; tanpa ini efek jalan saat video belum ada → tangkapan gagal.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !srcUrl || !aktif) return;
+    let lepas = false;
+    const tangkap = () => {
+      if (lepas || !v.videoWidth) return;
+      const c = document.createElement("canvas");
+      c.width = PB_W;
+      c.height = PB_H;
+      const g = c.getContext("2d");
+      if (!g) return;
+      g.drawImage(v, 0, 0, PB_W, PB_H);
+      frameVideoRef.current = c;
+      setFrameSiap((n) => n + 1);
+    };
+    const keWaktu = () => {
+      try {
+        v.currentTime = Math.min(1, (v.duration || 2) / 3);
+      } catch {
+        tangkap();
+      }
+    };
+    v.addEventListener("loadeddata", keWaktu);
+    v.addEventListener("seeked", tangkap);
+    if (v.readyState >= 2) keWaktu();
+    return () => {
+      lepas = true;
+      v.removeEventListener("loadeddata", keWaktu);
+      v.removeEventListener("seeked", tangkap);
+    };
+  }, [srcUrl, aktif]);
+
+  // setelan engine — SATU sumber kebenaran utk gambar statis & mainkan
+  const ncSetelan = useCallback((): SetelanCoverKino => {
+    const fx: "in" | "out" | "panx" | "pany" | "off" =
+      pengaturan.introAnimasi === "zoom-masuk"
+        ? "in"
+        : pengaturan.introAnimasi === "zoom-keluar"
+          ? "out"
+          : pengaturan.introAnimasi === "geser-kiri"
+            ? "panx"
+            : pengaturan.introAnimasi === "geser-atas" || pengaturan.introAnimasi === "geser-bawah"
+              ? "pany"
+              : "off";
+    return {
+      layout: pengaturan.coverLayout || "impact",
+      palette: pengaturan.coverPalet || "cyber",
+      bg: pengaturan.coverLatar,
+      frame: pengaturan.coverBingkai,
+      fx,
+      titleAnim: pengaturan.coverAnimJudul || "off",
+      partAnim: pengaturan.coverAnimPart || "off",
+      partScale: pengaturan.coverSkalaPart,
+    };
+  }, [pengaturan]);
   const gantiFx = (v: "in" | "out" | "panx" | "pany" | "off") =>
     set(
       "introAnimasi",
       v === "in" ? "zoom-masuk" : v === "out" ? "zoom-keluar" : v === "panx" ? "geser-kiri" : v === "pany" ? "geser-bawah" : "mati",
     );
 
+  const labelPart = useCallback(
+    () =>
+      pengaturan.coverKataPart === ""
+        ? ""
+        : pengaturan.coverKataPart === "#"
+          ? "#1"
+          : `${pengaturan.coverKataPart} 01`,
+    [pengaturan.coverKataPart],
+  );
+
+  const bangunLapis = useCallback(() => {
+    const latar = pengaturan.coverLatar === "adegan" ? frameVideoRef.current : null;
+    return ncBuildCoverLayers(
+      PB_W,
+      PB_H,
+      {
+        nc: ncSetelan(),
+        img: latar,
+        title: pengaturan.coverJudul.trim() || "Judul Video",
+        part: labelPart(),
+      },
+      () => document.createElement("canvas"),
+    );
+  }, [ncSetelan, pengaturan.coverJudul, pengaturan.coverLatar, labelPart]);
+
+  // pratinjau STATIS = komposisi final (tanpa animasi) — persis KINOSTRA
+  useEffect(() => {
+    if (!aktif || !fontSiap) return;
+    const cv = kanvasRef.current;
+    if (!cv) return;
+    const g = cv.getContext("2d");
+    if (!g) return;
+    try {
+      const L = bangunLapis();
+      lapisRef.current = L;
+      g.clearRect(0, 0, PB_W, PB_H);
+      g.drawImage(L.final, 0, 0);
+    } catch {
+      /* font/kanvas gagal — biarkan kanvas hitam */
+    }
+  }, [aktif, fontSiap, frameSiap, bangunLapis]);
+
+  // MAINKAN PRATINJAU COVER + TRANSISI — rAF, deterministik, sekali putar
+  const mainkanPratinjau = () => {
+    const cv = kanvasRef.current;
+    if (!cv || mainik) return;
+    const g = cv.getContext("2d");
+    if (!g) return;
+    let L = lapisRef.current;
+    try {
+      L = L && lapisRef.current ? L : bangunLapis();
+    } catch {
+      return;
+    }
+    if (!L) return;
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    const covD = Math.max(0.5, pengaturan.durasiIntro || 2);
+    const trD = pengaturan.coverTrans ? Math.max(0.2, pengaturan.coverTransDurasi || 0.5) : 0;
+    const total = covD + trD;
+    const t0 = performance.now();
+    setMainik(true);
+    const langkah = () => {
+      const t = (performance.now() - t0) / 1000;
+      if (t >= total) {
+        // selesai → tunjukkan frame video (akhir transisi); tanpa frame video
+        // kembali ke komposisi cover statis (JANGAN hitam kosong)
+        const fv = frameVideoRef.current;
+        g.fillStyle = "#000";
+        g.fillRect(0, 0, PB_W, PB_H);
+        if (fv) g.drawImage(fv, 0, 0);
+        else if (L) g.drawImage(L.final, 0, 0);
+        rafRef.current = null;
+        setMainik(false);
+        return;
+      }
+      if (t < covD) {
+        ncComposeCoverFrame(g, PB_W, PB_H, L, { p: t / covD, tLocal: t, dur: covD, animate: true });
+      } else if (trD > 0) {
+        const fv = frameVideoRef.current;
+        if (fv) {
+          ncApplyTransition(
+            pengaturan.coverTrans,
+            g,
+            L.final,
+            fv,
+            ncClamp01((t - covD) / trD),
+            PB_W,
+            PB_H,
+            L.pal.acc,
+          );
+        } else ncComposeCoverFrame(g, PB_W, PB_H, L, { p: 1, tLocal: t, dur: covD, animate: false });
+      }
+      rafRef.current = requestAnimationFrame(langkah);
+    };
+    rafRef.current = requestAnimationFrame(langkah);
+  };
+
   return (
     <Kartu
       nomor="13"
-      judul="COVER VIDEO PEMBUKA · NOVACUT"
-      badge="KINOSTRA"
-      deskripsi={`Cover tampil di awal file hasil ekspor — 100 template (10 layout × 10 palet), bingkai, Ken Burns & 28 transisi — video #${nomorVideo}`}
+      judul="COVER VIDEO PEMBUKA · KINOSTRA"
+      badge="NOVACUT"
+      deskripsi={`Cover tampil di awal SETIAP file hasil ekspor — 100 template (10 layout × 10 palet), Ken Burns, animasi teks & 28 transisi — video #${nomorVideo}`}
       ikon={<ImageIcon className="h-4 w-4" />}
     >
       <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-2.5 text-[11px] leading-relaxed text-slate-400">
-        Port penuh mod <b className="text-slate-300">13</b> KINOSTRA — cover + transisi dianimasikan
-        beneran saat ekspor (Ken Burns + animasi teks NOVACUT).
+        Transplant penuh mod <b className="text-slate-300">13</b> KINOSTRA — pratinjau CANVAS
+        (bukan gambar statis): layout, Ken Burns &amp; animasi bergerak beneran, hasil ekspor
+        memakai mesin cover yang sama.
       </div>
 
       <div className="mt-2.5">
@@ -2146,11 +2299,24 @@ export function PanelCoverKino({
             </p>
           )}
 
-          {/* pratinjau besar + judul */}
+          {/* ===== PRATINJAU CANVAS KINOSTRA ===== */}
           <div className="mt-3 flex items-start gap-3">
-            <div className="w-[108px] shrink-0 overflow-hidden rounded-md border border-amber-400/40 bg-slate-950">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={urlPratinjau} alt="Pratinjau cover aktif" className="h-[192px] w-[108px] object-cover" />
+            <div className="w-[150px] shrink-0">
+              <canvas
+                ref={kanvasRef}
+                width={PB_W}
+                height={PB_H}
+                className="w-[150px] rounded-lg border border-amber-400/40 bg-black"
+                style={{ aspectRatio: "9 / 16" }}
+              />
+              <button
+                type="button"
+                onClick={mainkanPratinjau}
+                disabled={mainik}
+                className="mt-1.5 w-full rounded-md border border-amber-400/60 bg-amber-400/15 px-2 py-1.5 text-[10px] font-semibold text-amber-200 transition hover:bg-amber-400/25 disabled:opacity-50"
+              >
+                {mainik ? "MEMUTAR…" : "▶ MAINKAN PRATINJAU COVER + TRANSISI"}
+              </button>
             </div>
             <div className="min-w-0 flex-1">
               <Lbl>JUDUL DI COVER</Lbl>
@@ -2162,37 +2328,33 @@ export function PanelCoverKino({
                 className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
               />
               <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-                Pratinjau = hasil ekspor (SVG yang sama dgn mesin server). GAYA LAMA Modern/Klasik/
-                Futuristik tetap ada di baris bawah — persis keputusan v3.3.0.
+                Pratinjau digambar engine CANVAS port KINOSTRA — Ken Burns &amp; animasi bergerak
+                beneran lewat tombol MAINKAN. Latar adegan memakai frame video #{" "}
+                {nomorVideo}.
+              </p>
+              <p className="mt-1 text-[10px] text-slate-600">
+                {frameSiap > 0 ? "Frame video siap ✓" : "Latar: gradasi palet (frame video belum siap)"}
               </p>
             </div>
           </div>
+          {srcUrl ? (
+            <video ref={videoRef} src={srcUrl} muted playsInline preload="auto" className="hidden" />
+          ) : null}
 
           {/* LAYOUT COVER — 10 GAYA */}
           <Lbl>LAYOUT COVER — 10 GAYA</Lbl>
-          <Seg
+          <ChipPilihan
             nilai={pengaturan.coverLayout}
             onChange={(v) => set("coverLayout", v)}
-            pilihan={NOVACUT_LAYOUTS.map((l) => ({ v: l.k, l: l.n.split(" ")[0] }))}
-          />
-          <Lbl>GAYA LAMA (DASAR)</Lbl>
-          <Seg
-            nilai={pengaturan.coverLayout}
-            onChange={(v) => set("coverLayout", v)}
-            pilihan={[
-              { v: "", l: "POLOS" },
-              { v: "modern", l: "MODERN" },
-              { v: "klasik", l: "KLASIK" },
-              { v: "futuristik", l: "FUTURISTIK" },
-            ]}
+            pilihan={KINO_LAYOUTS.map((l) => ({ v: l.k, label: l.n }))}
           />
 
           {/* PALET WARNA — 10 NUANSA */}
           <Lbl>PALET WARNA — 10 NUANSA</Lbl>
-          <Seg
+          <ChipPilihan
             nilai={pengaturan.coverPalet}
             onChange={(v) => set("coverPalet", v)}
-            pilihan={NOVACUT_PALETTES.map((p) => ({ v: p.k, l: p.n }))}
+            pilihan={KINO_PALETTES.map((p) => ({ v: p.k, label: p.n }))}
           />
 
           {/* LATAR + BINGKAI + EFEK */}
@@ -2208,17 +2370,22 @@ export function PanelCoverKino({
           <Lbl>BINGKAI COVER</Lbl>
           <Seg
             nilai={pengaturan.coverBingkai}
-            onChange={(v) => set("coverBingkai", v)}
-            pilihan={[
-              { v: "none", l: "TANPA" },
-              { v: "klasik", l: "KLASIK" },
-              { v: "modern", l: "MODERN" },
-              { v: "futuristik", l: "FUTURISTIK" },
-            ]}
+            onChange={(v) => set("coverBingkai", v as BingkaiCover)}
+            pilihan={KINO_BINGKAI.map((b) => ({ v: b.k, l: b.n }))}
           />
-          <Lbl>EFEK COVER — GERAK LATAR</Lbl>
+          <Lbl>EFEK COVER — GERAK LATAR (KEN BURNS)</Lbl>
           <Seg
-            nilai={fxNilai}
+            nilai={
+              pengaturan.introAnimasi === "zoom-masuk"
+                ? "in"
+                : pengaturan.introAnimasi === "zoom-keluar"
+                  ? "out"
+                  : pengaturan.introAnimasi === "geser-kiri"
+                    ? "panx"
+                    : pengaturan.introAnimasi === "geser-atas" || pengaturan.introAnimasi === "geser-bawah"
+                      ? "pany"
+                      : "off"
+            }
             onChange={gantiFx}
             pilihan={[
               { v: "in", l: "ZOOM IN" },
@@ -2243,8 +2410,8 @@ export function PanelCoverKino({
             pilihan={ANIMASI_COVER.map((a) => ({ v: a.id, l: a.nama }))}
           />
           <p className="mt-1 text-[10px] leading-snug text-slate-500">
-            Animasi berjalan saat cover tayang (judul langsung, part ditunda 0,25 dtk — pola
-            KINOSTRA). TANPA = teks statis di dalam template (perilaku lama).
+            Judul langsung, part ditunda 0,25 dtk — pola KINOSTRA. Lihat geraknya di pratinjau
+            canvas (tekan MAINKAN).
           </p>
 
           {/* DURASI + LABEL PART */}
@@ -2332,66 +2499,13 @@ export function PanelCoverKino({
           {pengaturan.coverTrans && (
             <p className="mt-1 text-[10px] text-slate-500">
               Mesin: xfade ffmpeg <b>{getTransition(pengaturan.coverTrans)?.xfade}</b> antara cover
-              dan frame pertama video.
+              dan frame pertama video — lihat geraknya di pratinjau.
             </p>
           )}
         </>
       )}
 
-      {/* ===== THUMBNAIL GAMBAR (fitur VidSplit — tetap, satu sumber desain) ===== */}
-      <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-400/5 p-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-cyan-200">
-          <ImageIcon className="h-3.5 w-3.5" /> Gambar thumbnail — cover statis tiap potongan
-          (GLOBAL)
-        </p>
-        <button
-          type="button"
-          onClick={() => onOpsiThumb({ ...opsiThumb, aktif: !opsiThumb.aktif })}
-          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
-            opsiThumb.aktif
-              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-              : "border-slate-700 bg-slate-800/60 text-slate-400"
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            <ImageIcon className="h-3.5 w-3.5" /> PAKAI — gambar cover tersimpan di samping hasil
-          </span>
-          <span className="font-medium">{opsiThumb.aktif ? "Aktif" : "Mati"}</span>
-        </button>
-        {opsiThumb.aktif && (
-          <div className="mt-2 space-y-2">
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Format gambar</p>
-              <ChipPilihan
-                nilai={opsiThumb.format}
-                onChange={(v) => onOpsiThumb({ ...opsiThumb, format: v })}
-                pilihan={[
-                  { v: "jpg", label: "JPG", hint: "ringan, cocok upload" },
-                  { v: "png", label: "PNG", hint: "tajam, agak besar" },
-                ]}
-              />
-            </div>
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Cakupan cover</p>
-              <ChipPilihan
-                nilai={opsiThumb.mode}
-                onChange={(v) => onOpsiThumb({ ...opsiThumb, mode: v })}
-                pilihan={[
-                  { v: "per-part", label: "Tiap part beda", hint: "tiap potongan frame sendiri" },
-                  { v: "satu", label: "Satu untuk semua", hint: "1 frame video + nomor part" },
-                  { v: "identik", label: "Sama persis semua", hint: "tanpa nomor part — 100% identik" },
-                ]}
-              />
-            </div>
-            <p className="text-[10px] leading-relaxed text-slate-500">
-              Desain thumbnail mengikuti setelan COVER di atas (layout × palet, judul, label part,
-              bingkai) — satu sumber kebenaran, tanpa galeri terpisah.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ===== SUARA INTRO (fitur VidSplit v2.1.0 — tetap ada di menu cover baru) ===== */}
+      {/* ===== SUARA INTRO (fitur VidSplit v2.1.0 — tetap ada di menu cover) ===== */}
       <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
         <p className="mb-1.5 text-xs font-medium text-slate-300">Suara intro (opsional)</p>
         {suaraInfo ? (
