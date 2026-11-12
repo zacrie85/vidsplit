@@ -316,7 +316,10 @@ uji("migrasi: introTemplate → coverLayout/palet; introFade → coverTrans", ()
   if (a.coverTrans !== "crossfade") throw new Error("fade lama harus → crossfade");
   if (a.coverAnimJudul !== "") throw new Error("simpanan lama harus animasi TANPA (nol regresi)");
   const b = Ty.migrasiSimpanan({ introTemplate: "" } as never);
-  if (b.coverLayout !== "") throw new Error("polos harus tetap polos");
+  // v3.7.0 — seg "GAYA LAMA" dihapus dr UI (permintaan user: menu cover lama
+  // membingungkan) → nilai polos/gaya-lama dipetakan ke layout KINOSTRA:
+  // "" → impact, modern → boxed, klasik → impact, futuristik → neon.
+  if (b.coverLayout !== "impact") throw new Error(`polos harus → impact (dapat ${b.coverLayout})`);
   const c = Ty.migrasiSimpanan({ logoId: "upload/x.png" } as never);
   if (c.wmMode !== "logo") throw new Error("logoId lama → wmMode logo");
   const d = Ty.migrasiSimpanan({} as never);

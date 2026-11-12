@@ -827,6 +827,12 @@ function rantaiTeks(
   fileJudul: string,
   filePart: string,
   fileDeskripsi: string,
+  /** v3.7.1 — COVER BERSIH (permintaan user: "aku ingin covernya clean, jangan
+   *  sampai terbawa tulisan judul/part/deskripsi yang ada di dalam video"):
+   *  ofset waktu (dtk) — drawtext video BARU tampil SETELAH cover selesai
+   *  (enable='gte(t,OFSET)'), animasi masuk dihitung dr ofset itu. 0 = pola lama
+   *  persis (nol regresi — dites string-sajar di uji-v240/v330). */
+  ofsetTeks = 0,
 ): string {
   // skala berdasar SISI TERPENDEK: identik dgn perilaku lama utk vertikal 1080/720
   // (min(1080,1920)=1080, min(720,1280)=720), dan memberi ukuran proporsional saat
@@ -866,9 +872,18 @@ function rantaiTeks(
       : `'min(max(0,W*${Number(x.toFixed(2))}/100-text_w/2),W-text_w)'`;
   // v3.3.0 — ANIMASI MASUK TEKS (8 gaya): drawtext alpha/x/y ekspresi waktu.
   // p = min(t/D,1) progres; semua ekspresi dikutip (berisi koma). Mati → null.
+  // v3.7.1 — ofset cover: waktu teks = t − OFSET (animasi dimulai setelah cover)
   const anim = (p.animasiTeks ?? "") as AnimasiTeks;
   const D = DURASI_ANIMASI_TEKS;
-  const prog = `min(t/${D.toFixed(2)},1)`;
+  const tt = ofsetTeks > 0 ? `t-${ofsetTeks.toFixed(3)}` : "t";
+  const prog =
+    ofsetTeks > 0 ? `min(max(${tt},0)/${D.toFixed(2)},1)` : `min(t/${D.toFixed(2)},1)`;
+  // v3.7.1 — slam punya dua durasi (fade 0,15 / posisi 0,45): dibangun eksplisit
+  // (dulu pakai .replace("t/0.70","t/0.45") — pecah bila prog berformat lain)
+  const slamFade =
+    ofsetTeks > 0 ? `min(max(${tt},0)/0.15,1)` : "min(t/0.15,1)";
+  const slamPos =
+    ofsetTeks > 0 ? `min(max(${tt},0)/0.45,1)` : "min(t/0.45,1)";
   const animAlpha: Record<string, string> = {
     fade: prog,
     naik: prog,
@@ -877,13 +892,13 @@ function rantaiTeks(
     "geser-kanan": prog,
     neon: `min(${prog}*1.6,1)*(0.78+0.22*abs(sin(t*9)))`,
     denyut: `${prog}*(0.85+0.15*sin(t*8))`,
-    slam: "min(t/0.15,1)",
+    slam: slamFade,
   };
   const animY = (yPx: number): string => {
     switch (anim) {
       case "naik": return `'${Math.round(yPx)}+(1-${prog})*${(H * 0.06).toFixed(1)}'`;
       case "turun": return `'${Math.round(yPx)}-(1-${prog})*${(H * 0.06).toFixed(1)}'`;
-      case "slam": return `'${Math.round(yPx)}-(1-pow(1-${prog.replace("t/" + D.toFixed(2), "t/0.45")},3))*${(H * 0.12).toFixed(1)}'`;
+      case "slam": return `'${Math.round(yPx)}-(1-pow(1-${slamPos},3))*${(H * 0.12).toFixed(1)}'`;
       default: return String(Math.round(yPx));
     }
   };
@@ -896,6 +911,9 @@ function rantaiTeks(
     const a = animAlpha[anim];
     return a ? `:alpha='${a}'` : "";
   };
+  // v3.7.1 — gerbang waktu: drawtext video hanya SETELAH cover (cover bersih)
+  const enableTeks =
+    ofsetTeks > 0 ? `:enable='gte(t,${ofsetTeks.toFixed(3)})'` : "";
 
   const opsiDasar = (
     fontsize: number,
@@ -924,14 +942,14 @@ function rantaiTeks(
     // v3.3.0 — animasi: y/x berubah jadi ekspresi + alpha (mati → persis lama)
     bagian.push(
       `drawtext=textfile=${kutipFilter(fileJudul)}:${opsiDasar(uJ, p.gayaJudul.warna, p.gayaJudul, yJ, ffJ, animX(ekspresiX(xJ)))}` +
-        `${animOpsi()}:y=${animY(yJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}`,
+        `${animOpsi()}:y=${animY(yJ)}:line_spacing=${(uJ * 0.3).toFixed(1)}${enableTeks}`,
     );
   }
   if (teksP.trim()) {
     const ffP = fontfile(p.gayaPart) || fontfile(p.gayaJudul);
     bagian.push(
       `drawtext=textfile=${kutipFilter(filePart)}:${opsiDasar(uP, p.gayaPart.warna, p.gayaPart, yP, ffP, animX(ekspresiX(xP)))}` +
-        `${animOpsi()}:y=${animY(yP)}:line_spacing=${(uP * 0.3).toFixed(1)}`,
+        `${animOpsi()}:y=${animY(yP)}:line_spacing=${(uP * 0.3).toFixed(1)}${enableTeks}`,
     );
   }
   // v0.39.0 — deskripsi posisi BEBAS (persen frame): X = tengah blok teks,
@@ -950,7 +968,7 @@ function rantaiTeks(
     if (ffD) d += `:fontfile=${kutipFilter(ffD)}`;
     d += `:line_spacing=${(uD * 0.3).toFixed(1)}`;
     d += `:expansion=none`; // v0.58.0 — teks user dgn %{ tak lagi merusak parser
-    bagian.push(`drawtext=textfile=${kutipFilter(fileDeskripsi)}:${d}`);
+    bagian.push(`drawtext=textfile=${kutipFilter(fileDeskripsi)}:${d}${enableTeks}`);
   }
   if (!bagian.length) return `[cc]null[vout]`;
   return `[cc]${bagian.join(",")}[vout]`;
@@ -970,6 +988,8 @@ function rantaiTeksTemplate(
   fileJudul: string,
   filePart: string,
   fileDeskripsi: string,
+  /** v3.7.1 — ofset cover (dtk): teks video tampil setelah cover (enable) */
+  ofsetTeks = 0,
 ): string {
   const skala = Math.min(W, H) / 1080;
   const uJ = Math.max(12, p.gayaJudul.ukuran * skala);
@@ -987,13 +1007,16 @@ function rantaiTeksTemplate(
     s += `:expansion=none`; // v0.58.0 — ekspansi teks dimatikan (lihat rantaiTeks)
     return s;
   };
+  // v3.7.1 — gerbang waktu: teks video hanya setelah cover selesai (cover bersih)
+  const enableTeks =
+    ofsetTeks > 0 ? `:enable='gte(t,${ofsetTeks.toFixed(3)})'` : "";
   const bagian: string[] = [];
   if (teksJ.trim()) {
     const ffJ = fontfile(p.gayaJudul) || fontfile(p.gayaPart);
     bagian.push(
       `drawtext=textfile=${kutipFilter(fileJudul)}:${gaya(uJ, p.gayaJudul)}` +
         `:x='(w-text_w)/2':y='${jb.y + Math.round(jb.h / 2)}-text_h/2'` +
-        `:line_spacing=${(uJ * 0.3).toFixed(1)}${ffJ ? `:fontfile=${kutipFilter(ffJ)}` : ""}`,
+        `:line_spacing=${(uJ * 0.3).toFixed(1)}${ffJ ? `:fontfile=${kutipFilter(ffJ)}` : ""}${enableTeks}`,
     );
   }
   if (teksP.trim()) {
@@ -1001,7 +1024,7 @@ function rantaiTeksTemplate(
     bagian.push(
       `drawtext=textfile=${kutipFilter(filePart)}:${gaya(uP, p.gayaPart)}` +
         `:x='${pb.x + Math.round(pb.w / 2)}-text_w/2':y='${pb.y + Math.round(pb.h / 2)}-text_h/2'` +
-        `:line_spacing=${(uP * 0.3).toFixed(1)}${ffP ? `:fontfile=${kutipFilter(ffP)}` : ""}`,
+        `:line_spacing=${(uP * 0.3).toFixed(1)}${ffP ? `:fontfile=${kutipFilter(ffP)}` : ""}${enableTeks}`,
     );
   }
   if (teksD.trim()) {
@@ -1009,7 +1032,7 @@ function rantaiTeksTemplate(
     bagian.push(
       `drawtext=textfile=${kutipFilter(fileDeskripsi)}:${gaya(uD, p.gayaDeskripsi)}` +
         `:x='(w-text_w)/2':y='${db.y + Math.round(db.h / 2)}-text_h/2'` +
-        `:line_spacing=${(uD * 0.3).toFixed(1)}${ffD ? `:fontfile=${kutipFilter(ffD)}` : ""}`,
+        `:line_spacing=${(uD * 0.3).toFixed(1)}${ffD ? `:fontfile=${kutipFilter(ffD)}` : ""}${enableTeks}`,
     );
   }
   if (!bagian.length) return `[cc]null[vout]`;
@@ -1509,30 +1532,47 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // memang tanpa animasi). Gaya posisi (naik/turun/slam/geser) lewat ekspresi
   // x/y overlay + eval=frame; gaya alpha (fade/neon/denyut/slam) lewat fade
   // alpha (slam cepat 0,15 s — sama dgn drawtext).
-  const tambahOverlayBingkai = (idx: number, dgnAnim: boolean, suf: string) => {
+  // v3.7.1 — COVER BERSIH: ofset cover (dtk) → bingkai video hanya SETELAH
+  // cover selesai (overlay enable='gte(t,OFSET)'), fade mulai di st=OFSET,
+  // animasi posisi dihitung dr (t−OFSET). ofset 0 = pola lama PERSIS.
+  const tambahOverlayBingkai = (idx: number, dgnAnim: boolean, suf: string, ofset = 0) => {
     const animBj = (p.animasiTeks ?? "") as AnimasiTeks;
-    const progBj = `min(t/${DURASI_ANIMASI_TEKS.toFixed(2)},1)`;
+    const ttBj = ofset > 0 ? `t-${ofset.toFixed(3)}` : "t";
+    const progBj =
+      ofset > 0
+        ? `min(max(${ttBj},0)/${DURASI_ANIMASI_TEKS.toFixed(2)},1)`
+        : `min(t/${DURASI_ANIMASI_TEKS.toFixed(2)},1)`;
+    const slamBj = ofset > 0 ? `min(max(${ttBj},0)/0.45,1)` : "min(t/0.45,1)";
     const posisiAnim = animBj === "naik" || animBj === "turun" || animBj === "slam" || animBj === "geser-kiri" || animBj === "geser-kanan";
     const dFadeBj = animBj === "slam" ? 0.15 : DURASI_ANIMASI_TEKS;
     const fadeBj =
-      dgnAnim && animBj && !posisiAnim ? `,fade=t=in:st=0:d=${dFadeBj.toFixed(2)}:alpha=1` : "";
+      dgnAnim && animBj && !posisiAnim
+        ? `,fade=t=in:st=${ofset > 0 ? ofset.toFixed(3) : "0"}:d=${dFadeBj.toFixed(2)}:alpha=1`
+        : "";
     let posBj = "0:0";
     if (dgnAnim && animBj === "naik") posBj = `x=0:y='(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
     else if (dgnAnim && animBj === "turun") posBj = `x=0:y='-(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
-    else if (dgnAnim && animBj === "slam") posBj = `x=0:y='-(1-pow(1-min(t/0.45,1),3))*${(H * 0.12).toFixed(1)}':eval=frame`;
+    else if (dgnAnim && animBj === "slam") posBj = `x=0:y='-(1-pow(1-${slamBj},3))*${(H * 0.12).toFixed(1)}':eval=frame`;
     else if (dgnAnim && animBj === "geser-kiri") posBj = `x='(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
     else if (dgnAnim && animBj === "geser-kanan") posBj = `x='-(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
+    // v3.7.1 — enable bingkai: hanya setelah cover (ofset 0 → tanpa enable, lama)
+    const enableBj = ofset > 0 ? `:enable='gte(t,${ofset.toFixed(3)})'` : "";
     const lbl = `b${suf}`; // "bj" (judul, label lama dipertahankan) / "bp" / "bd"
     filterVideo.push(`[${idx}:v]format=rgba${fadeBj}[${lbl}f]`);
-    filterVideo.push(`[${labelKini}][${lbl}f]overlay=${posBj}[${lbl}k]`);
+    filterVideo.push(`[${labelKini}][${lbl}f]overlay=${posBj}${enableBj}[${lbl}k]`);
     labelKini = `${lbl}k`;
   };
-  if (pakaiBingkaiJudul) tambahOverlayBingkai(idxBingkaiJudul, true, "j");
-  if (pakaiBingkaiPart) tambahOverlayBingkai(idxBingkaiPart, true, "p");
-  if (pakaiBingkaiDeskripsi) tambahOverlayBingkai(idxBingkaiDeskripsi, false, "d");
+  // v3.7.1 — COVER BERSIH: ofset = durasi cover (+ durasi transisi bila xfade).
+  // Semua teks/bingkai VIDEO baru tampil SETELAH titik ini → cover berjalan
+  // sendiri dulu (2-3 dtk) TANPA judul/part/deskripsi video terbakar di atasnya,
+  // baru film masuk (xfade/concat) dan teks video ikut muncul menganimasi.
+  const ofsetTeks = pakaiBg ? p.durasiIntro + (pakaiXfadeIntro ? xfadeD : 0) : 0;
+  if (pakaiBingkaiJudul) tambahOverlayBingkai(idxBingkaiJudul, true, "j", ofsetTeks);
+  if (pakaiBingkaiPart) tambahOverlayBingkai(idxBingkaiPart, true, "p", ofsetTeks);
+  if (pakaiBingkaiDeskripsi) tambahOverlayBingkai(idxBingkaiDeskripsi, false, "d", ofsetTeks);
   const rantaiTeksStr = (pakaiTemplat
-    ? rantaiTeksTemplate(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
-    : rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
+    ? rantaiTeksTemplate(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi, ofsetTeks)
+    : rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi, ofsetTeks)
   ).replace(/^\[cc\]/, `[${labelKini}]`);
   // v0.44.0 — subtitle AI (libass) diselipkan SETELAH drawtext judul/Part/deskripsi
   // dan SEBELUM overlay logo — memakai pola filter `subtitles=` yang sudah terbukti
@@ -1541,10 +1581,13 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // v0.58.0 — fontsdir hanya disisipkan bila foldernya BENAR-BENAR ada
   // (dirFontsSub kini bisa "" — biarkan libass pakai font bawaan sistem)
   const fdirSub = dirFontsSub();
+  // v3.7.1 — subtitle juga digerbangi waktu: tak ada teks sub di atas cover
+  const gerbangSub =
+    pakaiSub && ofsetTeks > 0 ? `:enable='gte(t,${ofsetTeks.toFixed(3)})'` : "";
   const opsiSub = pakaiSub
     ? `filename='${escapePathFilter(a.fileSub as string)}'${
         fdirSub ? `:fontsdir='${escapePathFilter(fdirSub)}'` : ""
-      }`
+      }${gerbangSub}`
     : "";
   // v3.4.0 — pakaiLogo sekarang diatur wmMode (mod 08 KINOSTRA): MATI/TEKS/LOGO.
   // wmMode "teks" → logo DISEMBUNYIKAN (satu watermark saja); "off" + logoId ada
