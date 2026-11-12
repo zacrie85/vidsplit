@@ -34,7 +34,7 @@ import {
   Upload,
 } from "lucide-react";
 import { BINGKAI_BAWAAN, LABEL_KATEGORI, type KategoriBingkai } from "@/lib/vidsplit/bingkaiBawaan";
-import { BINGKAI_JUDUL } from "@/lib/vidsplit/bingkaiJudul";
+import { BINGKAI_DESKRIPSI, BINGKAI_JUDUL, BINGKAI_PART } from "@/lib/vidsplit/bingkaiJudul";
 import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
 import { PRESET_GRADASI } from "@/lib/vidsplit/templatLayar";
 import {
@@ -95,6 +95,53 @@ import { PratinjauDeskripsi } from "./PratinjauDeskripsi";
 const FONT_SINEMATIK = (Object.keys(INFO_FONT) as NamaFont[]).filter(
   (f) => !FONT_DASAR.includes(f),
 );
+
+/** v3.6.0 — dua slider skala manual bingkai (permintaan user: frame judul/part/
+ *  deskripsi "bisa di lebarkan dan di pendekkan secara manual"): LEBAR & TINGGI
+ *  dalam % dari ukuran otomatis (40–250; 100 = ikut teks). Skala mengalikan
+ *  padding di sekeliling teks → kotak melebar/menyempit simetris, teks tetap
+ *  di tengah — persis rumus kotakBingkaiTeks di render server. */
+function SkalaBingkaiManual({
+  jenisLabel,
+  lebar,
+  tinggi,
+  onChangeL,
+  onChangeT,
+}: {
+  jenisLabel: string;
+  lebar: number;
+  tinggi: number;
+  onChangeL: (n: number) => void;
+  onChangeT: (n: number) => void;
+}) {
+  return (
+    <div className="mt-2 space-y-2.5 rounded-lg border border-cyan-400/25 bg-cyan-400/5 p-2.5">
+      <p className="text-[11px] font-medium text-cyan-200">
+        Ukuran bingkai manual — {jenisLabel}
+      </p>
+      <BarisSlider
+        label="Lebar bingkai (lebarkan / sempitkan)"
+        nilai={lebar}
+        min={40}
+        max={250}
+        onChange={onChangeL}
+        fmt={(n) => `${n}%`}
+      />
+      <BarisSlider
+        label="Tinggi bingkai (tinggikan / pendekkan)"
+        nilai={tinggi}
+        min={40}
+        max={250}
+        onChange={onChangeT}
+        fmt={(n) => `${n}%`}
+      />
+      <p className="text-[10px] leading-snug text-slate-500">
+        100% = otomatis mengikuti teks. Kanan = lebih besar, kiri = lebih kecil —
+        teks selalu tetap di tengah bingkainya.
+      </p>
+    </div>
+  );
+}
 
 function GayaEditor({
   gaya,
@@ -797,10 +844,21 @@ export function PanelJudul({
             ...BINGKAI_JUDUL.map((b) => ({ v: b.id, label: b.nama })),
           ]}
         />
+        {/* v3.6.0 — skala manual bingkai judul (lebarkan/pendekkan) */}
+        {(pengaturan.bingkaiJudul || "") !== "" && (
+          <SkalaBingkaiManual
+            jenisLabel="Judul"
+            lebar={pengaturan.bingkaiJudulLebar}
+            tinggi={pengaturan.bingkaiJudulTinggi}
+            onChangeL={(n) => set("bingkaiJudulLebar", n)}
+            onChangeT={(n) => set("bingkaiJudulTinggi", n)}
+          />
+        )}
         <p className="mt-1 text-[10px] leading-snug text-slate-500">
           Frame transparan ala HUD/NOVACUT — lebar &amp; tinggi kotak OTOMATIS mengikuti
-          tulisan judul. Posisi ikut judul: geser pakai panah di atas atau seret langsung
-          judulnya di pratinjau (atas/bawah/kiri/kanan). Didukung 8 animasi masuk di bawah.
+          tulisan judul, atau atur manual lewat slider ukuran di atas. Posisi ikut judul:
+          geser pakai panah di atas atau seret langsung judulnya di pratinjau
+          (atas/bawah/kiri/kanan). Didukung 8 animasi masuk di bawah.
         </p>
       </div>
       {/* v3.3.0 — ANIMASI MASUK TEKS (8 gaya, judul + label part) */}
@@ -1013,6 +1071,35 @@ export function PanelPart({
         maxUkuran={120}
         onTerapkanSemua={onTerapkanUkuran}
       />
+      {/* v3.6.0 — BINGKAI PART/EPISODE: 10 gaya khusus (tiket bioskop, film strip,
+          lencana hex, kaset VHS, dst.) + skala manual lebar/tinggi — permintaan
+          user ("untuk part/bagian/episode buatkan frame khusus yang menarik") */}
+      <div className="mt-1 border-t border-slate-700/50 pt-2.5">
+        <p className="mb-1 text-[11px] font-medium text-slate-400">
+          Bingkai Part/episode <span className="text-slate-500">(10 gaya khusus)</span>
+        </p>
+        <ChipPilihan
+          nilai={pengaturan.bingkaiPart}
+          onChange={(v) => set("bingkaiPart", v)}
+          pilihan={[
+            { v: "", label: "Tanpa" },
+            ...BINGKAI_PART.map((b) => ({ v: b.id, label: b.nama })),
+          ]}
+        />
+        {(pengaturan.bingkaiPart || "") !== "" && (
+          <SkalaBingkaiManual
+            jenisLabel="Part"
+            lebar={pengaturan.bingkaiPartLebar}
+            tinggi={pengaturan.bingkaiPartTinggi}
+            onChangeL={(n) => set("bingkaiPartLebar", n)}
+            onChangeT={(n) => set("bingkaiPartTinggi", n)}
+          />
+        )}
+        <p className="mt-1 text-[10px] leading-snug text-slate-500">
+          Frame khusus utk label Part/Episode/Bagian — kotak mengikuti tulisan Part,
+          posisi ikut panah Posisi Part di bawah. Kata part kosong = bingkai tidak tampil.
+        </p>
+      </div>
       {/* v2.4.0 — posisi Part BEBAS & TERPISAH dr judul (tombol geser menggantikan
           chip atas/tengah/bawah yang dulu menggerakkan judul + part sekaligus).
           Jangkar otomatis = tepat di bawah blok judul (perhitungan sama dgn
@@ -1291,6 +1378,34 @@ export function PanelDeskripsi({
         maxUkuran={120}
         onTerapkanSemua={onTerapkanUkuran}
       />
+      {/* v3.6.0 — BINGKAI DESKRIPSI: 10 panel transparan utk teks multi-baris +
+          skala manual lebar/tinggi (satu mekanisme dgn bingkai judul & part) */}
+      <div className="mt-3 border-t border-slate-700/50 pt-3">
+        <p className="mb-1 text-xs text-slate-400">
+          Bingkai deskripsi <span className="text-slate-500">(10 panel transparan)</span>
+        </p>
+        <ChipPilihan
+          nilai={pengaturan.bingkaiDeskripsi}
+          onChange={(v) => set("bingkaiDeskripsi", v)}
+          pilihan={[
+            { v: "", label: "Tanpa" },
+            ...BINGKAI_DESKRIPSI.map((b) => ({ v: b.id, label: b.nama })),
+          ]}
+        />
+        {(pengaturan.bingkaiDeskripsi || "") !== "" && (
+          <SkalaBingkaiManual
+            jenisLabel="Deskripsi"
+            lebar={pengaturan.bingkaiDeskripsiLebar}
+            tinggi={pengaturan.bingkaiDeskripsiTinggi}
+            onChangeL={(n) => set("bingkaiDeskripsiLebar", n)}
+            onChangeT={(n) => set("bingkaiDeskripsiTinggi", n)}
+          />
+        )}
+        <p className="mt-1 text-[10px] leading-snug text-slate-500">
+          Panel kaca/bar/strip — kotak mengikuti panjang tulisan deskripsi, posisi ikut
+          pengaturan Posisi di bawah. Deskripsi kosong = bingkai tidak tampil.
+        </p>
+      </div>
       <div className="mt-3 border-t border-slate-700/50 pt-3">
         <p className="mb-1 text-xs text-slate-400">Posisi cepat</p>
         <ChipPilihan<string>

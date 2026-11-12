@@ -41,7 +41,7 @@ import { jadwalkanPangkas } from "./kebersihan";
 import type { SeqNeon } from "./ffmpeg";
 // v3.3.0 — mesin cover NOVACUT (thumbnail & intro template)
 // v3.4.0 — + renderSvgCoverPng (lapisan animasi cover KINOSTRA)
-import { pakaiTemplateCover, renderCoverTemplatePng, renderSvgCoverPng, pengukurTeksServer, tulisPngBingkaiJudul } from "./thumbnail";
+import { pakaiTemplateCover, renderCoverTemplatePng, renderSvgCoverPng, pengukurTeksServer, tulisPngBingkaiJudul, tulisPngBingkaiTeks } from "./thumbnail";
 import { svgCoverLapis } from "./coverNovacut";
 import { labelPartCover } from "./types";
 import { analisisAdegan, potonganAdegan, type PotonganAdegan } from "./adegan";
@@ -797,6 +797,35 @@ export function mulaiEksporAntrean(
             tag,
           })
         : null;
+      // v3.6.0 — BINGKAI PART & DESKRIPSI (satu mekanisme dgn bingkai judul);
+      // part hanya bila kataPart terisi, deskripsi hanya bila ada teksnya.
+      // Gagal → null (ekspor tetap jalan tanpa bingkai itu).
+      const fileBingkaiPart =
+        (p.bingkaiPart || "") !== "" && (p.kataPart || "").trim().length > 0 && p.mode !== "template"
+          ? tulisPngBingkaiTeks("part", {
+              pengaturan: p,
+              judulTxt: p.judul || "",
+              partTxt: p.kataPart ? `${p.kataPart} ${n}` : "",
+              deskripsiTxt: p.deskripsi || "",
+              W,
+              H,
+              dirTmp,
+              tag,
+            })
+          : null;
+      const fileBingkaiDeskripsi =
+        (p.bingkaiDeskripsi || "") !== "" && (p.deskripsi || "").trim().length > 0 && p.mode !== "template"
+          ? tulisPngBingkaiTeks("deskripsi", {
+              pengaturan: p,
+              judulTxt: p.judul || "",
+              partTxt: p.kataPart ? `${p.kataPart} ${n}` : "",
+              deskripsiTxt: p.deskripsi || "",
+              W,
+              H,
+              dirTmp,
+              tag,
+            })
+          : null;
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
         bg: bgPart,
@@ -840,6 +869,9 @@ export function mulaiEksporAntrean(
         bgBingkai: bgBingkaiLapis,
         // v3.5.0 — BINGKAI JUDUL FUTURISTIK (transparan, ikut ukuran judul)
         fileBingkaiJudul,
+        // v3.6.0 — BINGKAI PART & DESKRIPSI (transparan, ikut teks masing-masing)
+        fileBingkaiPart,
+        fileBingkaiDeskripsi,
         // v2.2.0 — teks intro OTOMATIS: judul dr nama file + label kata-part NN
         // v3.3.0 — template intro: teks sudah terbakar di PNG → tanpa drawtext
         // v3.4.0 — judul/label ikut menu COVER KINOSTRA (coverJudul/coverKataPart)
@@ -1716,6 +1748,20 @@ export function mulaiGabungAntrean(
               tag,
             })
           : null;
+      // v3.6.0 — BINGKAI DESKRIPSI di jalur GABUNG (partTxt kosong → tanpa bingkai part)
+      const fileBingkaiDeskripsiGab =
+        (p.bingkaiDeskripsi || "") !== "" && (p.deskripsi || "").trim().length > 0 && p.mode !== "template"
+          ? tulisPngBingkaiTeks("deskripsi", {
+              pengaturan: p,
+              judulTxt: p.judul || "",
+              partTxt: "",
+              deskripsiTxt: p.deskripsi || "",
+              W,
+              H,
+              dirTmp,
+              tag,
+            })
+          : null;
       const { args, total } = bangunArgumenPart({
         src: it.srcAbs,
         // v2.2.0 — GABUNG VIDEO TANPA intro (permintaan user): bg selalu null
@@ -1736,6 +1782,7 @@ export function mulaiGabungAntrean(
         partTxt: "", // GABUNG: tanpa kata Part — judul per film tetap tampil
         deskripsiTxt: p.deskripsi || "",
         fileBingkaiJudul: fileBingkaiJudulGab,
+        fileBingkaiDeskripsi: fileBingkaiDeskripsiGab,
         fileSub,
         fileBacksound: backsoundAbs,
         volumeBacksound: p.backsoundVolume,

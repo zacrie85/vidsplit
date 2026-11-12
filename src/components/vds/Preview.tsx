@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { formatDurasi, FONT_CSS, neonDari, posisiTeksBlok, pratinjauPotret, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
-import { gayaBingkaiJudul, svgBingkaiJudulKotak } from "@/lib/vidsplit/bingkaiJudul";
+import { gayaBingkaiJenis, svgBingkaiKotak, type JenisBingkai } from "@/lib/vidsplit/bingkaiJudul";
 import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
 import { LapisanNeon } from "@/components/vds/Neon";
 import { LatarBlurVideo } from "@/components/vds/PratinjauBlurZoom";
@@ -198,15 +198,56 @@ export function Preview({
   // lebar & tinggi frame OTOMATIS mengikuti judul (padding em mengikuti font);
   // posisi mengikuti judulX/judulY persis seperti render (jangkar drawtext).
   // Bingkai aktif → judul bisa DISERET langsung ke atas/bawah/kiri/kanan.
-  const idBj =
-    !modeTemplate && (pengaturan.bingkaiJudul || "") !== "" && pengaturan.judul.trim()
-      ? pengaturan.bingkaiJudul
-      : "";
-  const gayaBj = idBj ? gayaBingkaiJudul(idBj) : null;
-  const urlBj = useMemo(
-    () => (idBj ? `data:image/svg+xml;utf8,${encodeURIComponent(svgBingkaiJudulKotak(idBj))}` : ""),
-    [idBj],
-  );
+  // v3.6.0 — BINGKAI PART & DESKRIPSI + SKALA MANUAL: satu mekanisme untuk
+  // tiga jenis (katalog & posisi masing-masing); padding efektif = pad gaya ×
+  // skala lebar/tinggi (40–250 %, 100 = otomatis) → slider melebarkan/
+  // menyempitkan kotak frame, teks tetap di tengah (persis render server).
+  const asistBingkai = (jenis: JenisBingkai) => {
+    if (modeTemplate) return null; // mode template punya kotak desain sendiri
+    const idRaw = (
+      jenis === "judul"
+        ? pengaturan.bingkaiJudul
+        : jenis === "part"
+          ? pengaturan.bingkaiPart
+          : pengaturan.bingkaiDeskripsi
+    ) || "";
+    const teks =
+      jenis === "judul"
+        ? pengaturan.judul
+        : jenis === "part"
+          ? `${pengaturan.kataPart} ${partKini}`.trim()
+          : pengaturan.deskripsi;
+    if (!idRaw || !teks.trim()) return null;
+    const gaya = gayaBingkaiJenis(jenis, idRaw);
+    if (!gaya) return null;
+    const skala = (v: unknown) =>
+      typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 100;
+    const skalaL = skala(
+      jenis === "judul"
+        ? pengaturan.bingkaiJudulLebar
+        : jenis === "part"
+          ? pengaturan.bingkaiPartLebar
+          : pengaturan.bingkaiDeskripsiLebar,
+    );
+    const skalaT = skala(
+      jenis === "judul"
+        ? pengaturan.bingkaiJudulTinggi
+        : jenis === "part"
+          ? pengaturan.bingkaiPartTinggi
+          : pengaturan.bingkaiDeskripsiTinggi,
+    );
+    return {
+      padX: gaya.padX * (skalaL / 100),
+      padY: gaya.padY * (skalaT / 100),
+      url: `data:image/svg+xml;utf8,${encodeURIComponent(svgBingkaiKotak(jenis, idRaw))}`,
+    };
+  };
+  const bj = {
+    judul: asistBingkai("judul"),
+    part: asistBingkai("part"),
+    deskripsi: asistBingkai("deskripsi"),
+  };
+  const gayaBj = bj.judul; // kondisi lama v3.5.0 (bingkai judul aktif?)
   const refKanvas = useRef<HTMLDivElement>(null);
   const seretBj = useRef<{ px: number; py: number; x0: number; y0: number } | null>(null);
   const mulaiSeretJudul = (e: React.PointerEvent<HTMLSpanElement>) => {
@@ -234,29 +275,40 @@ export function Preview({
   const akhirSeretJudul = () => {
     seretBj.current = null;
   };
-  /** selimut bingkai (kotak transparan) di sekitar blok judul */
-  const selimutBj = (anak: React.ReactNode, kelasAbs?: string, gayaAbs?: React.CSSProperties) =>
-    gayaBj && urlBj ? (
+  /** selimut bingkai (kotak transparan) di sekitar blok teks — v3.6.0 semua jenis;
+   *  fontSize span = ukuran huruf jenis itu (em padding = × ukuran huruf, sama
+   *  dgn server); seret hanya utk judul (part/deskripsi geser lewat kartunya). */
+  const selimutBingkai = (
+    jenis: JenisBingkai,
+    anak: React.ReactNode,
+    kelasAbs?: string,
+    gayaAbs?: React.CSSProperties,
+  ) => {
+    const a = bj[jenis];
+    if (!a) return <>{anak}</>;
+    const bisaSeret = jenis === "judul" && !!onGeserJudul;
+    const fsEm = jenis === "judul" ? ukuranJudul : jenis === "part" ? ukuranPart : ukuranDeskripsi;
+    return (
       <span
-        onPointerDown={onGeserJudul ? mulaiSeretJudul : undefined}
-        onPointerMove={onGeserJudul ? saatSeretJudul : undefined}
-        onPointerUp={akhirSeretJudul}
-        onPointerCancel={akhirSeretJudul}
-        title={onGeserJudul ? "Seret untuk menggeser judul + bingkai (atas/bawah/kiri/kanan)" : undefined}
-        className={`${kelasAbs ?? "inline-block"} ${onGeserJudul ? "cursor-move" : ""}`}
+        onPointerDown={bisaSeret ? mulaiSeretJudul : undefined}
+        onPointerMove={bisaSeret ? saatSeretJudul : undefined}
+        onPointerUp={bisaSeret ? akhirSeretJudul : undefined}
+        onPointerCancel={bisaSeret ? akhirSeretJudul : undefined}
+        title={bisaSeret ? "Seret untuk menggeser judul + bingkai (atas/bawah/kiri/kanan)" : undefined}
+        className={`${kelasAbs ?? "inline-block"} ${bisaSeret ? "cursor-move" : ""}`}
         style={{
           ...(gayaAbs ?? {}),
-          backgroundImage: `url("${urlBj}")`,
+          fontSize: fsEm,
+          backgroundImage: `url("${a.url}")`,
           backgroundSize: "100% 100%",
           backgroundRepeat: "no-repeat",
-          padding: `${gayaBj.padY}em ${gayaBj.padX}em`,
+          padding: `${a.padY}em ${a.padX}em`,
         }}
       >
         {anak}
       </span>
-    ) : (
-      <>{anak}</>
     );
+  };
 
   const gayaHurufJudul = {
     fontSize: ukuranJudul,
@@ -276,21 +328,25 @@ export function Preview({
   const susunTeks = keduaOtomatis ? (
     <div className="pointer-events-none absolute inset-x-0 top-[4.5%] z-10 flex flex-col items-center gap-[1.2cqw] px-[4cqw] text-center">
       {pengaturan.judul.trim() &&
-        selimutBj(
+        selimutBingkai(
+          "judul",
           <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufJudul}>
             {judulB}
           </p>,
         )}
-      {pengaturan.kataPart.trim() && (
-        <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufPart}>
-          {partB}
-        </p>
-      )}
+      {pengaturan.kataPart.trim() &&
+        selimutBingkai(
+          "part",
+          <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufPart}>
+            {partB}
+          </p>,
+        )}
     </div>
   ) : (
     <>
       {pengaturan.judul.trim() && gayaBj
-        ? selimutBj(
+        ? selimutBingkai(
+            "judul",
             <p className="teks-stroke pointer-events-none whitespace-pre font-bold leading-tight" style={gayaHurufJudul}>
               {judulB}
             </p>,
@@ -317,19 +373,35 @@ export function Preview({
           {judulB}
         </p>
       )}
-      {pengaturan.kataPart.trim() && (
-        <p
-          className="teks-stroke pointer-events-none absolute z-10 whitespace-pre font-bold leading-tight"
-          style={{
-            left: `${clampPct(pengaturan.partX)}%`,
-            top: `${pctPart}%`,
-            transform: "translate(-50%, 0)",
-            ...gayaHurufPart,
-          }}
-        >
-          {partB}
-        </p>
-      )}
+      {pengaturan.kataPart.trim() &&
+        // v3.6.0 — bingkai part aktif: posisi absolut pindah ke selimut (jangkar
+        // sama dgn drawtext — X tengah blok, Y atas blok)
+        (bj.part ? (
+          selimutBingkai(
+            "part",
+            <p className="teks-stroke pointer-events-none whitespace-pre font-bold leading-tight" style={gayaHurufPart}>
+              {partB}
+            </p>,
+            "absolute z-10",
+            {
+              left: `${clampPct(pengaturan.partX)}%`,
+              top: `${pctPart}%`,
+              transform: "translate(-50%, 0)",
+            },
+          )
+        ) : (
+          <p
+            className="teks-stroke pointer-events-none absolute z-10 whitespace-pre font-bold leading-tight"
+            style={{
+              left: `${clampPct(pengaturan.partX)}%`,
+              top: `${pctPart}%`,
+              transform: "translate(-50%, 0)",
+              ...gayaHurufPart,
+            }}
+          >
+            {partB}
+          </p>
+        ))}
     </>
   );
 
@@ -568,23 +640,51 @@ export function Preview({
               X = tengah blok teks, Y = atas blok teks. v0.42.0 — teks terbungkus
               sama dgn render (whitespace-pre, tanpa lipat CSS ulang). */}
           {!modeTemplate && pengaturan.deskripsi.trim() && (
-            <p
-              className="teks-stroke pointer-events-none absolute z-10 whitespace-pre leading-snug"
-              style={
+            // v3.6.0 — bingkai deskripsi aktif: posisi absolut pindah ke selimut
+            // (jangkar sama dgn drawtext deskripsi — X tengah blok, Y atas blok)
+            bj.deskripsi ? (
+              selimutBingkai(
+                "deskripsi",
+                <p
+                  className="teks-stroke pointer-events-none whitespace-pre leading-snug"
+                  style={
+                    {
+                      fontSize: ukuranDeskripsi,
+                      fontFamily: FONT_CSS[pengaturan.gayaDeskripsi.font],
+                      color: pengaturan.gayaDeskripsi.warna,
+                      "--stroke-w": `${(pengaturan.gayaDeskripsi.outlineLebar / 1080) * 100}cqw`,
+                      "--stroke-color": pengaturan.gayaDeskripsi.outlineWarna,
+                    } as React.CSSProperties
+                  }
+                >
+                  {deskripsiB}
+                </p>,
+                "absolute z-10",
                 {
                   left: `${Math.min(100, Math.max(0, pengaturan.deskripsiX))}%`,
                   top: `${Math.min(100, Math.max(0, pengaturan.deskripsiY))}%`,
                   transform: "translate(-50%, 0)",
-                  fontSize: ukuranDeskripsi,
-                  fontFamily: FONT_CSS[pengaturan.gayaDeskripsi.font],
-                  color: pengaturan.gayaDeskripsi.warna,
-                  "--stroke-w": `${(pengaturan.gayaDeskripsi.outlineLebar / 1080) * 100}cqw`,
-                  "--stroke-color": pengaturan.gayaDeskripsi.outlineWarna,
-                } as React.CSSProperties
-              }
-            >
-              {deskripsiB}
-            </p>
+                },
+              )
+            ) : (
+              <p
+                className="teks-stroke pointer-events-none absolute z-10 whitespace-pre leading-snug"
+                style={
+                  {
+                    left: `${Math.min(100, Math.max(0, pengaturan.deskripsiX))}%`,
+                    top: `${Math.min(100, Math.max(0, pengaturan.deskripsiY))}%`,
+                    transform: "translate(-50%, 0)",
+                    fontSize: ukuranDeskripsi,
+                    fontFamily: FONT_CSS[pengaturan.gayaDeskripsi.font],
+                    color: pengaturan.gayaDeskripsi.warna,
+                    "--stroke-w": `${(pengaturan.gayaDeskripsi.outlineLebar / 1080) * 100}cqw`,
+                    "--stroke-color": pengaturan.gayaDeskripsi.outlineWarna,
+                  } as React.CSSProperties
+                }
+              >
+                {deskripsiB}
+              </p>
+            )
           )}
           <span className="absolute left-2 top-2 z-10 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-slate-200">
             pratinjau — tanpa intro bg

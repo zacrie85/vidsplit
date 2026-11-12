@@ -3,7 +3,7 @@ import { rapikanNeon, type SetelanNeon } from "./neonLayar";
 import { rapikanTemplat, type SetelanTemplat } from "./templatLayar";
 // v3.5.0 — validasi id bingkai judul futuristik (bingkaiJudul.ts MURNI, tanpa
 // impor balik — aman dari lingkaran dependensi)
-import { BINGKAI_JUDUL } from "./bingkaiJudul";
+import { BINGKAI_DESKRIPSI, BINGKAI_JUDUL, BINGKAI_PART } from "./bingkaiJudul";
 
 /** "asli" = video original — tanpa konversi, rasio/ukuran tetap seperti sumber.
  *  v0.46.0 "template" = halaman desain 9:16: judul di kotak atas, video DI DALAM
@@ -412,6 +412,28 @@ export interface Pengaturan {
    *  judulX/judulY (jangkar sama dgn drawtext) → geser judul = geser bingkai.
    *  Dirender PNG transparan (resvg) di-overlay DI BAWAH drawtext judul. */
   bingkaiJudul: string;
+  /** v3.6.0 — skala manual bingkai judul: LEBAR dalam % dari otomatis
+   *  (40–250; 100 = ikut teks + padding gaya). >100 melebarkan kotak frame
+   *  di kiri-kanan teks, <100 menyempitkan — teks tetap di tengah kotak. */
+  bingkaiJudulLebar: number;
+  /** v3.6.0 — skala manual bingkai judul: TINGGI dalam % dari otomatis (40–250) */
+  bingkaiJudulTinggi: number;
+  /** v3.6.0 — BINGKAI PART/EPISODE: id dari BINGKAI_PART (10 gaya khusus
+   *  tiket/film/badge — permintaan user), "" = mati (perilaku lama). Kotak ikut
+   *  blok teks Part; posisi ikut partX/partY (jangkar drawtext). */
+  bingkaiPart: string;
+  /** v3.6.0 — skala manual bingkai part: LEBAR % (40–250, 100 = otomatis) */
+  bingkaiPartLebar: number;
+  /** v3.6.0 — skala manual bingkai part: TINGGI % (40–250, 100 = otomatis) */
+  bingkaiPartTinggi: number;
+  /** v3.6.0 — BINGKAI DESKRIPSI: id dari BINGKAI_DESKRIPSI (10 panel utk teks
+   *  multi-baris), "" = mati. Kotak ikut blok deskripsi; posisi ikut
+   *  deskripsiX/deskripsiY (jangkar drawtext). */
+  bingkaiDeskripsi: string;
+  /** v3.6.0 — skala manual bingkai deskripsi: LEBAR % (40–250, 100 = otomatis) */
+  bingkaiDeskripsiLebar: number;
+  /** v3.6.0 — skala manual bingkai deskripsi: TINGGI % (40–250, 100 = otomatis) */
+  bingkaiDeskripsiTinggi: number;
   /** v3.3.0 — template cover utk BACKGROUND INTRO ("" = gaya lama polos):
    *  id dari daftarTemplateCover() (mis. "impact--cyber") — frame video +
    *  overlay SVG template (judul & label part terbakar di PNG). */
@@ -677,6 +699,15 @@ export const pengaturanDefault: Pengaturan = {
   animasiTeks: "" as AnimasiTeks,
   // v3.5.0 — bingkai judul futuristik: mati bawaan (nol regresi)
   bingkaiJudul: "",
+  // v3.6.0 — bingkai part & deskripsi: mati bawaan; skala manual 100 = otomatis
+  bingkaiJudulLebar: 100,
+  bingkaiJudulTinggi: 100,
+  bingkaiPart: "",
+  bingkaiPartLebar: 100,
+  bingkaiPartTinggi: 100,
+  bingkaiDeskripsi: "",
+  bingkaiDeskripsiLebar: 100,
+  bingkaiDeskripsiTinggi: 100,
   posisiPotong: 50,
   // v0.50.0 — zoom manual potong: bawaan 100 = perilaku lama (potong penuh)
   zoomPotong: 100,
@@ -845,6 +876,33 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   if (hasil.bingkaiJudul === undefined) hasil.bingkaiJudul = "";
   else if (hasil.bingkaiJudul !== "" && !BINGKAI_JUDUL.some((b) => b.id === hasil.bingkaiJudul))
     hasil.bingkaiJudul = "";
+  // v3.6.0 — bingkai part & deskripsi: id tak dikenal / salah katalog → mati;
+  // skala manual di-clamp 40–250 (bawaan 100 = otomatis ikut teks)
+  if (hasil.bingkaiPart === undefined) hasil.bingkaiPart = "";
+  else if (hasil.bingkaiPart !== "" && !BINGKAI_PART.some((b) => b.id === hasil.bingkaiPart))
+    hasil.bingkaiPart = "";
+  if (hasil.bingkaiDeskripsi === undefined) hasil.bingkaiDeskripsi = "";
+  else if (
+    hasil.bingkaiDeskripsi !== "" &&
+    !BINGKAI_DESKRIPSI.some((b) => b.id === hasil.bingkaiDeskripsi)
+  )
+    hasil.bingkaiDeskripsi = "";
+  const SKALA_BINGKAI_MIN = 40;
+  const SKALA_BINGKAI_MAKS = 250;
+  for (const kunci of [
+    "bingkaiJudulLebar",
+    "bingkaiJudulTinggi",
+    "bingkaiPartLebar",
+    "bingkaiPartTinggi",
+    "bingkaiDeskripsiLebar",
+    "bingkaiDeskripsiTinggi",
+  ] as const) {
+    const n = hasil[kunci];
+    hasil[kunci] =
+      typeof n === "number" && Number.isFinite(n)
+        ? Math.min(SKALA_BINGKAI_MAKS, Math.max(SKALA_BINGKAI_MIN, Math.round(n)))
+        : 100;
+  }
   // v3.3.0 — otak subtitle whisper.cpp: peta field usang → field baru
   if (hasil.subtitleModel === undefined)
     hasil.subtitleModel = hasil.subtitleCepat === true ? "cepat" : "akurat";
@@ -1416,6 +1474,15 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     animasiTeks: sumber.animasiTeks,
     // v3.5.0 — bingkai judul futuristik ikut diterapkan ke semua video
     bingkaiJudul: sumber.bingkaiJudul,
+    // v3.6.0 — bingkai part & deskripsi + skala manual ketiganya ikut juga
+    bingkaiJudulLebar: sumber.bingkaiJudulLebar,
+    bingkaiJudulTinggi: sumber.bingkaiJudulTinggi,
+    bingkaiPart: sumber.bingkaiPart,
+    bingkaiPartLebar: sumber.bingkaiPartLebar,
+    bingkaiPartTinggi: sumber.bingkaiPartTinggi,
+    bingkaiDeskripsi: sumber.bingkaiDeskripsi,
+    bingkaiDeskripsiLebar: sumber.bingkaiDeskripsiLebar,
+    bingkaiDeskripsiTinggi: sumber.bingkaiDeskripsiTinggi,
     gayaPart: { ...sumber.gayaPart, ukuran: target.gayaPart.ukuran },
     partX: sumber.partX,
     partY: sumber.partY,

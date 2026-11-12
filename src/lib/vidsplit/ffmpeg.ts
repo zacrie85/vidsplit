@@ -1082,6 +1082,10 @@ export interface ArgPart {
    *  frame mengikuti blok judul, posisi = judulX/judulY — jobs.ts menulis via
    *  tulisPngBingkaiJudul/thumbnail.ts). Diisi → overlay DI BAWAH drawtext. */
   fileBingkaiJudul?: string | null;
+  /** v3.6.0 — BINGKAI PART & DESKRIPSI (satu mekanisme dgn bingkai judul):
+   *  PNG transparan kanvas penuh, overlay DI BAWAH drawtext masing-masing teks. */
+  fileBingkaiPart?: string | null;
+  fileBingkaiDeskripsi?: string | null;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -1117,6 +1121,11 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // (mode template punya kotak desain sendiri — bingkai bebas tidak berlaku)
   const pakaiBingkaiJudul =
     !!a.fileBingkaiJudul && existsSync(a.fileBingkaiJudul) && p.mode !== "template";
+  // v3.6.0 — bingkai part & deskripsi: satu mekanisme dgn bingkai judul
+  const pakaiBingkaiPart =
+    !!a.fileBingkaiPart && existsSync(a.fileBingkaiPart) && p.mode !== "template";
+  const pakaiBingkaiDeskripsi =
+    !!a.fileBingkaiDeskripsi && existsSync(a.fileBingkaiDeskripsi) && p.mode !== "template";
   // TANPA bg: total = durasi video saja (bukan + durasiIntro — kalau tidak,
   // track audio/hening ikut memanjang dan hasil split punya ekor diam ±3 dtk)
   // v0.57.0 — KECEPATAN TAYANG: durasi part hasil = durasi sumber ÷ kecepatan
@@ -1267,6 +1276,15 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const idxBingkaiJudul = pakaiBingkaiJudul ? idxLapis++ : -1;
   const inputBingkaiJudul: string[] = pakaiBingkaiJudul
     ? ["-loop", "1", "-i", a.fileBingkaiJudul as string]
+    : [];
+  // v3.6.0 — input bingkai part & deskripsi (urutan sama: input-di-akhir)
+  const idxBingkaiPart = pakaiBingkaiPart ? idxLapis++ : -1;
+  const inputBingkaiPart: string[] = pakaiBingkaiPart
+    ? ["-loop", "1", "-i", a.fileBingkaiPart as string]
+    : [];
+  const idxBingkaiDeskripsi = pakaiBingkaiDeskripsi ? idxLapis++ : -1;
+  const inputBingkaiDeskripsi: string[] = pakaiBingkaiDeskripsi
+    ? ["-loop", "1", "-i", a.fileBingkaiDeskripsi as string]
     : [];
   if (pakaiJudulLapis) {
     inputLapis.push("-loop", "1", "-framerate", String(fps), "-t", panjangBg.toFixed(3), "-i", a.bgJudul as string);
@@ -1482,29 +1500,36 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     filterVideo.push(`[${labelKini}][nfs]overlay=${neonS?.x ?? 0}:${neonS?.y ?? 0}[vne]`);
     labelKini = "vne";
   }
-  // v3.5.0 — BINGKAI JUDUL FUTURISTIK: PNG transparan (kotak frame mengikuti
-  // blok judul, posisi = judulX/judulY dari jobs.ts) DI BAWAH drawtext —
-  // urutan lapis: video → frame → neon → BINGKAI JUDUL → judul/Part → sub → logo.
-  // Animasi masuk mengikuti animasiTeks: gaya posisi (naik/turun/slam/geser)
-  // lewat ekspresi x/y overlay + eval=frame; gaya alpha (fade/neon/denyut/slam)
-  // lewat fade alpha (slam cepat 0,15 s — sama dgn drawtext).
-  if (pakaiBingkaiJudul) {
+  // v3.5.0/v3.6.0 — BINGKAI JUDUL/PART/DESKRIPSI: PNG transparan (kotak frame
+  // mengikuti blok teks masing-masing, posisi = X/Y teks dari jobs.ts) DI BAWAH
+  // drawtext — urutan lapis: video → frame → neon → BINGKAI (judul, part,
+  // deskripsi) → drawtext teks → sub → logo.
+  // Animasi masuk bingkai judul & part mengikuti animasiTeks (drawtext judul &
+  // part sama-sama beranimasi); bingkai deskripsi STATIS (drawtext deskripsi
+  // memang tanpa animasi). Gaya posisi (naik/turun/slam/geser) lewat ekspresi
+  // x/y overlay + eval=frame; gaya alpha (fade/neon/denyut/slam) lewat fade
+  // alpha (slam cepat 0,15 s — sama dgn drawtext).
+  const tambahOverlayBingkai = (idx: number, dgnAnim: boolean, suf: string) => {
     const animBj = (p.animasiTeks ?? "") as AnimasiTeks;
     const progBj = `min(t/${DURASI_ANIMASI_TEKS.toFixed(2)},1)`;
     const posisiAnim = animBj === "naik" || animBj === "turun" || animBj === "slam" || animBj === "geser-kiri" || animBj === "geser-kanan";
     const dFadeBj = animBj === "slam" ? 0.15 : DURASI_ANIMASI_TEKS;
     const fadeBj =
-      animBj && !posisiAnim ? `,fade=t=in:st=0:d=${dFadeBj.toFixed(2)}:alpha=1` : "";
+      dgnAnim && animBj && !posisiAnim ? `,fade=t=in:st=0:d=${dFadeBj.toFixed(2)}:alpha=1` : "";
     let posBj = "0:0";
-    if (animBj === "naik") posBj = `x=0:y='(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
-    else if (animBj === "turun") posBj = `x=0:y='-(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
-    else if (animBj === "slam") posBj = `x=0:y='-(1-pow(1-min(t/0.45,1),3))*${(H * 0.12).toFixed(1)}':eval=frame`;
-    else if (animBj === "geser-kiri") posBj = `x='(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
-    else if (animBj === "geser-kanan") posBj = `x='-(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
-    filterVideo.push(`[${idxBingkaiJudul}:v]format=rgba${fadeBj}[bjf]`);
-    filterVideo.push(`[${labelKini}][bjf]overlay=${posBj}[bjk]`);
-    labelKini = "bjk";
-  }
+    if (dgnAnim && animBj === "naik") posBj = `x=0:y='(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
+    else if (dgnAnim && animBj === "turun") posBj = `x=0:y='-(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
+    else if (dgnAnim && animBj === "slam") posBj = `x=0:y='-(1-pow(1-min(t/0.45,1),3))*${(H * 0.12).toFixed(1)}':eval=frame`;
+    else if (dgnAnim && animBj === "geser-kiri") posBj = `x='(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
+    else if (dgnAnim && animBj === "geser-kanan") posBj = `x='-(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
+    const lbl = `b${suf}`; // "bj" (judul, label lama dipertahankan) / "bp" / "bd"
+    filterVideo.push(`[${idx}:v]format=rgba${fadeBj}[${lbl}f]`);
+    filterVideo.push(`[${labelKini}][${lbl}f]overlay=${posBj}[${lbl}k]`);
+    labelKini = `${lbl}k`;
+  };
+  if (pakaiBingkaiJudul) tambahOverlayBingkai(idxBingkaiJudul, true, "j");
+  if (pakaiBingkaiPart) tambahOverlayBingkai(idxBingkaiPart, true, "p");
+  if (pakaiBingkaiDeskripsi) tambahOverlayBingkai(idxBingkaiDeskripsi, false, "d");
   const rantaiTeksStr = (pakaiTemplat
     ? rantaiTeksTemplate(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
     : rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
@@ -1698,6 +1723,9 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ...inputSuaraIntro,
     ...inputLapis,
     ...inputBingkaiJudul,
+    // v3.6.0 — input bingkai part & deskripsi (setelah bingkai judul)
+    ...inputBingkaiPart,
+    ...inputBingkaiDeskripsi,
     ...inputEfekOv,
     ...inputTransisi,
     "-filter_complex",

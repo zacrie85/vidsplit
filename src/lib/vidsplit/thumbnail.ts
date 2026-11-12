@@ -29,7 +29,7 @@ import { GAYA_DASAR_COVER, cariTemplateCover, daftarTtfCover, FONT_COVER, svgCov
 import { bacaTtf, lebarTeks, type InfoTtf } from "./teksLayar";
 import { dirFontKandidat, fontfileNama } from "./ffmpeg";
 import { bungkusTeksRender, lebarBarisPerkiraan } from "./bungkus";
-import { gayaBingkaiJudul, kotakBingkaiJudul, svgBingkaiJudulKanvas } from "./bingkaiJudul";
+import { gayaBingkaiJenis, kotakBingkaiTeks, svgBingkaiJudulKanvas, type JenisBingkai } from "./bingkaiJudul";
 
 /** Kunci drawtext: nilai teks SELALU lewat textfile (aman unicode/koma) */
 
@@ -354,6 +354,111 @@ export function renderSvgCoverPng(svg: string, W: number, H: number): Buffer {
  * diteruskan ke bangunArgumenPart → overlay DI BAWAH drawtext judul.
  * Gagal dlm tahap mana pun → null (ekspor tetap jalan TANPA bingkai).
  */
+export function tulisPngBingkaiTeks(
+  jenis: JenisBingkai,
+  opsi: {
+    pengaturan: Pengaturan;
+    judulTxt: string;
+    partTxt: string;
+    deskripsiTxt?: string;
+    W: number;
+    H: number;
+    dirTmp: string;
+    tag: string;
+  },
+): string | null {
+  const p = opsi.pengaturan;
+  // v3.6.0 — id & gaya sesuai jenis (bingkaiJudul / bingkaiPart / bingkaiDeskripsi)
+  const id = (
+    jenis === "judul" ? p.bingkaiJudul : jenis === "part" ? p.bingkaiPart : p.bingkaiDeskripsi
+  ).trim();
+  if (!id || !gayaBingkaiJenis(jenis, id)) return null; // id tak dikenal → mati
+  const teksMentah = (
+    jenis === "judul" ? opsi.judulTxt : jenis === "part" ? opsi.partTxt : opsi.deskripsiTxt ?? ""
+  ).trim();
+  if (!teksMentah) return null; // teks sasaran kosong → tanpa bingkai
+  try {
+    const W = Math.max(2, Math.round(opsi.W));
+    const H = Math.max(2, Math.round(opsi.H));
+    // rumus ukuran PERSIS rantaiTeks (ffmpeg.ts): skala sisi terpendek/1080
+    const skala = Math.min(W, H) / 1080;
+    const fs = Math.max(12, p.gayaJudul.ukuran * skala);
+    const uP = Math.max(10, p.gayaPart.ukuran * skala);
+    const uD = Math.max(10, p.gayaDeskripsi.ukuran * skala);
+    // baris terbungkus — aturan SAMA dgn drawtext (teksSiapGambar); judul & Part
+    // dihitung SELALU (posisi otomatis Part tergantung tinggi blok judul)
+    const barisJ = bungkusTeksRender(opsi.judulTxt ?? "", p.gayaJudul, W, H, 12).split("\n");
+    const barisP = bungkusTeksRender(opsi.partTxt ?? "", p.gayaPart, W, H, 10).split("\n");
+    const tJ = Math.max(1, barisJ.length) * fs * 1.5;
+    const tP = Math.max(1, barisP.length) * uP * 1.5;
+    const { yJ, yP } = posisiTeksBlok(
+      rapikanPosisiY(p.judulY, -1),
+      rapikanPosisiY(p.partY, -1),
+      H,
+      H * 0.045,
+      tJ,
+      tP,
+      fs * 0.45,
+    );
+    const gaya =
+      jenis === "judul" ? p.gayaJudul : jenis === "part" ? p.gayaPart : p.gayaDeskripsi;
+    const fsJenis = jenis === "judul" ? fs : jenis === "part" ? uP : uD;
+    const barisJenis =
+      jenis === "judul"
+        ? bungkusTeksRender(teksMentah, p.gayaJudul, W, H, 12).split("\n")
+        : jenis === "part"
+          ? bungkusTeksRender(teksMentah, p.gayaPart, W, H, 10).split("\n")
+          : bungkusTeksRender(teksMentah, p.gayaDeskripsi, W, H, 10).split("\n");
+    const tJenis = Math.max(1, barisJenis.length) * fsJenis * 1.5;
+    const xPersen = jenis === "judul" ? p.judulX : jenis === "part" ? p.partX : p.deskripsiX;
+    // Y atas blok: judul/part = posisiTeksBlok (rumus drawtext); deskripsi =
+    // H × deskripsiY/100 dgn clamp sama dgn ekspresiPosisiDeskripsi (H-text_h)
+    let yAtasPx = jenis === "judul" ? yJ : jenis === "part" ? yP : 0;
+    if (jenis === "deskripsi") {
+      const dy = Math.min(100, Math.max(0, Number.isFinite(p.deskripsiY) ? p.deskripsiY : 80));
+      yAtasPx = Math.min(Math.max(0, (H * dy) / 100), Math.max(0, H - tJenis));
+    }
+    // lebar baris: TTF nyata (akurat — freetype drawtext ≈ jumlah advance);
+    // berkas font tak ada → estimator bungkus.ts (cadangan aman)
+    const pathTtf = fontfileNama(gaya.font);
+    let lebarMaks = 0;
+    if (pathTtf && existsSync(pathTtf)) {
+      const info = bacaTtf(pathTtf);
+      for (const b of barisJenis) lebarMaks = Math.max(lebarMaks, lebarTeks(b, info, fsJenis));
+    } else {
+      for (const b of barisJenis) lebarMaks = Math.max(lebarMaks, lebarBarisPerkiraan(b, fsJenis, gaya.font));
+    }
+    // v3.6.0 — skala manual lebar/tinggi (40–250 %, 100 = otomatis ikut teks)
+    const skalaL =
+      jenis === "judul" ? p.bingkaiJudulLebar : jenis === "part" ? p.bingkaiPartLebar : p.bingkaiDeskripsiLebar;
+    const skalaT =
+      jenis === "judul" ? p.bingkaiJudulTinggi : jenis === "part" ? p.bingkaiPartTinggi : p.bingkaiDeskripsiTinggi;
+    // pengaman 3% — drawtext borderw membesarkan teks sedikit
+    const kotak = kotakBingkaiTeks(
+      jenis,
+      id,
+      xPersen,
+      yAtasPx,
+      lebarMaks * 1.03,
+      tJenis,
+      fsJenis,
+      W,
+      H,
+      skalaL,
+      skalaT,
+    );
+    if (!kotak) return null;
+    const svg = svgBingkaiJudulKanvas(id, kotak, W, H); // id unik lintas katalog
+    const png = renderSvgCoverPng(svg, W, H);
+    const keluar = path.join(opsi.dirTmp, `${opsi.tag}-bingkai-${jenis}.png`);
+    writeFileSync(keluar, png);
+    return keluar;
+  } catch {
+    return null; // gagal → tanpa bingkai (ekspor tetap jalan)
+  }
+}
+
+/** v3.5.0 — kompatibilitas lama: bingkai judul (jenis "judul") */
 export function tulisPngBingkaiJudul(opsi: {
   pengaturan: Pengaturan;
   judulTxt: string;
@@ -363,53 +468,7 @@ export function tulisPngBingkaiJudul(opsi: {
   dirTmp: string;
   tag: string;
 }): string | null {
-  const p = opsi.pengaturan;
-  const id = (p.bingkaiJudul || "").trim();
-  const judulMentah = (opsi.judulTxt || "").trim();
-  if (!id || !judulMentah) return null;
-  if (!gayaBingkaiJudul(id)) return null; // id tak dikenal → mati
-  try {
-    const W = Math.max(2, Math.round(opsi.W));
-    const H = Math.max(2, Math.round(opsi.H));
-    // rumus ukuran PERSIS rantaiTeks (ffmpeg.ts): skala sisi terpendek/1080
-    const skala = Math.min(W, H) / 1080;
-    const fs = Math.max(12, p.gayaJudul.ukuran * skala);
-    const uP = Math.max(10, p.gayaPart.ukuran * skala);
-    // baris terbungkus — aturan SAMA dgn drawtext (teksSiapGambar)
-    const barisJ = bungkusTeksRender(judulMentah, p.gayaJudul, W, H, 12).split("\n");
-    const barisP = bungkusTeksRender(opsi.partTxt ?? "", p.gayaPart, W, H, 10).split("\n");
-    const tJ = barisJ.length * fs * 1.5;
-    const tP = barisP.length * uP * 1.5;
-    const { yJ } = posisiTeksBlok(
-      rapikanPosisiY(p.judulY, -1),
-      rapikanPosisiY(p.partY, -1),
-      H,
-      H * 0.045,
-      tJ,
-      tP,
-      fs * 0.45,
-    );
-    // lebar baris: TTF nyata (akurat — freetype drawtext ≈ jumlah advance);
-    // berkas font tak ada → estimator bungkus.ts (cadangan aman)
-    const pathTtf = fontfileNama(p.gayaJudul.font);
-    let lebarMaks = 0;
-    if (pathTtf && existsSync(pathTtf)) {
-      const info = bacaTtf(pathTtf);
-      for (const b of barisJ) lebarMaks = Math.max(lebarMaks, lebarTeks(b, info, fs));
-    } else {
-      for (const b of barisJ) lebarMaks = Math.max(lebarMaks, lebarBarisPerkiraan(b, fs, p.gayaJudul.font));
-    }
-    // pengaman 3% — drawtext borderw membesarkan teks sedikit
-    const kotak = kotakBingkaiJudul(id, p.judulX, yJ, lebarMaks * 1.03, tJ, fs, W, H);
-    if (!kotak) return null;
-    const svg = svgBingkaiJudulKanvas(id, kotak, W, H);
-    const png = renderSvgCoverPng(svg, W, H);
-    const keluar = path.join(opsi.dirTmp, `${opsi.tag}-bingkai-judul.png`);
-    writeFileSync(keluar, png);
-    return keluar;
-  } catch {
-    return null; // gagal → tanpa bingkai (ekspor tetap jalan)
-  }
+  return tulisPngBingkaiTeks("judul", opsi);
 }
 
 /** Susun argumen ffmpeg: 1 frame sumber (atau GAMBAR frame bersama v2.3.0) →
