@@ -4,8 +4,10 @@
 // (whisper-cli lokal: `-m model -f wav -l id -sow -ml 1 -pp -oj`)
 // + probe ganda Jawa/Indonesia ala KINOSTRA (leksikon wScoreLex):
 //   • whisper.cpp JAUH lebih cepat dari jalur ONNX lama (C++ murni)
-//   • 4 model ggml q5_1: tiny (RINGAN) / base (CEPAT) / small (AKURAT)
-//     / large-v3-turbo (TURBO ±547 MB — menu VOCALIS v4 KINOSTRA mod 06)
+//   • 4 model ggml: tiny (RINGAN) / base (CEPAT) / small (AKURAT) q5_1
+//     / large-v3-turbo q5_0 (TURBO ±547 MB — menu VOCALIS v4 KINOSTRA mod 06;
+//     turbo memakai q5_0 — varian q5_1 turbo TIDAK ADA di HuggingFace,
+//     run #93 CI gagal 404 'Entry not found')
 //   • progres dihitung dari stderr `progress = N%`
 //   • output JSON: transcription[].offsets.from/to (MILIDETIK) + text
 //   • bahasa: id / jw / jwid (probe ganda) / enid (→ terjemah opus-mt
@@ -27,12 +29,13 @@ import type { BahasaSubtitle, ModelSubtitle } from "./types";
 import { LABEL_MODEL } from "./types";
 import type { SegmenSub } from "./subtitle";
 
-/** peta model → berkas ggml q5_1 (turbo = ggml-large-v3-turbo-q5_1 ±547 MB) */
+/** peta model → berkas ggml (tiny/base/small q5_1; turbo = q5_0 ±547 MB —
+ *  varian q5_1 large-v3-turbo tidak ada di ggerganov/whisper.cpp) */
 const MODEL_FILES: Record<ModelSubtitle, string> = {
   ringan: "ggml-tiny-q5_1.bin",
   cepat: "ggml-base-q5_1.bin",
   akurat: "ggml-small-q5_1.bin",
-  turbo: "ggml-large-v3-turbo-q5_1.bin",
+  turbo: "ggml-large-v3-turbo-q5_0.bin",
 };
 
 /** nama berkas model ggml utk pilihan user (utk pemanggil luar) */

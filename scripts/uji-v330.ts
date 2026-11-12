@@ -245,10 +245,11 @@ uji("skorLeksikon jawa vs indonesia (port KINOSTRA)", () => {
   if (W.skorLeksikon("saya ingin belajar bahasa indonesia", ["aku", "arep", "sinau"]) > 0.34)
     throw new Error("skor id terlalu tinggi dgn kamus jawa");
 });
-uji("namaModelGgml 3 pilihan", () => {
+uji("namaModelGgml 4 pilihan (turbo q5_0 — varian q5_1 turbo tak ada di HF)", () => {
   if (W.namaModelGgml("ringan") !== "ggml-tiny-q5_1.bin") throw new Error("tiny salah");
   if (W.namaModelGgml("cepat") !== "ggml-base-q5_1.bin") throw new Error("base salah");
   if (W.namaModelGgml("akurat") !== "ggml-small-q5_1.bin") throw new Error("small salah");
+  if (W.namaModelGgml("turbo") !== "ggml-large-v3-turbo-q5_0.bin") throw new Error("turbo salah (wajib q5_0)");
 });
 
 // ---------- migrasi simpanan ----------

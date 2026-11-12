@@ -173,7 +173,9 @@ exports.default = async function afterPack(context) {
     throw new Error("afterPack: berkas wajib hilang:\n" + kurang.join("\n"));
   }
   // v3.3.0 — whisper.cpp: bila folder assets/whisper ADA di build (CI mengunduhnya),
-  // binary + 3 model WAJIB ikut terkemas — bila tidak ada, build lokal lama tetap lolos
+  // binary + model WAJIB ikut terkemas — bila tidak ada, build lokal lama tetap lolos
+  // v3.4.0 — 4 model: tiny/base/small q5_1 + large-v3-turbo q5_0 (turbo q5_1
+  // TIDAK ada di HuggingFace — run #93 CI gagal 404 'Entry not found')
   const srcWhisper = path.join(process.cwd(), "assets", "whisper");
   if (fs.existsSync(path.join(srcWhisper, "bin"))) {
     const wWhisper = [
@@ -181,6 +183,7 @@ exports.default = async function afterPack(context) {
       path.join(resDir, "whisper", "models", "ggml-tiny-q5_1.bin"),
       path.join(resDir, "whisper", "models", "ggml-base-q5_1.bin"),
       path.join(resDir, "whisper", "models", "ggml-small-q5_1.bin"),
+      path.join(resDir, "whisper", "models", "ggml-large-v3-turbo-q5_0.bin"),
     ];
     // whisper-cli.exe sendiri HANYA ±300 KB — ambang 1 MB hanya utk MODEL;
     // binary cukup wajib ada (≥100 KB, anti file kosong/halaman error)
@@ -193,7 +196,7 @@ exports.default = async function afterPack(context) {
       }
     });
     if (kurangW.length > 0) {
-      throw new Error("afterPack: whisper.cpp tidak lengkap (v3.3.0):\n" + kurangW.join("\n"));
+      throw new Error("afterPack: whisper.cpp tidak lengkap (v3.4.0):\n" + kurangW.join("\n"));
     }
   } else {
     console.log("afterPack: assets/whisper tidak ada — build TANPA whisper.cpp (subtitle jatuh ke ONNX)");

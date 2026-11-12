@@ -23,10 +23,13 @@ jobs:
         # v2.0.0 — yolo-pembicara: model deteksi orang ZOOM PEMBICARA (±12 MB)
         run: bash scripts/unduh-model-ai.sh whisper-small whisper-base yolo-pembicara
 
-      - name: Unduh mesin whisper.cpp + model ggml q5_1 (v3.3.0 — otak teks otomatis baru)
+      - name: Unduh mesin whisper.cpp + model ggml (v3.3.0/v3.4.0 — otak teks otomatis baru)
         shell: pwsh
         # Pola persis KolosalCut build-windows.yml: binary resmi ggml-org/whisper.cpp
-        # (tag b5454) + 3 model q5_1 dari HuggingFace; gerbang ukuran anti-HTML/terpotong.
+        # (tag b5454) + 4 model dari HuggingFace; gerbang ukuran anti-HTML/terpotong.
+        # v3.4.0 KOREKSI CI — large-v3-turbo hanya punya q5_0/q8_0/full di HF — varian
+        # q5_1 turbo TIDAK ADA → run #93 CI gagal 'Entry not found' (HTTP 404).
+        # tiny/base/small tetap q5_1; turbo pindah ke q5_0 (±547 MB).
         run: |
           $ErrorActionPreference = "Stop"
           New-Item -ItemType Directory -Force -Path "assets/whisper/bin", "assets/whisper/models" | Out-Null
@@ -49,11 +52,13 @@ jobs:
           Get-ChildItem -Path (Split-Path $cli.FullName) -Filter "*.dll" | ForEach-Object {
             Copy-Item $_.FullName "assets/whisper/bin/"
           }
+          # peta model → kuantisasi (q5_1 turbo tak ada di HF — gunakan q5_0)
           foreach ($m in @("tiny", "base", "small", "large-v3-turbo")) {
-            $target = "assets/whisper/models/ggml-$m-q5_1.bin"
+            $q = if ($m -eq "large-v3-turbo") { "q5_0" } else { "q5_1" }
+            $target = "assets/whisper/models/ggml-$m-$q.bin"
             for ($i = 1; $i -le 5; $i++) {
               try {
-                Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$m-q5_1.bin" -OutFile $target -TimeoutSec 1800
+                Invoke-WebRequest -Uri "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-$m-$q.bin" -OutFile $target -TimeoutSec 1800
                 break
               } catch {
                 if ($i -eq 5) { throw "Gagal unduh model ${m}: $_" }
@@ -68,8 +73,8 @@ jobs:
             $f = Get-Item "assets/whisper/models/ggml-$m-q5_1.bin"
             if ($f.Length -lt 20MB) { throw "Model $m terlalu kecil ($($f.Length) byte) — unduhan rusak" }
           }
-          # v3.4.0 — model TURBO (large-v3-turbo ±547 MB, VOCALIS v4 mod 06 KINOSTRA)
-          $ft = Get-Item "assets/whisper/models/ggml-large-v3-turbo-q5_1.bin"
+          # v3.4.0 — model TURBO (large-v3-turbo q5_0 ±547 MB, VOCALIS v4 mod 06 KINOSTRA)
+          $ft = Get-Item "assets/whisper/models/ggml-large-v3-turbo-q5_0.bin"
           if ($ft.Length -lt 400MB) { throw "Model turbo terlalu kecil ($($ft.Length) byte) — unduhan rusak" }
           Write-Host "whisper.cpp + 4 model siap (tiny/base/small + turbo)."
 
