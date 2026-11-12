@@ -900,11 +900,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.4.0
+                v3.5.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.4.0
+              Suite video otomatis · Desktop v3.5.0
             </span>
           </span>
         </div>
@@ -1039,7 +1039,18 @@ export default function Halaman() {
                   lebar={videoAktif.info.lebar}
                   tinggi={videoAktif.info.tinggi}
                   // v3.2.0 — bingkai potret muat antara topbar & timeline di kolom kiri
-                  tinggiPotret="min(calc(100vh - 420px), 720px)"
+                  // v3.5.0 — PERBESAR (permintaan user: "Video Original gambar nya
+                  //  jadi kecil banget... preview videonya agak lebih besar sebesar
+                  //  frame yang sudah di buat sesuai layoutnya, dan untuk video
+                  //  vertikal kalau bisa untuk preview nya juga sedikit di perbesar"):
+                  //  cadangan ruang 420→300px & batas 720→1080px — pratinjau
+                  //  potret (9:16 & sumber vertikal) jadi jauh lebih besar; stage
+                  //  tetap scroll-sendiri bila melebihi layar (anti-luber).
+                  tinggiPotret="min(calc(100vh - 300px), 1080px)"
+                  // v3.5.0 — seret judul (+ bingkai futuristik) langsung di pratinjau
+                  onGeserJudul={(x, y) =>
+                    gantiPengaturanAktif({ ...videoAktif.pengaturan, judulX: x, judulY: y })
+                  }
                   totalPart={
                     videoAktif.pengaturan.modeSplit === "adegan"
                       ? 0 // jumlah adegan dipastikan saat ekspor (analisis AI)

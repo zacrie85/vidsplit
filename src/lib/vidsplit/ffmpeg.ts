@@ -1078,6 +1078,10 @@ export interface ArgPart {
   bgJudul?: string | null;
   bgPartLapis?: string | null;
   bgBingkai?: string | null;
+  /** v3.5.0 — BINGKAI JUDUL FUTURISTIK: PNG transparan kanvas penuh (kotak
+   *  frame mengikuti blok judul, posisi = judulX/judulY — jobs.ts menulis via
+   *  tulisPngBingkaiJudul/thumbnail.ts). Diisi → overlay DI BAWAH drawtext. */
+  fileBingkaiJudul?: string | null;
   dirTmp: string;
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
@@ -1109,6 +1113,10 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const pakaiFrame = !!a.frameAbs && existsSync(a.frameAbs) && p.mode !== "template";
   const pakaiNeon =
     !!a.neon && existsSync(path.join((a.neon as SeqNeon).dir, "f0001.png"));
+  // v3.5.0 — bingkai judul futuristik: PNG transparan di bawah drawtext
+  // (mode template punya kotak desain sendiri — bingkai bebas tidak berlaku)
+  const pakaiBingkaiJudul =
+    !!a.fileBingkaiJudul && existsSync(a.fileBingkaiJudul) && p.mode !== "template";
   // TANPA bg: total = durasi video saja (bukan + durasiIntro — kalau tidak,
   // track audio/hening ikut memanjang dan hasil split punya ekor diam ±3 dtk)
   // v0.57.0 — KECEPATAN TAYANG: durasi part hasil = durasi sumber ÷ kecepatan
@@ -1254,6 +1262,12 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   const idxJudulLapis = pakaiJudulLapis ? idxLapis++ : -1;
   const idxPartLapis = pakaiPartLapis ? idxLapis++ : -1;
   const idxBingkaiLapis = pakaiBingkaiLapis ? idxLapis++ : -1;
+  // v3.5.0 — input bingkai judul SETELAH lapis cover (pola input-di-akhir —
+  // indeks audio [2:a]/[1:a] & logo tidak pernah bergeser)
+  const idxBingkaiJudul = pakaiBingkaiJudul ? idxLapis++ : -1;
+  const inputBingkaiJudul: string[] = pakaiBingkaiJudul
+    ? ["-loop", "1", "-i", a.fileBingkaiJudul as string]
+    : [];
   if (pakaiJudulLapis) {
     inputLapis.push("-loop", "1", "-framerate", String(fps), "-t", panjangBg.toFixed(3), "-i", a.bgJudul as string);
   }
@@ -1468,6 +1482,29 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     filterVideo.push(`[${labelKini}][nfs]overlay=${neonS?.x ?? 0}:${neonS?.y ?? 0}[vne]`);
     labelKini = "vne";
   }
+  // v3.5.0 — BINGKAI JUDUL FUTURISTIK: PNG transparan (kotak frame mengikuti
+  // blok judul, posisi = judulX/judulY dari jobs.ts) DI BAWAH drawtext —
+  // urutan lapis: video → frame → neon → BINGKAI JUDUL → judul/Part → sub → logo.
+  // Animasi masuk mengikuti animasiTeks: gaya posisi (naik/turun/slam/geser)
+  // lewat ekspresi x/y overlay + eval=frame; gaya alpha (fade/neon/denyut/slam)
+  // lewat fade alpha (slam cepat 0,15 s — sama dgn drawtext).
+  if (pakaiBingkaiJudul) {
+    const animBj = (p.animasiTeks ?? "") as AnimasiTeks;
+    const progBj = `min(t/${DURASI_ANIMASI_TEKS.toFixed(2)},1)`;
+    const posisiAnim = animBj === "naik" || animBj === "turun" || animBj === "slam" || animBj === "geser-kiri" || animBj === "geser-kanan";
+    const dFadeBj = animBj === "slam" ? 0.15 : DURASI_ANIMASI_TEKS;
+    const fadeBj =
+      animBj && !posisiAnim ? `,fade=t=in:st=0:d=${dFadeBj.toFixed(2)}:alpha=1` : "";
+    let posBj = "0:0";
+    if (animBj === "naik") posBj = `x=0:y='(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
+    else if (animBj === "turun") posBj = `x=0:y='-(1-${progBj})*${(H * 0.06).toFixed(1)}':eval=frame`;
+    else if (animBj === "slam") posBj = `x=0:y='-(1-pow(1-min(t/0.45,1),3))*${(H * 0.12).toFixed(1)}':eval=frame`;
+    else if (animBj === "geser-kiri") posBj = `x='(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
+    else if (animBj === "geser-kanan") posBj = `x='-(1-${progBj})*${(W * 0.18).toFixed(1)}':y=0:eval=frame`;
+    filterVideo.push(`[${idxBingkaiJudul}:v]format=rgba${fadeBj}[bjf]`);
+    filterVideo.push(`[${labelKini}][bjf]overlay=${posBj}[bjk]`);
+    labelKini = "bjk";
+  }
   const rantaiTeksStr = (pakaiTemplat
     ? rantaiTeksTemplate(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
     : rantaiTeks(p, W, H, siap.judul, siap.part, siap.deskripsi, fileJudul, filePart, fileDeskripsi)
@@ -1660,6 +1697,7 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
     ...inputBacksound,
     ...inputSuaraIntro,
     ...inputLapis,
+    ...inputBingkaiJudul,
     ...inputEfekOv,
     ...inputTransisi,
     "-filter_complex",

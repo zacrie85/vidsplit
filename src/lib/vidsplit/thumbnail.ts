@@ -20,13 +20,16 @@
 // template — 3 gaya LAMA tetap dirantai drawbox/drawtext persis (nol regresi),
 // 100 template NOVACUT (10 layout × 10 palet) dirender SVG → PNG overlay
 // (coverNovacut.ts + @resvg/resvg-js) lalu ditumpuk ffmpeg di atas frame.
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Resvg } from "@resvg/resvg-js";
-import type { GayaThumbnail, NamaFont, OpsiThumbnail, GayaCoverLanjutan } from "./types";
+import type { GayaThumbnail, NamaFont, OpsiThumbnail, GayaCoverLanjutan, Pengaturan } from "./types";
+import { posisiTeksBlok, rapikanPosisiY } from "./types";
 import { GAYA_DASAR_COVER, cariTemplateCover, daftarTtfCover, FONT_COVER, svgCover, type KunciFontCover, type PengukurTeks } from "./coverNovacut";
 import { bacaTtf, lebarTeks, type InfoTtf } from "./teksLayar";
-import { dirFontKandidat } from "./ffmpeg";
+import { dirFontKandidat, fontfileNama } from "./ffmpeg";
+import { bungkusTeksRender, lebarBarisPerkiraan } from "./bungkus";
+import { gayaBingkaiJudul, kotakBingkaiJudul, svgBingkaiJudulKanvas } from "./bingkaiJudul";
 
 /** Kunci drawtext: nilai teks SELALU lewat textfile (aman unicode/koma) */
 
@@ -340,6 +343,73 @@ export function renderSvgCoverPng(svg: string, W: number, H: number): Buffer {
     background: "rgba(0,0,0,0)",
   });
   return r.render().asPng() as Buffer;
+}
+
+/**
+ * v3.5.0 — BINGKAI JUDUL FUTURISTIK (permintaan user: 10 frame transparan utk
+ * judul, lebar/tinggi mengikuti judul, bisa digeser): ukur blok judul (baris
+ * terbungkus dgn aturan bungkus.ts + lebar baris via TTF nyata), hitung kotak
+ * bingkai (jangkar = judulX/judulY — SAMA dgn drawtext), bangun SVG kanvas
+ * penuh → PNG transparan → tulis ke dirTmp. Dipanggil jobs.ts per part; path
+ * diteruskan ke bangunArgumenPart → overlay DI BAWAH drawtext judul.
+ * Gagal dlm tahap mana pun → null (ekspor tetap jalan TANPA bingkai).
+ */
+export function tulisPngBingkaiJudul(opsi: {
+  pengaturan: Pengaturan;
+  judulTxt: string;
+  partTxt: string;
+  W: number;
+  H: number;
+  dirTmp: string;
+  tag: string;
+}): string | null {
+  const p = opsi.pengaturan;
+  const id = (p.bingkaiJudul || "").trim();
+  const judulMentah = (opsi.judulTxt || "").trim();
+  if (!id || !judulMentah) return null;
+  if (!gayaBingkaiJudul(id)) return null; // id tak dikenal → mati
+  try {
+    const W = Math.max(2, Math.round(opsi.W));
+    const H = Math.max(2, Math.round(opsi.H));
+    // rumus ukuran PERSIS rantaiTeks (ffmpeg.ts): skala sisi terpendek/1080
+    const skala = Math.min(W, H) / 1080;
+    const fs = Math.max(12, p.gayaJudul.ukuran * skala);
+    const uP = Math.max(10, p.gayaPart.ukuran * skala);
+    // baris terbungkus — aturan SAMA dgn drawtext (teksSiapGambar)
+    const barisJ = bungkusTeksRender(judulMentah, p.gayaJudul, W, H, 12).split("\n");
+    const barisP = bungkusTeksRender(opsi.partTxt ?? "", p.gayaPart, W, H, 10).split("\n");
+    const tJ = barisJ.length * fs * 1.5;
+    const tP = barisP.length * uP * 1.5;
+    const { yJ } = posisiTeksBlok(
+      rapikanPosisiY(p.judulY, -1),
+      rapikanPosisiY(p.partY, -1),
+      H,
+      H * 0.045,
+      tJ,
+      tP,
+      fs * 0.45,
+    );
+    // lebar baris: TTF nyata (akurat — freetype drawtext ≈ jumlah advance);
+    // berkas font tak ada → estimator bungkus.ts (cadangan aman)
+    const pathTtf = fontfileNama(p.gayaJudul.font);
+    let lebarMaks = 0;
+    if (pathTtf && existsSync(pathTtf)) {
+      const info = bacaTtf(pathTtf);
+      for (const b of barisJ) lebarMaks = Math.max(lebarMaks, lebarTeks(b, info, fs));
+    } else {
+      for (const b of barisJ) lebarMaks = Math.max(lebarMaks, lebarBarisPerkiraan(b, fs, p.gayaJudul.font));
+    }
+    // pengaman 3% — drawtext borderw membesarkan teks sedikit
+    const kotak = kotakBingkaiJudul(id, p.judulX, yJ, lebarMaks * 1.03, tJ, fs, W, H);
+    if (!kotak) return null;
+    const svg = svgBingkaiJudulKanvas(id, kotak, W, H);
+    const png = renderSvgCoverPng(svg, W, H);
+    const keluar = path.join(opsi.dirTmp, `${opsi.tag}-bingkai-judul.png`);
+    writeFileSync(keluar, png);
+    return keluar;
+  } catch {
+    return null; // gagal → tanpa bingkai (ekspor tetap jalan)
+  }
 }
 
 /** Susun argumen ffmpeg: 1 frame sumber (atau GAMBAR frame bersama v2.3.0) →

@@ -34,6 +34,7 @@ import {
   Upload,
 } from "lucide-react";
 import { BINGKAI_BAWAAN, LABEL_KATEGORI, type KategoriBingkai } from "@/lib/vidsplit/bingkaiBawaan";
+import { BINGKAI_JUDUL } from "@/lib/vidsplit/bingkaiJudul";
 import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
 import { PRESET_GRADASI } from "@/lib/vidsplit/templatLayar";
 import {
@@ -782,6 +783,26 @@ export function PanelJudul({
         yOtomatis={4.5}
         onChange={(x, y) => onChange({ ...pengaturan, judulX: x, judulY: y })}
       />
+      {/* v3.5.0 — BINGKAI JUDUL FUTURISTIK (permintaan user: 10 frame transparan
+          utk judul, lebar/tinggi mengikuti judul, bisa digeser) */}
+      <div className="mt-1 border-t border-slate-700/50 pt-2.5">
+        <p className="mb-1 text-[11px] font-medium text-slate-400">
+          Bingkai judul futuristik <span className="text-slate-500">(10 gaya transparan)</span>
+        </p>
+        <ChipPilihan
+          nilai={pengaturan.bingkaiJudul}
+          onChange={(v) => set("bingkaiJudul", v)}
+          pilihan={[
+            { v: "", label: "Tanpa" },
+            ...BINGKAI_JUDUL.map((b) => ({ v: b.id, label: b.nama })),
+          ]}
+        />
+        <p className="mt-1 text-[10px] leading-snug text-slate-500">
+          Frame transparan ala HUD/NOVACUT — lebar &amp; tinggi kotak OTOMATIS mengikuti
+          tulisan judul. Posisi ikut judul: geser pakai panah di atas atau seret langsung
+          judulnya di pratinjau (atas/bawah/kiri/kanan). Didukung 8 animasi masuk di bawah.
+        </p>
+      </div>
       {/* v3.3.0 — ANIMASI MASUK TEKS (8 gaya, judul + label part) */}
       <div className="mt-1 border-t border-slate-700/50 pt-2.5">
         <p className="mb-1 text-[11px] font-medium text-slate-400">

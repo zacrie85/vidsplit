@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
 import { formatDurasi, FONT_CSS, neonDari, posisiTeksBlok, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
+import { gayaBingkaiJudul, svgBingkaiJudulKotak } from "@/lib/vidsplit/bingkaiJudul";
 import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
 import { LapisanNeon } from "@/components/vds/Neon";
 import { LatarBlurVideo } from "@/components/vds/PratinjauBlurZoom";
@@ -17,6 +18,7 @@ export function Preview({
   lebar = 0,
   tinggi = 0,
   tinggiPotret,
+  onGeserJudul,
 }: {
   srcUrl: string;
   pengaturan: Pengaturan;
@@ -29,6 +31,10 @@ export function Preview({
    *  muat di antara topbar & footer timeline (dulu min(76vh,1500px) membuatnya
    *  meluber menembus footer bila layar pendek). Tidak diisi = perilaku lama. */
   tinggiPotret?: string;
+  /** v3.5.0 — seret judul (+ bingkai futuristik) langsung di pratinjau: kirim
+   *  judulX/judulY baru (persen kanvas; jangkar sama dgn drawtext). Kosong =
+   *  pratinjau non-interaktif seperti semula. */
+  onGeserJudul?: (x: number, y: number) => void;
 }) {
   const refV = useRef<HTMLVideoElement>(null);
   const [t, setT] = useState(0);
@@ -114,8 +120,13 @@ export function Preview({
   // · potret (9:16 / sumber vertikal) dibatasi TINGGI layar (76vh) agar dashboard
   //   tetap proporsional & Ekspor tak tenggelam — lebar mengikuti rasio;
   // · lanskap/persegi tetap selebar kolom (lebar-mengatur) seperti sebelumnya.
+  // v3.5.0 — PERBESAR (permintaan user: "Video Original gambar nya jadi kecil
+  //  banget... agar tampilan preview videonya agak lebih besar sebesar frame
+  //  yang sudah di buat sesuai layoutnya, dan untuk video vertikal kalau bisa
+  //  untuk preview nya juga sedikit di perbesar"): lanskap 1100→1280 (kolom
+  //  layar lebar), potret dibatasi page (tinggiPotret dinaikkan).
   const potret = modeAsli ? tinggi > lebar : true;
-  const kelasBungkusan = potret ? "mx-auto w-fit" : "mx-auto w-full max-w-[1100px]";
+  const kelasBungkusan = potret ? "mx-auto w-fit" : "mx-auto w-full max-w-[1280px]";
 
   // v0.42.0 — teks DIBUNGKUS dgn aturan yang SAMA dgn render drawtext (bungkus.ts):
   // dulu pratinjau melipat via CSS (teks bergeser ke bawah) tapi hasil ekspor tetap
@@ -177,6 +188,71 @@ export function Preview({
   const pctPart = (posEfektif.yP / Hpx) * 100;
   const clampPct = (n: number) => Math.min(100, Math.max(0, n));
 
+  // ============ v3.5.0 — BINGKAI JUDUL FUTURISTIK (10 gaya transparan) ============
+  // Kotak SVG dibentangkan (backgroundSize 100% 100%) di sekitar blok teks —
+  // lebar & tinggi frame OTOMATIS mengikuti judul (padding em mengikuti font);
+  // posisi mengikuti judulX/judulY persis seperti render (jangkar drawtext).
+  // Bingkai aktif → judul bisa DISERET langsung ke atas/bawah/kiri/kanan.
+  const idBj =
+    !modeTemplate && (pengaturan.bingkaiJudul || "") !== "" && pengaturan.judul.trim()
+      ? pengaturan.bingkaiJudul
+      : "";
+  const gayaBj = idBj ? gayaBingkaiJudul(idBj) : null;
+  const urlBj = useMemo(
+    () => (idBj ? `data:image/svg+xml;utf8,${encodeURIComponent(svgBingkaiJudulKotak(idBj))}` : ""),
+    [idBj],
+  );
+  const refKanvas = useRef<HTMLDivElement>(null);
+  const seretBj = useRef<{ px: number; py: number; x0: number; y0: number } | null>(null);
+  const mulaiSeretJudul = (e: React.PointerEvent<HTMLSpanElement>) => {
+    if (!onGeserJudul) return;
+    const r = refKanvas.current?.getBoundingClientRect();
+    if (!r || !r.width || !r.height) return;
+    e.stopPropagation();
+    seretBj.current = {
+      px: e.clientX,
+      py: e.clientY,
+      x0: pengaturan.judulX,
+      y0: pengaturan.judulY >= 0 ? pengaturan.judulY : pctJudul,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const saatSeretJudul = (e: React.PointerEvent<HTMLSpanElement>) => {
+    const s = seretBj.current;
+    const r = refKanvas.current?.getBoundingClientRect();
+    if (!s || !r || !onGeserJudul) return;
+    const bulat = (n: number) => Math.round(n * 10) / 10;
+    const nx = Math.min(100, Math.max(0, bulat(s.x0 + ((e.clientX - s.px) / r.width) * 100)));
+    const ny = Math.min(100, Math.max(0, bulat(s.y0 + ((e.clientY - s.py) / r.height) * 100)));
+    onGeserJudul(nx, ny);
+  };
+  const akhirSeretJudul = () => {
+    seretBj.current = null;
+  };
+  /** selimut bingkai (kotak transparan) di sekitar blok judul */
+  const selimutBj = (anak: React.ReactNode, kelasAbs?: string, gayaAbs?: React.CSSProperties) =>
+    gayaBj && urlBj ? (
+      <span
+        onPointerDown={onGeserJudul ? mulaiSeretJudul : undefined}
+        onPointerMove={onGeserJudul ? saatSeretJudul : undefined}
+        onPointerUp={akhirSeretJudul}
+        onPointerCancel={akhirSeretJudul}
+        title={onGeserJudul ? "Seret untuk menggeser judul + bingkai (atas/bawah/kiri/kanan)" : undefined}
+        className={`${kelasAbs ?? "inline-block"} ${onGeserJudul ? "cursor-move" : ""}`}
+        style={{
+          ...(gayaAbs ?? {}),
+          backgroundImage: `url("${urlBj}")`,
+          backgroundSize: "100% 100%",
+          backgroundRepeat: "no-repeat",
+          padding: `${gayaBj.padY}em ${gayaBj.padX}em`,
+        }}
+      >
+        {anak}
+      </span>
+    ) : (
+      <>{anak}</>
+    );
+
   const gayaHurufJudul = {
     fontSize: ukuranJudul,
     fontFamily: FONT_CSS[pengaturan.gayaJudul.font],
@@ -194,11 +270,12 @@ export function Preview({
 
   const susunTeks = keduaOtomatis ? (
     <div className="pointer-events-none absolute inset-x-0 top-[4.5%] z-10 flex flex-col items-center gap-[1.2cqw] px-[4cqw] text-center">
-      {pengaturan.judul.trim() && (
-        <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufJudul}>
-          {judulB}
-        </p>
-      )}
+      {pengaturan.judul.trim() &&
+        selimutBj(
+          <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufJudul}>
+            {judulB}
+          </p>,
+        )}
       {pengaturan.kataPart.trim() && (
         <p className="teks-stroke whitespace-pre font-bold leading-tight" style={gayaHurufPart}>
           {partB}
@@ -207,7 +284,22 @@ export function Preview({
     </div>
   ) : (
     <>
-      {pengaturan.judul.trim() && (
+      {pengaturan.judul.trim() && gayaBj
+        ? selimutBj(
+            <p className="teks-stroke pointer-events-none whitespace-pre font-bold leading-tight" style={gayaHurufJudul}>
+              {judulB}
+            </p>,
+            // v3.5.0 — bingkai aktif: posisi absolut pindah ke SELIMUT (kotak
+            // frame ikut jangkar judul — X tengah, Y atas; padding = bagian frame)
+            "absolute z-10",
+            {
+              left: `${clampPct(pengaturan.judulX)}%`,
+              top: `${pctJudul}%`,
+              transform: "translate(-50%, 0)",
+            },
+          )
+        : null}
+      {pengaturan.judul.trim() && !gayaBj && (
         <p
           className="teks-stroke pointer-events-none absolute z-10 whitespace-pre font-bold leading-tight"
           style={{
@@ -240,6 +332,7 @@ export function Preview({
     <div>
       <div className={kelasBungkusan}>
         <div
+          ref={refKanvas}
           className="relative overflow-hidden rounded-xl border border-slate-700/70 bg-black shadow-2xl shadow-black/50"
           style={
             potret

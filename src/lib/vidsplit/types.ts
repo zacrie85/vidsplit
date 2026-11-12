@@ -1,6 +1,9 @@
 // VidSplit — tipe data & pengaturan aplikasi
 import { rapikanNeon, type SetelanNeon } from "./neonLayar";
 import { rapikanTemplat, type SetelanTemplat } from "./templatLayar";
+// v3.5.0 — validasi id bingkai judul futuristik (bingkaiJudul.ts MURNI, tanpa
+// impor balik — aman dari lingkaran dependensi)
+import { BINGKAI_JUDUL } from "./bingkaiJudul";
 
 /** "asli" = video original — tanpa konversi, rasio/ukuran tetap seperti sumber.
  *  v0.46.0 "template" = halaman desain 9:16: judul di kotak atas, video DI DALAM
@@ -386,6 +389,15 @@ export interface Pengaturan {
   /** v3.3.0 — animasi masuk judul & label part ("" = mati = perilaku lama).
    *  Hanya berlaku saat teks itu tampil; drawtext alpha/x/y ekspresi. */
   animasiTeks: AnimasiTeks;
+  /** v3.5.0 — BINGKAI JUDUL FUTURISTIK (permintaan user: "pada menu TEKS
+   *  tambahkan/buatkan 10 frame untuk judul dengan tampilan futuristik dan
+   *  juga transparan dimana lebar dan tinggi frame nya mengikuti judul yang
+   *  ada dan bisa di geser geser ke atas bawah kiri dan kanan"): id gaya dari
+   *  BINGKAI_JUDUL (bingkaiJudul.ts), "" = mati (perilaku lama). Kotak frame
+   *  mengikuti blok teks judul (baris terbungkus × ukuran font); posisi ikut
+   *  judulX/judulY (jangkar sama dgn drawtext) → geser judul = geser bingkai.
+   *  Dirender PNG transparan (resvg) di-overlay DI BAWAH drawtext judul. */
+  bingkaiJudul: string;
   /** v3.3.0 — template cover utk BACKGROUND INTRO ("" = gaya lama polos):
    *  id dari daftarTemplateCover() (mis. "impact--cyber") — frame video +
    *  overlay SVG template (judul & label part terbakar di PNG). */
@@ -649,6 +661,8 @@ export const pengaturanDefault: Pengaturan = {
   partY: -1,
   // v3.3.0 — animasi teks mati bawaan (hasil lama persis)
   animasiTeks: "" as AnimasiTeks,
+  // v3.5.0 — bingkai judul futuristik: mati bawaan (nol regresi)
+  bingkaiJudul: "",
   posisiPotong: 50,
   // v0.50.0 — zoom manual potong: bawaan 100 = perilaku lama (potong penuh)
   zoomPotong: 100,
@@ -813,6 +827,10 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   // v3.3.0 — animasi teks: simpanan lama tanpa field → mati
   if (hasil.animasiTeks === undefined) hasil.animasiTeks = "";
   else if (!ANIMASI_TEKS.some((a) => a.id === hasil.animasiTeks)) hasil.animasiTeks = "";
+  // v3.5.0 — bingkai judul: nilai tak dikenal → mati (nol regresi)
+  if (hasil.bingkaiJudul === undefined) hasil.bingkaiJudul = "";
+  else if (hasil.bingkaiJudul !== "" && !BINGKAI_JUDUL.some((b) => b.id === hasil.bingkaiJudul))
+    hasil.bingkaiJudul = "";
   // v3.3.0 — otak subtitle whisper.cpp: peta field usang → field baru
   if (hasil.subtitleModel === undefined)
     hasil.subtitleModel = hasil.subtitleCepat === true ? "cepat" : "akurat";
@@ -1382,6 +1400,8 @@ export function terapkanSebagian(sumber: Pengaturan, target: Pengaturan): Pengat
     kataPart: sumber.kataPart,
     durasiPart: sumber.durasiPart,
     animasiTeks: sumber.animasiTeks,
+    // v3.5.0 — bingkai judul futuristik ikut diterapkan ke semua video
+    bingkaiJudul: sumber.bingkaiJudul,
     gayaPart: { ...sumber.gayaPart, ukuran: target.gayaPart.ukuran },
     partX: sumber.partX,
     partY: sumber.partY,

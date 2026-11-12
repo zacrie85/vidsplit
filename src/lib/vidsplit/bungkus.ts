@@ -65,6 +65,12 @@ function lebarPerkiraan(teks: string, ukuranPx: number, font: NamaFont): number 
   return Array.from(teks).length * (FAKTOR_LEBAR_FONT[font] ?? FAKTOR_BAWAAN) * AMAN_LEBAR * ukuranPx;
 }
 
+/** v3.5.0 — estimator lebar baris PUBLIK (tanpa TTF): dipakai bingkai judul
+ *  bila berkas font tak ketemu (cadangan — jalur utama memakai TTF nyata). */
+export function lebarBarisPerkiraan(teks: string, ukuranPx: number, font: NamaFont): number {
+  return lebarPerkiraan(teks, ukuranPx, font);
+}
+
 /**
  * Lipat teks ke beberapa baris agar tiap baris muat dalam lebarPx.
  *   • baris baru (\n) buatan user dipertahankan — tiap paragraf dilipat sendiri;
