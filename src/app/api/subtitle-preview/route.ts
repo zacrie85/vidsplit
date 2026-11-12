@@ -61,20 +61,28 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   // v0.47.0 — mode bahasa pratinjau = mode ekspor (cache hasil analisis sama)
   p.subtitleDeteksiBahasa = p.subtitleDeteksiBahasa === true;
   // v3.3.0 — mesin & bahasa whisper.cpp pratinjau = ekspor
+  // v3.4.0 — turbo (large-v3-turbo) sah
   p.subtitleModel =
-    p.subtitleModel === "ringan" || p.subtitleModel === "akurat" ? p.subtitleModel : "cepat";
+    p.subtitleModel === "ringan" || p.subtitleModel === "akurat" || p.subtitleModel === "turbo"
+      ? p.subtitleModel
+      : "cepat";
   p.subtitleBahasa =
     p.subtitleBahasa === "jw" || p.subtitleBahasa === "jwid" || p.subtitleBahasa === "enid"
       ? p.subtitleBahasa
       : "id";
   p.subtitleCepat = p.subtitleModel !== "akurat";
   p.subtitleDeteksiBahasa = p.subtitleBahasa === "enid";
+  // v3.4.0 — VOCALIS v4: mode lagu + lewati sunyi pratinjau = ekspor
+  p.subtitleLagu = p.subtitleLagu === true;
+  p.subtitleLewatiSunyi = p.subtitleLewatiSunyi !== false;
   return p;
 }
 
 async function kerjakan(
   fileRel: string,
   pengaturan: Pengaturan,
+  /** v3.4.0 — true = kembalikan SEMUA baris (maks 5000) utk ekspor .SRT */
+  penuh = false,
 ): Promise<Record<string, unknown>> {
   const srcAbs = pathAman(fileRel);
   if (!existsSync(srcAbs)) {
@@ -109,6 +117,9 @@ async function kerjakan(
     // v3.3.0 — mesin whisper.cpp + bahasa ikut dikirim (cache & ekspor konsisten)
     model: pengaturan.subtitleModel,
     bahasa: pengaturan.subtitleBahasa,
+    // v3.4.0 — VOCALIS v4 (mod 06 KINOSTRA): mode lagu + lewati sunyi
+    modeLagu: pengaturan.subtitleLagu === true,
+    lewatiSunyi: pengaturan.subtitleLewatiSunyi !== false,
   });
   if (!hasil) return { ok: false, alasan: "model", pesan: "Mesin subtitle AI tidak bisa dimuat." };
   if (!hasil.segmen.length) {
@@ -212,19 +223,20 @@ async function kerjakan(
     bahasa: hasil.bahasa,
     diterjemahkan: hasil.diterjemahkan,
     jumlahSegmen: hasil.segmen.length,
-    segmen: potongSegmenTampil(hasil.segmen, MAKS_BARIS_TAMPIL),
+    segmen: penuh ? hasil.segmen.slice(0, 5000) : potongSegmenTampil(hasil.segmen, MAKS_BARIS_TAMPIL),
   };
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as { file?: string; pengaturan?: Partial<Pengaturan> };
+    const body = (await req.json()) as { file?: string; pengaturan?: Partial<Pengaturan>; penuh?: boolean };
     if (!body.file) throw new Error("Parameter 'file' wajib");
     const pengaturan = rapikanPengaturan(body.pengaturan);
-    const kunci = `${body.file}|${pengaturan.subtitleUkuran}|${pengaturan.subtitleY}|${pengaturan.mulaiDetik}|${pengaturan.akhirDetik}|${pengaturan.mode}|${pengaturan.subtitleWarna}|${pengaturan.subtitleOutlineWarna}`;
+    // v3.4.0 — penuh ikut kunci dedup (hasil 5000 baris tak boleh tertukar dgn pratinjau)
+    const kunci = `${body.file}|${pengaturan.subtitleUkuran}|${pengaturan.subtitleY}|${pengaturan.mulaiDetik}|${pengaturan.akhirDetik}|${pengaturan.mode}|${pengaturan.subtitleWarna}|${pengaturan.subtitleOutlineWarna}|${body.penuh === true ? "penuh" : "ringkas"}`;
     let janji = berjalan.get(kunci);
     if (!janji) {
-      janji = kerjakan(body.file, pengaturan).finally(() => berjalan.delete(kunci));
+      janji = kerjakan(body.file, pengaturan, body.penuh === true).finally(() => berjalan.delete(kunci));
       berjalan.set(kunci, janji);
     }
     const hasil = await janji;

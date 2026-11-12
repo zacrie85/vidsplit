@@ -296,6 +296,8 @@ export function renderCoverTemplatePng(opsi: {
   labelPart: string;
   latar: "adegan" | "hitam";
   skalaPart?: number;
+  /** v3.4.0 — bingkai cover di atas segalanya (port NCCOVER_FRAMES) */
+  bingkai?: "none" | "klasik" | "modern" | "futuristik";
 }): Buffer {
   const svg = svgCover(
     {
@@ -306,9 +308,18 @@ export function renderCoverTemplatePng(opsi: {
       labelPart: opsi.labelPart,
       latar: opsi.latar,
       skalaPart: opsi.skalaPart,
+      bingkai: opsi.bingkai,
     },
     pengukurTeksServer(),
   );
+  return renderSvgCoverPng(svg, opsi.W, opsi.H);
+}
+
+/** v3.4.0 — render STRING SVG apa pun (dari svgCoverLapis) jadi PNG W×H.
+ *  Font bundel didaftarkan sama dgn renderCoverTemplatePng. */
+export function renderSvgCoverPng(svg: string, W: number, H: number): Buffer {
+  void W;
+  void H;
   const fontFiles: string[] = [];
   for (const nama of daftarTtfCover()) {
     for (const d of dirFontKandidat()) {

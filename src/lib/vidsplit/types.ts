@@ -36,7 +36,15 @@ export type LajuPindah = "cepat" | "normal" | "lambat";
  *  "zoom-keluar" = mulai besar lalu mengecil; "geser-kiri"/"geser-kanan" =
  *  kamera meluncur pelan ke samping (zoom ±8% memberi ruang geser).
  *  v2.2.0 — bawaan "zoom-masuk" (background intro kini frame dari video). */
-export type AnimasiIntro = "mati" | "zoom-masuk" | "zoom-keluar" | "geser-kiri" | "geser-kanan";
+export type AnimasiIntro =
+  | "mati"
+  | "zoom-masuk"
+  | "zoom-keluar"
+  | "geser-kiri"
+  | "geser-kanan"
+  // v3.4.0 — PAN VERTIKAL (menu COVER KINOSTRA seg EFEK COVER: PAN Y)
+  | "geser-atas"
+  | "geser-bawah";
 
 /** v2.1.0 — di potongan mana gambar intro tampil: "semua" (perilaku lama),
  *  "pertama" = hanya part 1, "pertama-terakhir" = part 1 dan part terakhir */
@@ -166,12 +174,22 @@ export const DURASI_TRANSISI_NOVACUT_BAWAAN = 0.6;
 export const MAKS_EFEK_KLIP = 6;
 
 /** v3.3.0 — MESIN SUBTITLE WHISPER.CPP (port transcribe.ts KolosalCut):
- *  pilihan model ggml q5_1 — ringan=tiny (paling cepat), cepat=base, akurat=small */
-export type ModelSubtitle = "ringan" | "cepat" | "akurat";
+ *  pilihan model ggml q5_1 — ringan=tiny (paling cepat), cepat=base, akurat=small
+ *  v3.4.0 — + turbo=large-v3-turbo (±547 MB, paling akurat — menu VOCALIS v4
+ *  KINOSTRA mod 06 memunculkannya sbg pilihan pertama) */
+export type ModelSubtitle = "ringan" | "cepat" | "akurat" | "turbo";
 /** v3.3.0 — bahasa subtitle: id=Indonesia, jw=Jawa, jwid=probe ganda Jawa/
  *  Indonesia (pola KINOSTRA), enid=Inggris→terjemah Indonesia (opus-mt) */
 
 export type BahasaSubtitle = "id" | "jw" | "jwid" | "enid";
+/** v3.4.0 — label mesin VOCALIS v4 (mod 06 KINOSTRA) — MURNI supaya aman
+ *  diimpor komponen client (whisperCpp.ts membawa node:child_process) */
+export const LABEL_MODEL: Record<ModelSubtitle, string> = {
+  ringan: "Ringan (Tiny)",
+  cepat: "Cepat (Base)",
+  akurat: "Akurat (Small)",
+  turbo: "Turbo (Large-v3-T)",
+};
 /** v3.3.0 — ANIMASI MASUK TEKS (judul & label part) — 8 gaya ala KINOSTRA/
  *  NOVACUT, dieksekusi drawtext (ekspresi alpha/x/y): "" = mati (perilaku lama) */
 export type AnimasiTeks =
@@ -196,6 +214,72 @@ export const ANIMASI_TEKS: Array<{ id: AnimasiTeks; nama: string }> = [
   { id: "denyut", nama: "Denyut" },
   { id: "slam", nama: "Slam" },
 ];
+
+/** v3.4.0 — ANIMASI MASUK TEKS COVER (menu COVER KINOSTRA mod 13 — port
+ *  NCTEXTANIMS nccover.js): 8 gaya + TANPA. Judul & badge part di cover
+ *  masuk dgn animasi masing-masing (part ditunda 0,25 dtk ala KINOSTRA). */
+export type AnimasiCover =
+  | ""
+  | "fade"
+  | "rise"
+  | "typewriter"
+  | "slam"
+  | "neon"
+  | "tracking"
+  | "glitch"
+  | "wipe";
+export const ANIMASI_COVER: Array<{ id: AnimasiCover; nama: string }> = [
+  { id: "", nama: "TANPA" },
+  { id: "fade", nama: "FADE" },
+  { id: "rise", nama: "RISE UP" },
+  { id: "typewriter", nama: "TYPEWRITER" },
+  { id: "slam", nama: "TITLE SLAM" },
+  { id: "neon", nama: "NEON FLICKER" },
+  { id: "tracking", nama: "TRACKING" },
+  { id: "glitch", nama: "GLITCH" },
+  { id: "wipe", nama: "WIPE" },
+];
+/** v3.4.0 — BINGKAI COVER (port NCCOVER_FRAMES nccover.js — alpha 0.75):
+ *  TANPA / KLASIK (emas ganda + berlian) / MODERN (bulat putih + aksen) /
+ *  FUTURISTIK (oktagon + bracket neon + tick) */
+export type BingkaiCover = "none" | "klasik" | "modern" | "futuristik";
+/** v3.4.0 — SUMBER COVER ala KINOSTRA: auto = frame tiap part (posisi intro),
+ *  single = SATU adegan utk semua part video itu, manual = gambar unggahan */
+export type SumberCover = "auto" | "single" | "manual";
+/** v3.4.0 — MODE WATERMARK ala KINOSTRA mod 08: mati / teks / logo */
+export type ModeWatermark = "off" | "teks" | "logo";
+/** v3.4.0 — KEN BURNS VIDEO (mod 09 GERAK & TRANSISI KINOSTRA): perbesar/
+ *  geser perlahan otomatis di dalam video, kekuatan 0.05–0.6 */
+export type ModeKenburns = "off" | "in" | "out" | "panx" | "pany" | "diag";
+/** v3.4.0 — label teks part di sampul: "" = TANPA | PART | EPISODE | EPS |
+ *  BAGIAN | # (seg KINOSTRA “TULISAN PART DI SAMPUL”) */
+export type KataPartCover = "" | "PART" | "EPISODE" | "EPS" | "BAGIAN" | "#";
+/** v3.4.0 — label ramah part cover + format label (“#3”, “EPS 03”, …) */
+export const KATA_PART_COVER: Array<KataPartCover> = ["", "PART", "EPISODE", "EPS", "BAGIAN", "#"];
+/** label part di sampul — murni: "" = tanpa, "#" = “#3”, lainnya “EPS 03” */
+export function labelPartCover(kata: string | undefined, n: number): string {
+  const k = String(kata ?? "").trim().toUpperCase();
+  if (!k) return "";
+  if (k === "#") return `#${Math.max(1, Math.floor(n))}`;
+  return `${k} ${String(Math.max(1, Math.floor(n))).padStart(2, "0")}`;
+}
+
+/** v3.4.0 — FILTER WARNA SATU KLIK (port COLORFILTERS core.js KINOSTRA v3.16):
+ *  10 gaya sinematik. Nilai filter ffmpeg dihitung rantaiVfx (ffmpeg.ts) —
+ *  di sini hanya katalog murni utk UI. */
+export const FILTER_WARNA: Array<{ k: string; n: string; d: string }> = [
+  { k: "", n: "NORMAL", d: "Warna asli videomu" },
+  { k: "horor", n: "HOROR MISTIS", d: "Dingin kehijauan · seram" },
+  { k: "dangdut", n: "DANGDUT EMAS", d: "Hangat keemasan pesta" },
+  { k: "teal", n: "SINEMA TEAL-ORANGE", d: "Warna film Hollywood" },
+  { k: "noir", n: "NOIR HITAM-PUTIH", d: "Monokrom klasik tegas" },
+  { k: "vintage", n: "VINTAGE 80-an", d: "Pudar hangat nostalgia" },
+  { k: "vivid", n: "VIVID TAJAM", d: "Warna pekat berani" },
+  { k: "dingin", n: "DINGIN BIRU", d: "Nuansa malam sejuk" },
+  { k: "pucat", n: "PUCAT MIMPI", d: "Lembut terang fantasi" },
+  { k: "seram", n: "SERAM MERAH", d: "Darah & bayangan gelap" },
+];
+
 /** durasi animasi masuk teks (detik) */
 export const DURASI_ANIMASI_TEKS = 0.7;
 /** v0.57.0 — langkah kecepatan tayang (×): 0,5 sampai 2 */
@@ -472,6 +556,69 @@ export interface Pengaturan {
   prosesParalel: number;
   /** pakai akselerasi GPU (NVENC/QSV/AMF) bila tersedia */
   pakaiGpu: boolean;
+
+  /* ================= v3.4.0 — MENU KINOSTRA (mod 13/08/09/06) ================= */
+  /* ---- COVER VIDEO PEMBUKA · NOVACUT (mod 13) ---- */
+  /** sumber latar cover: auto = frame tiap part, single = satu adegan utk
+   *  semua part, manual = gambar unggahan (coverFile) */
+  coverSumber: SumberCover;
+  /** path relatif gambar cover unggahan (work/upload) — sumber "manual" */
+  coverFile: string;
+  /** judul khusus di sampul ("" = judul dari nama file — perilaku lama) */
+  coverJudul: string;
+  /** layout cover — kunci NOVACUT_LAYOUTS (impact/lower/banner/…/band) */
+  coverLayout: string;
+  /** palet warna cover — kunci NOVACUT_PALETTES (cyber/sunset/gold/…/ocean) */
+  coverPalet: string;
+  /** latar sampul: adegan (frame video) | hitam (polos + vignette) */
+  coverLatar: "adegan" | "hitam";
+  /** bingkai cover (alpha 0.75 — port NCCOVER_FRAMES) */
+  coverBingkai: BingkaiCover;
+  /** label part di sampul: "" tanpa / PART / EPISODE / EPS / BAGIAN / # */
+  coverKataPart: KataPartCover;
+  /** ukuran tulisan part di cover (0.5–2.5, 1 = 100%) */
+  coverSkalaPart: number;
+  /** animasi masuk judul cover (NCTEXTANIMS, "" = tanpa) */
+  coverAnimJudul: AnimasiCover;
+  /** animasi masuk tulisan part cover (ditunda 0,25 dtk ala KINOSTRA) */
+  coverAnimPart: AnimasiCover;
+  /** transisi cover → video: id 28 transisi NOVACUT ("" = potong kering) */
+  coverTrans: IdTransisiNovacut;
+  /** durasi transisi cover → video (0.2–1.5 dtk) */
+  coverTransDurasi: number;
+  /* ---- EFEK VISUAL & WATERMARK (mod 08) ---- */
+  /** kecerahan (0.5–1.5, 1 = normal) — filter eq */
+  vfxKecerahan: number;
+  /** kontras (0.5–1.5, 1 = normal) */
+  vfxKontras: number;
+  /** kejenuhan warna (0–2, 1 = normal) */
+  vfxKejenuhan: number;
+  /** sudut gelap vignette */
+  vfxVignette: boolean;
+  /** bintik film analog */
+  vfxGrain: boolean;
+  /** filter warna satu klik — kunci FILTER_WARNA ("" = normal) */
+  vfxFilter: string;
+  /** watermark: mati / teks / logo (logo = logoId lama) */
+  wmMode: ModeWatermark;
+  /** teks watermark (mis. @KAMU, maks 28) */
+  wmTeks: string;
+  /** opasitas watermark 0.1–1 (teks & logo) */
+  wmOpasitas: number;
+  /* ---- GERAK & TRANSISI (mod 09) ---- */
+  /** Ken Burns video: mati / zoom in / zoom out / pan X / pan Y / diag */
+  kbMode: ModeKenburns;
+  /** kekuatan gerak Ken Burns (0.05–0.6) */
+  kbKekuatan: number;
+  /* ---- SUBTITEL AI · VOCALIS v4 (mod 06) ---- */
+  /** mode lagu/vokal (video bernyanyi) — jendela suara lebih longgar */
+  subtitleLagu: boolean;
+  /** lewati bagian tanpa suara (mode turbo — jauh lebih cepat) */
+  subtitleLewatiSunyi: boolean;
+  /** bakar subtitle ke video (mati = transkrip tetap dibuat, tak dibakar) */
+  subtitleBakar: boolean;
+  /** geser waktu SEMUA baris teks (detik, −30..30) */
+  subtitleGeser: number;
 }
 
 export const pengaturanDefault: Pengaturan = {
@@ -585,6 +732,37 @@ export const pengaturanDefault: Pengaturan = {
   ukuranLogo: 15,
   prosesParalel: 2,
   pakaiGpu: true,
+
+  /* v3.4.0 — MENU KINOSTRA (semua mati/normal bawaan KECUALI animasi cover
+     slam+slam & transisi cover flash — persis bawaan KINOSTRA mod 13) */
+  coverSumber: "auto" as SumberCover,
+  coverFile: "",
+  coverJudul: "",
+  coverLayout: "impact",
+  coverPalet: "cyber",
+  coverLatar: "adegan" as "adegan" | "hitam",
+  coverBingkai: "none" as BingkaiCover,
+  coverKataPart: "PART" as KataPartCover,
+  coverSkalaPart: 1,
+  coverAnimJudul: "slam" as AnimasiCover,
+  coverAnimPart: "slam" as AnimasiCover,
+  coverTrans: "flash" as IdTransisiNovacut,
+  coverTransDurasi: DURASI_TRANSISI_NOVACUT_BAWAAN,
+  vfxKecerahan: 1,
+  vfxKontras: 1,
+  vfxKejenuhan: 1,
+  vfxVignette: false,
+  vfxGrain: false,
+  vfxFilter: "",
+  wmMode: "off" as ModeWatermark,
+  wmTeks: "@VIDSPLIT",
+  wmOpasitas: 0.6,
+  kbMode: "off" as ModeKenburns,
+  kbKekuatan: 0.3,
+  subtitleLagu: false,
+  subtitleLewatiSunyi: true,
+  subtitleBakar: true,
+  subtitleGeser: 0,
 };
 
 /**
@@ -638,6 +816,74 @@ export function migrasiSimpanan(simpanan: Partial<Pengaturan>): Partial<Pengatur
   // v3.3.0 — otak subtitle whisper.cpp: peta field usang → field baru
   if (hasil.subtitleModel === undefined)
     hasil.subtitleModel = hasil.subtitleCepat === true ? "cepat" : "akurat";
+  // v3.4.0 — pilihan model lama tetap sah; simpanan tanpa field baru → bawaan
+  // KINOSTRA (turbo pilihan pertama tapi BERAT ±547 MB — bawaan tetap cepat)
+  else if (hasil.subtitleModel === "turbo") {
+    /* sah */
+  }
+  if (hasil.subtitleLagu === undefined) hasil.subtitleLagu = false;
+  if (hasil.subtitleLewatiSunyi === undefined) hasil.subtitleLewatiSunyi = true;
+  if (hasil.subtitleBakar === undefined) hasil.subtitleBakar = true;
+  if (hasil.subtitleGeser === undefined) hasil.subtitleGeser = 0;
+  else hasil.subtitleGeser = Math.min(30, Math.max(-30, Number(hasil.subtitleGeser) || 0));
+  // v3.4.0 — MENU COVER KINOSTRA: simpanan lama dipetakan supaya hasil lama
+  // tidak berubah (nol regresi) — template "layout--palet" → chips layout/palet;
+  // introFade → coverTrans (fade → crossfade, mati → potong kering);
+  // label intro lama ikut kataPart (coverKataPart "" = fallback kataPart).
+  if (hasil.coverSumber === undefined) hasil.coverSumber = "auto";
+  if (hasil.coverFile === undefined) hasil.coverFile = "";
+  if (hasil.coverJudul === undefined) hasil.coverJudul = "";
+  if (hasil.coverLayout === undefined || hasil.coverPalet === undefined) {
+    const tpl = String((hasil as Record<string, unknown>).introTemplate ?? "");
+    const cocok = /^([a-z]+)--([a-z]+)$/.exec(tpl);
+    if (cocok) {
+      hasil.coverLayout = cocok[1];
+      hasil.coverPalet = cocok[2];
+    } else {
+      // id gaya dasar lama (modern/klasik/futuristik) atau "" polos → dipertahankan
+      hasil.coverLayout = ["modern", "klasik", "futuristik"].includes(tpl) ? tpl : "";
+      hasil.coverPalet = "cyber";
+    }
+  }
+  if (hasil.coverLatar === undefined) hasil.coverLatar = "adegan";
+  if (hasil.coverBingkai === undefined) hasil.coverBingkai = "none";
+  if (hasil.coverKataPart === undefined) hasil.coverKataPart = "";
+  if (hasil.coverSkalaPart === undefined) hasil.coverSkalaPart = 1;
+  else hasil.coverSkalaPart = Math.min(2.5, Math.max(0.5, Number(hasil.coverSkalaPart) || 1));
+  // animasi cover lama tak pernah ada → TANPA (hasil lama persis); instalasi
+  // BARU (pengaturanDefault) memakai slam/slam ala KINOSTRA
+  if (hasil.coverAnimJudul === undefined) hasil.coverAnimJudul = "";
+  if (hasil.coverAnimPart === undefined) hasil.coverAnimPart = "";
+  if (hasil.coverTrans === undefined) {
+    hasil.coverTrans = hasil.introFade === true ? "crossfade" : "";
+  }
+  if (hasil.coverTransDurasi === undefined)
+    hasil.coverTransDurasi = DURASI_TRANSISI_NOVACUT_BAWAAN;
+  else {
+    const d2 = Number(hasil.coverTransDurasi);
+    hasil.coverTransDurasi = Number.isFinite(d2)
+      ? Math.min(1.5, Math.max(0.2, d2))
+      : DURASI_TRANSISI_NOVACUT_BAWAAN;
+  }
+  // v3.4.0 — EFEK VISUAL & GERAK (bawaan normal = hasil lama persis)
+  if (hasil.vfxKecerahan === undefined) hasil.vfxKecerahan = 1;
+  else hasil.vfxKecerahan = Math.min(1.5, Math.max(0.5, Number(hasil.vfxKecerahan) || 1));
+  if (hasil.vfxKontras === undefined) hasil.vfxKontras = 1;
+  else hasil.vfxKontras = Math.min(1.5, Math.max(0.5, Number(hasil.vfxKontras) || 1));
+  if (hasil.vfxKejenuhan === undefined) hasil.vfxKejenuhan = 1;
+  else hasil.vfxKejenuhan = Math.min(2, Math.max(0, Number(hasil.vfxKejenuhan) || 1));
+  if (hasil.vfxVignette === undefined) hasil.vfxVignette = false;
+  if (hasil.vfxGrain === undefined) hasil.vfxGrain = false;
+  if (hasil.vfxFilter === undefined) hasil.vfxFilter = "";
+  if (hasil.wmMode === undefined)
+    hasil.wmMode = (hasil.logoId || "").trim() ? "logo" : "off";
+  if (hasil.wmTeks === undefined) hasil.wmTeks = "@VIDSPLIT";
+  else hasil.wmTeks = String(hasil.wmTeks).slice(0, 28);
+  if (hasil.wmOpasitas === undefined) hasil.wmOpasitas = 0.6;
+  else hasil.wmOpasitas = Math.min(1, Math.max(0.1, Number(hasil.wmOpasitas) || 0.6));
+  if (hasil.kbMode === undefined) hasil.kbMode = "off";
+  if (hasil.kbKekuatan === undefined) hasil.kbKekuatan = 0.3;
+  else hasil.kbKekuatan = Math.min(0.6, Math.max(0.05, Number(hasil.kbKekuatan) || 0.3));
   if (hasil.subtitleBahasa === undefined)
     hasil.subtitleBahasa = hasil.subtitleDeteksiBahasa === true ? "enid" : "id";
   if (hasil.kecepatanVideo === undefined) hasil.kecepatanVideo = 1;

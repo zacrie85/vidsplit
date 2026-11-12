@@ -23,8 +23,6 @@ import {
   detikFrameIntro,
   detikFrameThumbnail,
   GAYA_COVER,
-  labelIntro,
-  labelThumbnail,
 } from "./thumbnail";
 import { bungkusTeks } from "./bungkus";
 import { siapkanBingkai, siapkanBingkaiWarna } from "./bingkai";
@@ -42,7 +40,10 @@ import { TATA_TEMPLATE, kotakKePx } from "./templatLayar";
 import { jadwalkanPangkas } from "./kebersihan";
 import type { SeqNeon } from "./ffmpeg";
 // v3.3.0 — mesin cover NOVACUT (thumbnail & intro template)
-import { pakaiTemplateCover, renderCoverTemplatePng } from "./thumbnail";
+// v3.4.0 — + renderSvgCoverPng (lapisan animasi cover KINOSTRA)
+import { pakaiTemplateCover, renderCoverTemplatePng, renderSvgCoverPng, pengukurTeksServer } from "./thumbnail";
+import { svgCoverLapis } from "./coverNovacut";
+import { labelPartCover } from "./types";
 import { analisisAdegan, potonganAdegan, type PotonganAdegan } from "./adegan";
 import { gerbangFastcut, potongLangsung } from "./fastcut";
 import {
@@ -56,7 +57,6 @@ import {
   bitrateKbpsTarget,
   dimensiOutput,
   durasiEfektif,
-  hitungPartDgnHapus,
   hitungPartV2,
   levelH264,
   offsetBacksound,
@@ -199,6 +199,9 @@ export interface ItemEkspor {
   frameAbs?: string | null;
   pengaturan: Pengaturan;
   info: InfoVideo;
+  /** v3.4.0 — override subtitle VOCALIS/SRT (mod 06 KINOSTRA): segmen dari
+   *  BUAT SUBTITEL / IMPOR SRT — ekspor memakainya apa adanya (tanpa AI ulang) */
+  subs?: Array<{ a: number; b: number; t: string }>;
 }
 
 export function mulaiEksporAntrean(
@@ -364,19 +367,33 @@ export function mulaiEksporAntrean(
       try {
         // v3.3.0 — template NOVACUT: overlay SVG→PNG ditulis sekali per part,
         // rantai ffmpeg jadi overlay sederhana (gaya dasar → rantai lama persis)
-        const tpl = pakaiTemplateCover(thumb.gaya);
+        // v3.4.0 — template efektif dari MENU COVER KINOSTRA (chips layout ×
+        // palet / id dasar / "" polos); judul & label ikut coverJudul/coverKataPart
+        const pg = it.pengaturan; // v3.4.0 — setelan cover video ini
+        const idTplCover = (() => {
+          if (pg.coverLayout) {
+            if ("modern" === pg.coverLayout || "klasik" === pg.coverLayout || "futuristik" === pg.coverLayout) return pg.coverLayout;
+            if (pg.coverPalet) return `${pg.coverLayout}--${pg.coverPalet}`;
+          }
+          return String(thumb.gaya || "");
+        })();
+        const tpl = pakaiTemplateCover(idTplCover);
+        const judulCover = (pg.coverJudul || "").trim() || bersihkanNamaJudul(it.nama);
+        const labelCover = labelPartCover(pg.coverKataPart || pg.kataPart, n);
         let templatePng: string | undefined;
         if (tpl) {
           const fileTpl = path.join(dirTmp, `${tag}-thumb-ov.png`);
           writeFileSync(
             fileTpl,
             renderCoverTemplatePng({
-              template: String(thumb.gaya),
+              template: idTplCover,
               W,
               H,
-              judul: bersihkanNamaJudul(it.nama),
-              labelPart: thumb.mode === "identik" ? "" : labelThumbnail(thumb, n),
+              judul: judulCover,
+              labelPart: thumb.mode === "identik" ? "" : labelCover,
               latar: "adegan",
+              skalaPart: pg.coverSkalaPart || 1,
+              bingkai: pg.coverBingkai || "none",
             }),
           );
           templatePng = fileTpl;
@@ -405,10 +422,11 @@ export function mulaiEksporAntrean(
           gambar = hasil;
         }
         const skala = Math.min(W, H) / 1080;
-        const teksJ = bungkusTeks(bersihkanNamaJudul(it.nama), W * 0.92, Math.max(14, 52 * skala), gy.fontJudul);
+        // v3.4.0 — judul thumbnail ikut menu COVER KINOSTRA (coverJudul)
+        const teksJ = bungkusTeks(judulCover, W * 0.92, Math.max(14, 52 * skala), gy.fontJudul);
         // v2.5.0 — identik → label kosong (bangunArgumenThumbnail membangun cover
         // TANPA kotak/nomor part → judul sama utk semua part → file identik)
-        const lbl = thumb.mode === "identik" ? "" : labelThumbnail(thumb, n);
+        const lbl = thumb.mode === "identik" ? "" : labelCover;
         writeFileSync(fileJ, teksJ, "utf8");
         writeFileSync(fileL, lbl, "utf8");
         const ekst = thumb.format === "png" ? "png" : "jpg";
@@ -432,7 +450,8 @@ export function mulaiEksporAntrean(
           fontfile: fontfileNama(gy.fontJudul),
           fontLabel: fontfileNama(gy.fontLabel),
           gaya: thumb.gaya,
-          ...(templatePng ? { templatePng, templateLatarHitam: false } : {}),
+          // v3.4.0 — latar cover KINOSTRA: hitam → PNG opak tanpa frame video
+          ...(templatePng ? { templatePng, templateLatarHitam: it.pengaturan.coverLatar === "hitam" } : {}),
           keluar: keluarT,
           format: thumb.format,
         });
@@ -554,30 +573,78 @@ export function mulaiEksporAntrean(
       // gagal → part dirender TANPA intro (tidak menggagalkan job) + peringatan.
       const totalPartVid = konteks.potonganAdgn.length || Math.max(1, job.antrean[vi].total);
       let bgPart: string | null = null;
-      // v3.3.0 — intro template NOVACUT: frame + overlay SVG (judul & label sudah
-      // DI DALAM PNG → rantaiIntroBg TIDAK menggambar teks lagi)
-      const tplIntro = p.introTemplate && pakaiTemplateCover(p.introTemplate);
+      // v3.4.0 — lapisan cover KINOSTRA (judul/part/bingkai — dianimasikan)
+      let bgJudulLapis: string | null = null;
+      let bgPartLapis: string | null = null;
+      let bgBingkaiLapis: string | null = null;
+      // v3.4.0 — MENU COVER KINOSTRA (mod 13): template efektif = chips layout ×
+      // palet (coverLayout/coverPalet) ATAU id dasar lama; "" = polos (drawtext
+      // gaya lama). introTemplate (v3.3.0) tinggal jaga-jaga simpanan lama.
+      const idTemplateCover = (() => {
+        if (p.coverLayout) {
+          if (["modern", "klasik", "futuristik"].includes(p.coverLayout)) return p.coverLayout;
+          if (p.coverPalet) return `${p.coverLayout}--${p.coverPalet}`;
+        }
+        return p.introTemplate || "";
+      })();
+      const tplIntro = idTemplateCover && pakaiTemplateCover(idTemplateCover);
+      // v3.4.0 — judul sampul: coverJudul khusus ("" = nama file — perilaku lama)
+      const judulCover = (p.coverJudul || "").trim() || bersihkanNamaJudul(it.nama);
+      // v3.4.0 — label part sampul: coverKataPart ("PART/EPISODE/EPS/BAGIAN/#",
+      // "" = ikut kataPart — perilaku lama) — port TULISAN PART DI SAMPUL
+      const labelCover = labelPartCover(p.coverKataPart || p.kataPart, n);
+      // v3.4.0 — SUMBER COVER (mod 13 KINOSTRA): auto = frame tiap part,
+      // single = SATU adegan utk semua part (menit 1–3, dianker part 1),
+      // manual = gambar unggahan (coverFile)
+      let detikFrameSumber: number;
+      if (p.coverSumber === "single") {
+        const [m1, d1] = konteks.potonganAdgn.length
+          ? [
+              konteks.potonganAdgn[0].mulai,
+              Math.max(0.5, konteks.potonganAdgn[0].akhir - konteks.potonganAdgn[0].mulai),
+            ]
+          : [0, Math.min(it.info.durasi, 30)];
+        detikFrameSumber = detikFrameThumbnail(m1, d1, it.info.durasi);
+      } else {
+        detikFrameSumber = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
+      }
+      // v3.4.0 — BINGKAI COVER + SKALA PART (mod 13) utk overlay template
+      const opsiLapisCover = {
+        bingkai: p.coverBingkai || "none",
+        skalaPart: p.coverSkalaPart || 1,
+      };
       if (p.introAktif && pilihBgPart(p.introTampil, n, totalPartVid)) {
         const fileFrame = path.join(dirTmp, `${tag}-introbg.png`);
         try {
-          if (tplIntro) {
+          if (p.coverSumber === "manual" && p.coverFile) {
+            // v3.4.0 — sumber MANUAL: gambar unggahan → langsung jadi latar intro
+            // (tanpa frame video); gagal ada berkas → jatuh ke frame video
+            try {
+              const gambarAbs = pathAman(p.coverFile);
+              if (existsSync(gambarAbs)) bgPart = gambarAbs;
+            } catch {
+              /* jatuh ke frame video */
+            }
+          }
+          if (!bgPart && tplIntro) {
             // (1) overlay template SVG→PNG (transparan di area adegan)
             const fileOv = path.join(dirTmp, `${tag}-introov.png`);
             writeFileSync(
               fileOv,
               renderCoverTemplatePng({
-                template: String(p.introTemplate),
+                template: idTemplateCover,
                 W,
                 H,
-                judul: bersihkanNamaJudul(it.nama),
-                labelPart: labelIntro(p.kataPart, n),
+                judul: judulCover,
+                labelPart: labelCover,
                 latar: "adegan",
+                skalaPart: opsiLapisCover.skalaPart,
+                bingkai: opsiLapisCover.bingkai,
               }),
             );
-            // (2) frame dari sumber (W×H, dipetakan menit 1–3)
-            const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
+            // (2) frame dari sumber (W×H, dipetakan menit 1–3 / sumber single)
             await jalankanFfmpeg(
-              bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame, W, H),
+              bangunArgumenFrameSumber(it.srcAbs, detikFrameSumber, fileFrame, W, H),
               1,
               undefined,
               ff.bin,
@@ -601,13 +668,39 @@ export function mulaiEksporAntrean(
             } else {
               bgPart = null;
             }
-          } else {
+            // v3.4.0 — LAPIS TERPISAH utk ANIMASI MASUK (port ncBuildCoverLayers):
+            // bg + judul + part + bingkai dirender 4 PNG → rantaiIntroKino
+            if (bgPart && ((p.coverAnimJudul || "") !== "" || (p.coverAnimPart || "") !== "")) {
+              try {
+                const lapis = svgCoverLapis(
+                  {
+                    template: idTemplateCover,
+                    W,
+                    H,
+                    judul: judulCover,
+                    labelPart: labelCover,
+                    latar: "adegan",
+                    skalaPart: opsiLapisCover.skalaPart,
+                    bingkai: opsiLapisCover.bingkai,
+                  },
+                  pengukurTeksServer(),
+                );
+                bgJudulLapis = path.join(dirTmp, `${tag}-lap-judul.png`);
+                bgPartLapis = path.join(dirTmp, `${tag}-lap-part.png`);
+                bgBingkaiLapis = path.join(dirTmp, `${tag}-lap-bingkai.png`);
+                writeFileSync(bgJudulLapis, renderSvgCoverPng(lapis.judul, W, H));
+                writeFileSync(bgPartLapis, renderSvgCoverPng(lapis.part, W, H));
+                writeFileSync(bgBingkaiLapis, renderSvgCoverPng(lapis.bingkai, W, H));
+              } catch {
+                bgJudulLapis = bgPartLapis = bgBingkaiLapis = null;
+              }
+            }
+          } else if (!bgPart) {
             // v2.2.1 — posisi frame DIPETAKAN ke MENIT 1–3 video (detikRentangCover
             // via detikFrameIntro dgn durasi total) → seek dekat awal = cepat;
             // frame langsung diskalakan ke W×H output (PNG kecil, intro ringan).
-            const dtkFrame = detikFrameIntro(mulai, durasi, p.introPosisi, it.info.durasi);
             await jalankanFfmpeg(
-              bangunArgumenFrameSumber(it.srcAbs, dtkFrame, fileFrame, W, H),
+              bangunArgumenFrameSumber(it.srcAbs, detikFrameSumber, fileFrame, W, H),
               1,
               undefined,
               ff.bin,
@@ -643,15 +736,24 @@ export function mulaiEksporAntrean(
       // part ini selesai dianalisis (umumnya sudah lama selesai krn render lebih
       // lambat dr transkrip). Blok zona gagal? part tetap dirender tanpa teks.
       let segmenSub: SegmenSub[] | null = null;
-      if (subLatar) {
+      if (it.subs && it.subs.length) {
+        // v3.4.0 — OVERRIDE VOCALIS/SRT: teks dari BUAT SUBTITEL / IMPOR SRT
+        segmenSub = it.subs;
+      } else if (subLatar) {
         segmenSub = await tungguCakupanDenganBatal(
           subLatar,
           mulai - p.mulaiDetik + durasi,
           id,
         );
       }
+      // v3.4.0 — GESER WAKTU SEMUA BARIS (mod 06 VOCALIS v4 KINOSTRA −0.5/+0.5):
+      // waktu segmen digeser p.subtitleGeser detik sebelum dibakar
+      const geserSub = Math.min(30, Math.max(-30, p.subtitleGeser || 0));
+      if (segmenSub && geserSub !== 0) {
+        segmenSub = segmenSub.map((s) => ({ ...s, a: s.a + geserSub, b: s.b + geserSub }));
+      }
       let fileSub: string | null = null;
-      if (segmenSub && segmenSub.length) {
+      if (segmenSub && segmenSub.length && p.subtitleBakar !== false) {
         const ass = bangunAssSubtitle({
           segmen: segmenSub,
           // rentangPart: mulai ABSOLUT video → relatif trim = mulai - p.mulaiDetik
@@ -716,10 +818,15 @@ export function mulaiEksporAntrean(
           if (mulai - dSumber < 0.05) return null;
           return { id: p.efekTransisi, durasi: d, mulaiPrev: mulai - dSumber };
         })(),
+        // v3.4.0 — LAPISAN COVER KINOSTRA (animasi masuk geq/zoompan)
+        bgJudul: bgJudulLapis,
+        bgPartLapis: bgPartLapis,
+        bgBingkai: bgBingkaiLapis,
         // v2.2.0 — teks intro OTOMATIS: judul dr nama file + label kata-part NN
         // v3.3.0 — template intro: teks sudah terbakar di PNG → tanpa drawtext
-        introJudulTxt: bgPart && !tplIntro ? bersihkanNamaJudul(it.nama) : "",
-        introLabelTxt: bgPart && !tplIntro ? labelIntro(p.kataPart, n) : "",
+        // v3.4.0 — judul/label ikut menu COVER KINOSTRA (coverJudul/coverKataPart)
+        introJudulTxt: bgPart && !tplIntro ? judulCover : "",
+        introLabelTxt: bgPart && !tplIntro ? labelCover : "",
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
@@ -1121,7 +1228,8 @@ export function mulaiEksporAntrean(
       // dirender → video 30 mnt+ tampak "tidak mulai-mulai" berpuluh menit).
       // Eksport & part mulai seketika; part N hanya menunggu blok audio zona-nya.
       let subLatar: TranskripLatar | null = null;
-      if (it.pengaturan.subtitleAktif && it.info.adaAudio) {
+      if (it.pengaturan.subtitleAktif && it.info.adaAudio && !(it.subs && it.subs.length)) {
+        // v3.4.0 — override VOCALIS/SRT ada → transkrip latar TIDAK dijalankan
         const mulaiAi = Date.now();
         const pemantau = setInterval(() => {
           // hanya isi bila kosong — progres transkrip (onTahap) diutamakan
@@ -1147,6 +1255,9 @@ export function mulaiEksporAntrean(
               // v3.3.0 — otak whisper.cpp: model + bahasa pilihan user
               model: it.pengaturan.subtitleModel,
               bahasa: it.pengaturan.subtitleBahasa,
+              // v3.4.0 — VOCALIS v4 (mod 06 KINOSTRA): mode lagu + lewati sunyi
+              modeLagu: it.pengaturan.subtitleLagu === true,
+              lewatiSunyi: it.pengaturan.subtitleLewatiSunyi !== false,
               // v0.51.0 — pilihan model: Whisper Base (cepat) vs Small (bawaan, tepat)
               modelCepat: it.pengaturan.subtitleCepat === true,
               // v0.53.0 — ekspor dibatalkan → transkrip berhenti ambil blok baru
@@ -1419,8 +1530,10 @@ export function mulaiGabungAntrean(
       const kec = rapikanKecepatanLocal(p.kecepatanVideo);
 
       // subtitle AI (latar) — pola split; segmen tunggal menunggu tuntas penuh
+      // v3.4.0 — BURN-IN MATI (mod 06 KINOSTRA subsOn) → transkrip tak dijalankan
       let subLatar: TranskripLatar | null = null;
-      if (p.subtitleAktif && it.info.adaAudio) {
+      if (p.subtitleAktif && it.info.adaAudio && p.subtitleBakar !== false && !(it.subs && it.subs.length)) {
+        // v3.4.0 — override VOCALIS/SRT ada → transkrip latar TIDAK dijalankan
         const mulaiAi = Date.now();
         const pemantau = setInterval(() => {
           if (!job.antrean[vi].tahap) {
@@ -1433,6 +1546,9 @@ export function mulaiGabungAntrean(
             modeBahasa: p.subtitleDeteksiBahasa ? "deteksi" : "fokus",
             model: p.subtitleModel,
             bahasa: p.subtitleBahasa,
+            // v3.4.0 — VOCALIS v4 (mod 06 KINOSTRA): mode lagu + lewati sunyi
+            modeLagu: p.subtitleLagu === true,
+            lewatiSunyi: p.subtitleLewatiSunyi !== false,
             modelCepat: p.subtitleCepat === true,
             apakahBerhenti: () => apakahBatal(id),
           });
@@ -1485,10 +1601,42 @@ export function mulaiGabungAntrean(
         } catch { /* dilewati */ }
       }
 
-      // subtitle .ass (segmen penuh)
+      // subtitle .ass (segmen penuh) — v3.4.0: override VOCALIS/SRT diutamakan
       let fileSub: string | null = null;
-      if (subLatar) {
-        const segmenSub = await subLatar.tungguCakupan(durasi, () => apakahBatal(id)).catch(() => []);
+      if (it.subs && it.subs.length) {
+        const geserG = Math.min(30, Math.max(-30, p.subtitleGeser || 0));
+        const segmenSub = geserG !== 0
+          ? it.subs.map((x) => ({ ...x, a: x.a + geserG, b: x.b + geserG }))
+          : it.subs;
+        if (segmenSub.length) {
+          const ass = bangunAssSubtitle({
+            segmen: segmenSub,
+            mulaiPartRel: 0,
+            durasiPart: durasi,
+            offsetIntro: 0,
+            W,
+            H,
+            ukuran: p.subtitleUkuran,
+            yPersen: p.subtitleY,
+            warna: p.subtitleWarna,
+            warnaOutline: p.subtitleOutlineWarna,
+          });
+          if (ass) {
+            fileSub = path.join(dirTmp, `${id}-gabung-sub.ass`);
+            try {
+              writeFileSync(fileSub, ass, "utf8");
+            } catch {
+              fileSub = null;
+            }
+          }
+        }
+      } else if (subLatar) {
+        const segmenSub0 = await subLatar.tungguCakupan(durasi, () => apakahBatal(id)).catch(() => []);
+        // v3.4.0 — geser waktu semua baris (mod 06 VOCALIS v4)
+        const geserG = Math.min(30, Math.max(-30, p.subtitleGeser || 0));
+        const segmenSub = geserG !== 0 && segmenSub0
+          ? segmenSub0.map((s) => ({ ...s, a: s.a + geserG, b: s.b + geserG }))
+          : segmenSub0;
         if (segmenSub && segmenSub.length) {
           const ass = bangunAssSubtitle({
             segmen: segmenSub,

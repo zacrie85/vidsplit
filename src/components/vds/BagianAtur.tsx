@@ -14,7 +14,6 @@ import {
   Copy,
   Crop,
   Droplets,
-  Eye,
   Film,
   Image as ImageIcon,
   ListChecks,
@@ -22,16 +21,17 @@ import {
   Palette,
   Scan,
   Scissors,
-  Stamp,
   Type,
   Ban,
   Sparkles,
   Frame as IkonFrame,
   Wand2,
   Zap,
-  Globe,
-  Layers,
-  Timer,
+  BrainCircuit,
+  FileDown,
+  Move,
+  Trash2,
+  Upload,
 } from "lucide-react";
 import { BINGKAI_BAWAAN, LABEL_KATEGORI, type KategoriBingkai } from "@/lib/vidsplit/bingkaiBawaan";
 import { DAFTAR_WARNA_NEON, PALET_NEON, type WarnaNeon } from "@/lib/vidsplit/neonLayar";
@@ -45,7 +45,6 @@ import {
   FONT_CSS,
   FONT_DASAR,
   INFO_FONT,
-  labelPosisiLogo,
   labelPosisiPotong,
   labelResolusiOutput,
   labelZoomBlur,
@@ -65,22 +64,31 @@ import {
   type OpsiThumbnail,
   type PosisiLogo,
   type Pengaturan,
-  type Resolusi,
   type ResolusiOutput,
   type ZonaHapus,
   urlBingkai,
   urlBingkaiWarna,
   ANIMASI_TEKS,
+  ANIMASI_COVER,
+  FILTER_WARNA,
+  KATA_PART_COVER,
+  LABEL_MODEL,
+  type AnimasiCover,
+  type KataPartCover,
 } from "@/lib/vidsplit/types";
 import { formatWaktuSub } from "@/lib/vidsplit/pratinjauSub";
 // v3.3.0 — galeri cover NOVACUT + registry efek (murni — aman di client)
-import { daftarTemplateCover, pengukurPerkiraan, svgCoverDataUrl } from "@/lib/vidsplit/coverNovacut";
-import { CLIP_EFFECTS, TRANSITIONS, TRANSITION_CATS } from "@/lib/vidsplit/efekNovacut";
+import {
+  pengukurPerkiraan,
+  svgCoverDataUrl,
+  NOVACUT_LAYOUTS,
+  NOVACUT_PALETTES,
+} from "@/lib/vidsplit/coverNovacut";
+import { CLIP_EFFECTS, TRANSITIONS, getTransition } from "@/lib/vidsplit/efekNovacut";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
-import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna, fmtUkuran } from "./bits";
+import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna } from "./bits";
 import { PratinjauPotong } from "./PratinjauPotong";
 import { PratinjauBlurZoom } from "./PratinjauBlurZoom";
-import { PratinjauLogo } from "./PratinjauLogo";
 import { PratinjauDeskripsi } from "./PratinjauDeskripsi";
 
 const FONT_SINEMATIK = (Object.keys(INFO_FONT) as NamaFont[]).filter(
@@ -1315,333 +1323,6 @@ export function PanelDeskripsi({
   );
 }
 
-/* ============ 7 — SUBTITLE AI OTOMATIS ============ */
-
-/** Bentuk jawaban /api/subtitle-preview (v0.45.0) — cocok dgn route.ts. */
-interface HasilPratinjauSub {
-  ok: boolean;
-  klip?: string;
-  durasiKlip?: number;
-  bahasa?: string;
-  diterjemahkan?: boolean;
-  jumlahSegmen?: number;
-  segmen?: Array<{ a: number; b: number; t: string }>;
-  alasan?: string;
-  pesan?: string;
-}
-
-const BATAS_TAMPIL_TEKS = 12;
-
-export function PanelSubtitle({
-  pengaturan,
-  onChange,
-  nomorVideo,
-  fileRel,
-}: {
-  pengaturan: Pengaturan;
-  onChange: (p: Pengaturan) => void;
-  nomorVideo: number;
-  /** v0.44.0 — salin setelan subtitle video aktif ke SEMUA video */
-  onTerapkanSemua: () => void;
-  /** v0.45.0 — path relatif video aktif di work/ ("" pada mode tertentu) */
-  fileRel: string;
-  /** v0.45.0 — video aktif punya trek audio? (tanpa suara tak bisa dibuatkan teks) */
-  adaAudio: boolean;
-}) {
-  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
-    onChange({ ...pengaturan, [k]: v });
-
-  // ---- v0.45.0 — PRATINJAU SUBTITLE: keping ±15 dtk dgn teks terbakar + transkrip
-  const [pratinjauSibuk, setPratinjauSibuk] = useState(false);
-  const [detikJalan, setDetikJalan] = useState(0);
-  const [hasil, setHasil] = useState<HasilPratinjauSub | null>(null);
-  const [lihatSemua, setLihatSemua] = useState(false);
-  const tetapHidup = useRef(true);
-  useEffect(() => {
-    tetapHidup.current = true;
-    return () => {
-      tetapHidup.current = false;
-    };
-  }, []);
-  // penghitung detik berjalan saat analisis AI (analisis video panjang butuh waktu)
-  useEffect(() => {
-    if (!pratinjauSibuk) return;
-    setDetikJalan(0);
-    const i = setInterval(() => setDetikJalan((d) => d + 1), 1000);
-    return () => clearInterval(i);
-  }, [pratinjauSibuk]);
-  // setelan yang mempengaruhi tampilan subtitle berubah → hasil lama tak lagi valid
-  // v0.58.0 — GANTI VIDEO (fileRel) + warna + mode bahasa + model juga ikut:
-  // dulu pindah pilih video lain membuat klip & transkrip video LAMA tetap tampil
-  useEffect(() => {
-    setHasil(null);
-    setLihatSemua(false);
-  }, [
-    fileRel,
-    pengaturan.subtitleUkuran,
-    pengaturan.subtitleY,
-    pengaturan.mulaiDetik,
-    pengaturan.akhirDetik,
-    pengaturan.subtitleWarna,
-    pengaturan.subtitleOutlineWarna,
-    pengaturan.subtitleDeteksiBahasa,
-    pengaturan.subtitleCepat,
-    pengaturan.subtitleBahasa,
-    pengaturan.subtitleModel,
-  ]);
-
-  const jalankanPratinjau = async () => {
-    if (pratinjauSibuk || !fileRel) return;
-    setPratinjauSibuk(true);
-    setHasil(null);
-    try {
-      const r = await fetch("/api/subtitle-preview", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ file: fileRel, pengaturan }),
-      });
-      const j = (await r.json()) as HasilPratinjauSub;
-      if (tetapHidup.current) setHasil(j);
-    } catch (e) {
-      if (tetapHidup.current) {
-        setHasil({
-          ok: false,
-          pesan: e instanceof Error ? e.message : "Koneksi ke server terputus",
-        });
-      }
-    } finally {
-      if (tetapHidup.current) setPratinjauSibuk(false);
-    }
-  };
-
-  const segmenTampil = (hasil?.segmen || []).slice(0, lihatSemua ? 60 : BATAS_TAMPIL_TEKS);
-  const sisa = (hasil?.segmen?.length || 0) - segmenTampil.length;
-
-  return (
-    <Kartu
-      nomor="08"
-      judul="Subtitle AI otomatis"
-      badge="AI"
-      deskripsi={`Suara di video #${nomorVideo} dikenali AI lokal — teks Indonesia otomatis tampil di video hasil ekspor & split`}
-      ikon={<Captions className="h-4 w-4" />}
-    >
-      <button
-        type="button"
-        onClick={() => set("subtitleAktif", !pengaturan.subtitleAktif)}
-        className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
-          pengaturan.subtitleAktif
-            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-            : "border-slate-700 bg-slate-800/60 text-slate-400"
-        }`}
-      >
-        <span className="flex items-center gap-1.5">
-          <Captions className="h-3.5 w-3.5" />
-          Buat subtitle otomatis dari suara video
-        </span>
-        <span className="font-medium">{pengaturan.subtitleAktif ? "Aktif" : "Mati"}</span>
-      </button>
-      <p className="mt-1.5 text-[11px] text-slate-500">
-        100% offline (AI di dalam aplikasi). <b>Mode Fokus Indonesia</b> dianalisis sekali jalan —
-        jauh lebih cepat dari dulu, kurang lebih <b>±1 menit per 10 menit video</b> (tergantung
-        kekuatan komputer). Video yang sama tak dianalisis ulang.
-      </p>
-      {pengaturan.subtitleAktif && (
-        <div className="mt-3 space-y-3">
-          {/* ---- v3.3.0 BAHASA SUARA: Indonesia / Jawa / Otomatis jw-id / Inggris→ID ---- */}
-          <div>
-            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Bahasa suara di video</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {([
-                { v: "id", nama: "Indonesia", hint: "Paling cepat", ikon: <Zap className="h-3.5 w-3.5" />, warna: "emerald" },
-                { v: "jw", nama: "Jawa", hint: "Khusus bahasa Jawa", ikon: <Captions className="h-3.5 w-3.5" />, warna: "violet" },
-                { v: "jwid", nama: "Otomatis (Jawa/ID)", hint: "Diujing otomatis", ikon: <Sparkles className="h-3.5 w-3.5" />, warna: "amber" },
-                { v: "enid", nama: "Inggris → ID", hint: "+ terjemahan", ikon: <Globe className="h-3.5 w-3.5" />, warna: "sky" },
-              ] as const).map((b) => (
-                <button
-                  key={b.v}
-                  type="button"
-                  onClick={() => set("subtitleBahasa", b.v)}
-                  title={`Bahasa suara: ${b.nama}`}
-                  className={`rounded-lg border px-2.5 py-2 text-left text-[11px] transition ${
-                    pengaturan.subtitleBahasa === b.v
-                      ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-                      : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-                  }`}
-                >
-                  <span className="flex items-center gap-1.5 font-medium">
-                    {b.ikon}
-                    {b.nama}
-                  </span>
-                  <span className="mt-0.5 block text-[10px] opacity-70">{b.hint}</span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-[10px] leading-snug text-slate-500">
-              {pengaturan.subtitleBahasa === "jwid"
-                ? "Otomatis: 12 detik pertama diujing DUA KALI (Jawa & Indonesia), kata-kata khas dipakai memilih — pola deteksi KINOSTRA. Hasil diuji lebih tepat dari auto-detect biasa."
-                : pengaturan.subtitleBahasa === "enid"
-                  ? "Suara Inggris ditranskrip lalu DITERJEMAHKAN ke Indonesia (mesin terjemah offline) — paling lambat, pakai bila video ada suara Inggris."
-                  : pengaturan.subtitleBahasa === "jw"
-                    ? "Suara dibaca sebagai BAHASA JAWA langsung — pakai bila video seluruhnya berbahasa Jawa."
-                    : "Suara langsung dibaca sebagai bahasa Indonesia sekali jalan — paling cepat."}
-            </p>
-          </div>
-          {/* ---- v3.3.0 MODEL MESIN whisper.cpp: Ringan / Cepat / Akurat ---- */}
-          <div>
-            <p className="mb-1.5 text-[11px] font-medium text-slate-400">Mesin &amp; ketepatan</p>
-            <div className="grid grid-cols-3 gap-1.5">
-              {([
-                { v: "ringan", nama: "Ringan", hint: "Tiny — paling ngebut" },
-                { v: "cepat", nama: "Cepat", hint: "Base — seimbang" },
-                { v: "akurat", nama: "Akurat", hint: "Small — paling tepat" },
-              ] as const).map((m) => (
-                <button
-                  key={m.v}
-                  type="button"
-                  onClick={() => set("subtitleModel", m.v)}
-                  title={`Model whisper.cpp ${m.nama} — ${m.hint}`}
-                  className={`rounded-lg border px-2 py-2 text-left text-[11px] transition ${
-                    pengaturan.subtitleModel === m.v
-                      ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-                      : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-                  }`}
-                >
-                  <span className="block font-medium">{m.nama}</span>
-                  <span className="mt-0.5 block text-[10px] opacity-70">{m.hint}</span>
-                </button>
-              ))}
-            </div>
-            <p className="mt-1 text-[10px] leading-snug text-slate-500">
-              v3.3.0 — otak baru <b>whisper.cpp</b> (mesin C++ murni, pola KolosalCut): jauh lebih
-              cepat dari mesin AI lama di CPU yang sama. Benang CPU diatur otomatis, pemblokir
-              kata berulang (anti halusinasi), dan perapian ejaan tetap jalan.
-            </p>
-          </div>
-          <BarisSlider
-            label="Ukuran huruf subtitle"
-            nilai={pengaturan.subtitleUkuran}
-            min={10}
-            max={80}
-            onChange={(n) => set("subtitleUkuran", n)}
-          />
-          <BarisSlider
-            label="Posisi vertikal (naik ↔ turun)"
-            nilai={pengaturan.subtitleY}
-            min={30}
-            max={99}
-            onChange={(n) => set("subtitleY", n)}
-            fmt={(n) => `${n.toFixed(0)}%`}
-          />
-          {/* ---- v0.54.0 WARNA SUBTITLE (permintaan user: warna teks di semua menu teks) ---- */}
-          <div className="space-y-1.5 rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
-            <p className="text-[11px] font-medium text-slate-400">Warna subtitle</p>
-            <PilihWarna
-              label="Warna teks"
-              nilai={pengaturan.subtitleWarna || "#ffffff"}
-              onChange={(v) => set("subtitleWarna", v)}
-            />
-            <PilihWarna
-              label="Warna outline"
-              nilai={pengaturan.subtitleOutlineWarna || "#000000"}
-              onChange={(v) => set("subtitleOutlineWarna", v)}
-            />
-          </div>
-          {/* v3.3.0 — tombol "Terapkan ke semua" pindah ke RK Ringkasan (pusat tunggal) */}
-
-          {/* ---- v0.45.0 PRATINJAU: bukti subtitle sebelum ekspor ---- */}
-          <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-2.5">
-            <button
-              type="button"
-              onClick={jalankanPratinjau}
-              disabled={pratinjauSibuk || !fileRel}
-              title={
-                !fileRel
-                  ? "Video belum termuat"
-                  : "Analisis suara + render 15 detik pertama dengan subtitle terbakar (hasil analisis di-cache — ekspor nanti tidak menghitung ulang)"
-              }
-              className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 py-1.5 text-[11px] font-medium text-sky-300 transition enabled:hover:border-sky-400 enabled:hover:text-sky-200 disabled:opacity-50"
-            >
-              <Eye className="h-3.5 w-3.5" />
-              {pratinjauSibuk
-                ? `Pratinjau subtitle… ${detikJalan} dtk`
-                : "Pratinjau subtitle (15 detik pertama)"}
-            </button>
-            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
-              Melihat dulu hasilnya sebelum ekspor: video kecil dengan subtitle terbakar + daftar
-              teksnya. Analisis AI di-cache — ekspor nanti <b>tidak menghitung ulang</b>.
-              {pratinjauSibuk && " Video panjang butuh beberapa menit — biarkan terbuka."}
-            </p>
-
-            {hasil && !hasil.ok && (
-              <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-300">
-                {hasil.pesan ||
-                  (hasil.alasan === "audio"
-                    ? "Video ini tidak punya suara."
-                    : hasil.alasan === "model"
-                      ? "Mesin AI tidak ditemukan."
-                      : "Pratinjau gagal — coba lagi.")}
-              </p>
-            )}
-
-            {hasil?.ok && hasil.klip && (
-              <div className="mt-2 space-y-2">
-                <video
-                  key={hasil.klip}
-                  controls
-                  playsInline
-                  className="max-h-96 w-full rounded-lg border border-slate-700 bg-black"
-                  src={`/api/file?p=${encodeURIComponent(hasil.klip)}`}
-                />
-                <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
-                  <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-300">
-                    Subtitle ADA ✓
-                  </span>
-                  <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-slate-300">
-                    {(hasil.bahasa === "en"
-                      ? hasil.diterjemahkan
-                        ? "Suara Inggris → teks Indonesia"
-                        : "Suara Inggris (penerjemah tidak tersedia)"
-                      : "Suara Indonesia")}
-                  </span>
-                  <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-slate-400">
-                    {hasil.jumlahSegmen || 0} baris teks di seluruh video
-                  </span>
-                </div>
-                {segmenTampil.length > 0 && (
-                  <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-slate-700/60 bg-slate-900/60 p-2">
-                    {segmenTampil.map((s, i) => (
-                      <div key={i} className="flex gap-2 text-[11px] leading-snug">
-                        <span className="shrink-0 font-mono text-[10px] text-sky-400/80">
-                          {formatWaktuSub(s.a)}–{formatWaktuSub(s.b)}
-                        </span>
-                        <span className="text-slate-300">{s.t}</span>
-                      </div>
-                    ))}
-                    {sisa > 0 && !lihatSemua && (
-                      <button
-                        type="button"
-                        onClick={() => setLihatSemua(true)}
-                        className="text-[10px] font-medium text-sky-400 hover:text-sky-300"
-                      >
-                        +{sisa} baris lainnya — tampilkan semua
-                      </button>
-                    )}
-                  </div>
-                )}
-                <p className="text-[10px] text-slate-500">
-                  Keping pratinjau = gaya persis hasil ekspor (ukuran {pengaturan.subtitleUkuran},
-                  posisi {pengaturan.subtitleY}%). Di ekspor, teks ini terbakar ke SEMUA part
-                  mengikuti suara di setiap bagian video.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </Kartu>
-  );
-}
-
 /* ============ 5 — FRAME & BINGKAI (v0.46.0) ============ */
 
 export function PanelFrame({
@@ -1953,460 +1634,6 @@ export function PanelFrame({
   );
 }
 
-/* ============ 6 — COVER & INTRO (v2.5.0 — DUA MENU DIGABUNG) ============
- * Permintaan user: "bisakah ke dua menu ini kamu gabungkan dalam 1 menu (di
- * dalam tempat yang sama)" → Thumbnail otomatis (dulu di panel Ekspor) kini
- * BERTEMPAT SATU KARTU dgn Background intro (menu 6), plus pilihan cakupan
- * cover SAMA PERSIS SEMUA (cover identik tanpa nomor part) dan tombol
- * "Terapkan setelan intro ke SEMUA video". */
-export function PanelCoverIntro({
-  pengaturan,
-  onChange,
-  nomorVideo,
-  // v2.1.0 — suara intro (file sendiri + volume)
-  suaraInfo,
-  onSuaraFile,
-  onHapusSuara,
-  suaraSibuk,
-  bukaDialogAudio,
-  // v2.5.0 — thumbnail otomatis (opsi GLOBAL antrean)
-  opsiThumb,
-  onOpsiThumb,
-  totalVideo,
-}: {
-  pengaturan: Pengaturan;
-  onChange: (p: Pengaturan) => void;
-  nomorVideo: number;
-  /** v2.1.0 — info suara intro terpasang */
-  suaraInfo: { nama: string } | null;
-  onSuaraFile: (f: File) => void;
-  onHapusSuara: () => void;
-  suaraSibuk: boolean;
-  /** v2.1.0 — mode desktop: dialog natif utk audio */
-  bukaDialogAudio?: () => void;
-  /** v2.5.0 — opsi thumbnail GLOBAL (berlaku semua video otomatis) */
-  opsiThumb: OpsiThumbnail;
-  onOpsiThumb: (o: OpsiThumbnail) => void;
-  totalVideo: number;
-  /** v2.5.0 — terapkan setelan intro video aktif ke SEMUA video */
-  onTerapkanIntroSemua: () => void;
-}) {
-  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
-    onChange({ ...pengaturan, [k]: v });
-  const aktif = pengaturan.introAktif === true;
-  return (
-    <Kartu
-      nomor="06"
-      judul="Cover & Intro — frame dari video"
-      badge="Gabungan"
-      deskripsi={`Thumbnail otomatis semua part + pembuka intro — video #${nomorVideo}`}
-      ikon={<ImageIcon className="h-4 w-4" />}
-    >
-      {/* ===== BAGIAN A — THUMBNAIL OTOMATIS (cover tiap part — GLOBAL, semua video) ===== */}
-      <div className="rounded-xl border border-cyan-400/25 bg-cyan-400/5 p-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-cyan-200">
-          <ImageIcon className="h-3.5 w-3.5" /> Thumbnail otomatis — cover tiap potongan
-        </p>
-        <button
-          type="button"
-          onClick={() => onOpsiThumb({ ...opsiThumb, aktif: !opsiThumb.aktif })}
-          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
-            opsiThumb.aktif
-              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-              : "border-slate-700 bg-slate-800/60 text-slate-400"
-          }`}
-        >
-          <span className="flex items-center gap-1.5">
-            <ImageIcon className="h-3.5 w-3.5" /> PAKAI — buat gambar cover tiap potongan
-          </span>
-          <span className="font-medium">{opsiThumb.aktif ? "Aktif" : "Mati"}</span>
-        </button>
-        {opsiThumb.aktif && (
-          <div className="mt-2 space-y-2">
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Kata label di cover</p>
-              <ChipPilihan
-                nilai={opsiThumb.kata}
-                onChange={(v) => onOpsiThumb({ ...opsiThumb, kata: v })}
-                pilihan={[
-                  { v: "Part", label: "Part" },
-                  { v: "Bagian", label: "Bagian" },
-                  { v: "Episode", label: "Episode" },
-                ]}
-              />
-            </div>
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Format gambar</p>
-              <ChipPilihan
-                nilai={opsiThumb.format}
-                onChange={(v) => onOpsiThumb({ ...opsiThumb, format: v })}
-                pilihan={[
-                  { v: "jpg", label: "JPG", hint: "ringan, cocok upload" },
-                  { v: "png", label: "PNG", hint: "tajam, agak besar" },
-                ]}
-              />
-            </div>
-            {/* v2.3.0 + v2.5.0 — cakupan frame: tiap part beda / satu utk semua /
-                SAMA PERSIS SEMUA (cover identik tanpa nomor part) */}
-            <div>
-              <p className="mb-1 text-[11px] text-slate-400">Cakupan cover</p>
-              <ChipPilihan
-                nilai={opsiThumb.mode}
-                onChange={(v) => onOpsiThumb({ ...opsiThumb, mode: v })}
-                pilihan={[
-                  { v: "per-part", label: "Tiap part beda", hint: "tiap potongan frame sendiri" },
-                  { v: "satu", label: "Satu untuk semua", hint: "1 frame video + nomor part tiap cover" },
-                  { v: "identik", label: "Sama persis semua", hint: "cover IDENTIK tanpa nomor part — paling seragam" },
-                ]}
-              />
-            </div>
-            {/* v3.3.0 — GALERI COVER: 3 gaya lama jadi kategori DASAR + 100 template NOVACUT */}
-            <PemilihCover
-              nilai={String(opsiThumb.gaya)}
-              onChange={(id) => onOpsiThumb({ ...opsiThumb, gaya: id })}
-              judulPratinjau={opsiThumb.aktif ? "Judul Video" : ""}
-              labelPratinjau="Part 01"
-            />
-            <p className="text-[11px] leading-relaxed text-slate-500">
-              Tiap potongan diberi gambar cover: frame dari video + JUDUL (dari nama
-              file) + label {opsiThumb.kata} + nomor part — tersimpan di samping hasil
-              split, ikut unduhan &amp; ZIP. GABUNG VIDEO juga dapat 1 cover. Pilihan di
-              bagian ini berlaku otomatis untuk SEMUA video di antrean.
-              {opsiThumb.mode === "satu"
-                ? " Cakupan SATU UNTUK SEMUA: satu frame video (menit 1–3) dipakai semua part — ekstraksi cuma 1×, ekspor lebih cepat, frame seragam."
-                : opsiThumb.mode === "identik"
-                  ? " Cakupan SAMA PERSIS SEMUA: satu frame video (menit 1–3) dipakai SEMUA part dan TANPA nomor part → file cover 100% IDENTIK satu sama lain (persis sama semua)."
-                  : " Cakupan TIAP PART BEDA: tiap potongan punya frame-nya sendiri (dari menit 1–3 video)."}
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ===== BAGIAN B — BACKGROUND INTRO (pembuka — per video) ===== */}
-      <div className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3">
-        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-amber-200">
-          <Sparkles className="h-3.5 w-3.5" /> Background intro — pembuka otomatis
-        </p>
-        {/* ---- v2.2.0 — SAKELAR UTAMA ---- */}
-        <ChipPilihan
-          nilai={aktif ? "on" : "off"}
-          onChange={(v) => set("introAktif", v === "on")}
-          pilihan={[
-            { v: "off", label: "Mati", hint: "tanpa intro (bawaan)" },
-            { v: "on", label: "Aktif", hint: "frame video jadi pembuka" },
-          ]}
-        />
-        {aktif && (
-          <div className="mt-3 space-y-3">
-            {/* ---- v2.2.0 — INFO SUMBER FRAME (v2.2.1: menit 1–3 utk kecepatan) ---- */}
-            <div className="rounded-xl border border-amber-400/30 bg-amber-400/5 p-3">
-              <p className="text-xs leading-relaxed text-amber-200/90">
-                Background diambil OTOMATIS dari video ini — frame diambil di antara
-                MENIT 1–3 video (permintaan: lebih cepat), lalu diberi animasi, judul,
-                dan label Part.
-              </p>
-            </div>
-            {/* ---- v3.3.0 — TEMPLATE COVER INTRO (galeri 100 template NOVACUT) ---- */}
-            <div>
-              <p className="mb-1 text-xs font-medium text-slate-300">Template cover intro</p>
-              <PemilihCover
-                nilai={pengaturan.introTemplate}
-                onChange={(id) => set("introTemplate", id)}
-                izinPolos
-                judulPratinjau="Judul Video"
-                labelPratinjau="Part 01"
-              />
-              <p className="mt-1 text-[11px] leading-snug text-slate-500">
-                {pengaturan.introTemplate
-                  ? "Template aktif: judul & label Part tercetak rapi di atas frame sesuai desain template (pratinjau = hasil ekspor)."
-                  : "Polos: tampilan intro lama (judul + label kuning sederhana di atas frame)."}
-              </p>
-            </div>
-            {/* ---- v2.2.0 — POSISI FRAME (SLIDER BEBAS 0–100%) ---- */}
-            <BarisSlider
-              label="Posisi frame (antara menit 1–3)"
-              nilai={pengaturan.introPosisi}
-              min={0}
-              max={100}
-              onChange={(n) => set("introPosisi", n)}
-              fmt={(n) => `${n}%`}
-            />
-            <p className="-mt-2 text-[11px] text-slate-500">
-              0% = menit 1 · 35% = rekomendasi · 100% = menit 3 — dipetakan dari posisi potongan
-              (video &lt; 1¼ menit: frame diambil persis di potongan)
-            </p>
-            <BarisSlider
-              label="Durasi intro tiap potongan"
-              nilai={pengaturan.durasiIntro}
-              min={1}
-              max={10}
-              onChange={(n) => set("durasiIntro", n)}
-              fmt={(n) => `${n} detik`}
-            />
-            {/* ---- v2.1.0 — ANIMASI KEN BURNS ---- */}
-            <div>
-              <p className="mb-1 text-xs font-medium text-slate-300">Animasi gambar (Ken Burns)</p>
-              <ChipPilihan
-                nilai={pengaturan.introAnimasi}
-                onChange={(v) => set("introAnimasi", v)}
-                pilihan={[
-                  { v: "mati", label: "Diam", hint: "tanpa gerak" },
-                  { v: "zoom-masuk", label: "Zoom masuk", hint: "perlahan membesar" },
-                  { v: "zoom-keluar", label: "Zoom keluar", hint: "besar → normal" },
-                  { v: "geser-kiri", label: "Geser kiri", hint: "kamera meluncur" },
-                  { v: "geser-kanan", label: "Geser kanan", hint: "kamera meluncur" },
-                ]}
-              />
-            </div>
-            {/* ---- v2.1.0 — TRANSISI KE VIDEO ---- */}
-            <div>
-              <p className="mb-1 text-xs font-medium text-slate-300">Pergantian ke video utama</p>
-              <ChipPilihan
-                nilai={pengaturan.introFade ? "fade" : "langsung"}
-                onChange={(v) => set("introFade", v === "fade")}
-                pilihan={[
-                  { v: "fade", label: "Fade lembut", hint: "melebur 0,5 dtk (disarankan)" },
-                  { v: "langsung", label: "Langsung", hint: "potong kering" },
-                ]}
-              />
-            </div>
-            {/* ---- v2.1.0 — MUNCUL DI POTONGAN MANA ---- */}
-            <div>
-              <p className="mb-1 text-xs font-medium text-slate-300">Muncul di potongan</p>
-              <ChipPilihan
-                nilai={pengaturan.introTampil}
-                onChange={(v) => set("introTampil", v)}
-                pilihan={[
-                  { v: "semua", label: "Semua potongan" },
-                  { v: "pertama", label: "Hanya potongan 1" },
-                  { v: "pertama-terakhir", label: "Potongan 1 & terakhir" },
-                ]}
-              />
-            </div>
-            {/* ---- v2.2.0 — TEKS OTOMATIS DI ATAS INTRO ---- */}
-            <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-              <p className="mb-1 text-xs font-medium text-slate-300">Teks otomatis di atas intro</p>
-              <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
-                Judul diambil dari NAMA FILE video + label {pengaturan.kataPart || "Part"} 01, 02, …
-                (kata ikut setelan menu 3 Tulisan Part).
-              </p>
-              <div className="space-y-2">
-                <div>
-                  <p className="mb-1 text-[11px] text-slate-400">Font teks intro</p>
-                  <select
-                    value={pengaturan.introTeksFont}
-                    onChange={(e) => set("introTeksFont", e.target.value as NamaFont)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
-                  >
-                    {(Object.keys(INFO_FONT) as NamaFont[]).map((f) => (
-                      <option key={f} value={f} style={{ fontFamily: FONT_CSS[f] }}>
-                        {INFO_FONT[f]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <BarisSlider
-                  label="Ukuran teks intro"
-                  nilai={pengaturan.introTeksUkuran}
-                  min={20}
-                  max={160}
-                  onChange={(n) => set("introTeksUkuran", n)}
-                  fmt={(n) => `${n} px`}
-                />
-                <PilihWarna
-                  label="Warna teks intro"
-                  nilai={pengaturan.introTeksWarna}
-                  onChange={(v) => set("introTeksWarna", v)}
-                />
-                <p className="text-[11px] text-slate-500">
-                  Label Part tampil kuning di bawah judul; outline hitam otomatis agar selalu terbaca;
-                  teks hanya tampil selama intro.
-                </p>
-              </div>
-            </div>
-            {/* ---- v2.1.0 — SUARA INTRO ---- */}
-            <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
-              <p className="mb-1.5 text-xs font-medium text-slate-300">Suara intro (opsional)</p>
-              {suaraInfo ? (
-                <div className="rounded-lg bg-slate-800/60 px-3 py-2">
-                  <p className="truncate text-xs text-slate-200">🎵 {suaraInfo.nama}</p>
-                  <div className="mt-1.5">
-                    <BarisSlider
-                      label="Volume suara intro"
-                      nilai={pengaturan.introSuaraVolume}
-                      min={0}
-                      max={150}
-                      onChange={(n) => set("introSuaraVolume", n)}
-                      fmt={(n) => `${n}%`}
-                    />
-                  </div>
-                  <audio
-                    controls
-                    loop
-                    src={`/api/file?p=${encodeURIComponent(pengaturan.introSuaraFile)}`}
-                    className="mt-2 h-8 w-full"
-                  />
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <p className="text-[11px] text-slate-500">
-                      Diputar selama intro (berulang bila lebih pendek); memudar keluar saat fade.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={onHapusSuara}
-                      className="shrink-0 rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/10"
-                    >
-                      Hapus
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <JatuhBerkas
-                  terima="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
-                  hint="Taruh MP3/WAV di sini — musik pembuka"
-                  sibuk={suaraSibuk}
-                  onFile={onSuaraFile}
-                  bukaDialog={bukaDialogAudio}
-                />
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ===== v2.5.0 — TERAPKAN SETELAN INTRO KE SEMUA VIDEO (permintaan user:
-          "buatkan pilihan di terapkan kesemua video untuk settingannya yang telah
-          di pilih") — cover (Bagian A) memang global; yang disalin = Bagian B ===== */}
-      {totalVideo > 1 && (
-        <>
-          {/* v3.3.0 — tombol Terapkan intro pindah ke RK Ringkasan (pusat tunggal) */}
-          <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
-            Yang disalin: intro aktif/mati, posisi frame, durasi, animasi, fade, muncul di
-            potongan, teks intro, suara intro &amp; volume. Pilihan thumbnail di Bagian A
-            memang sudah berlaku otomatis untuk semua video.
-          </p>
-        </>
-      )}
-    </Kartu>
-  );
-}
-
-/* ============ 6 — WATERMARK / LOGO ============ */
-
-export function PanelWatermark({
-  pengaturan,
-  onChange,
-  logoInfo,
-  onLogoFile,
-  onHapusLogo,
-  logoSibuk,
-  lebarVideo,
-  tinggiVideo,
-  srcUrl,
-  nomorVideo,
-  bukaDialog,
-}: {
-  pengaturan: Pengaturan;
-  onChange: (p: Pengaturan) => void;
-  logoInfo: { nama: string; ukuran: number } | null;
-  onLogoFile: (f: File) => void;
-  onHapusLogo: () => void;
-  logoSibuk: boolean;
-  lebarVideo: number;
-  tinggiVideo: number;
-  srcUrl: string;
-  nomorVideo: number;
-  /** v0.40.0 — mode desktop: klik zona membuka dialog natif Electron (bukan input HTML) */
-  bukaDialog?: () => void;
-}) {
-  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
-    onChange({ ...pengaturan, [k]: v });
-  return (
-    <Kartu
-      nomor="07"
-      judul="Watermark / logo (opsional)"
-      deskripsi={`Gambar logo menempel di SETIAP potongan video #${nomorVideo} — pilih posisi & ukuran`}
-      ikon={<Stamp className="h-4 w-4" />}
-    >
-      {logoInfo ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-slate-700/60 bg-slate-800/50 p-3">
-          <div className="flex items-center gap-3 overflow-hidden">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={`/api/file?p=${encodeURIComponent(pengaturan.logoId)}`}
-              alt="pratinjau logo"
-              className="h-12 w-12 rounded-lg border border-slate-600 object-contain"
-            />
-            <div className="min-w-0">
-              <p className="truncate text-sm text-slate-200">{logoInfo.nama}</p>
-              <p className="text-[11px] text-slate-500">{fmtUkuran(logoInfo.ukuran)}</p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onHapusLogo}
-            className="rounded-lg border border-red-500/40 px-2.5 py-1.5 text-xs text-red-300 hover:bg-red-500/10"
-          >
-            Hapus
-          </button>
-        </div>
-      ) : (
-        <JatuhBerkas
-          terima="image/png,image/jpeg,image/webp"
-          onFile={onLogoFile}
-          hint="PNG transparan paling cocok untuk watermark — maks 25 MB"
-          sibuk={logoSibuk}
-          bukaDialog={bukaDialog}
-        />
-      )}
-      {logoInfo && (
-        <div className="mt-3 space-y-3">
-          <div>
-            <p className="mb-1 text-xs text-slate-400">Posisi cepat (pojok)</p>
-            <ChipPilihan<PosisiLogo>
-              pilihan={([
-                "kiri-atas",
-                "kanan-atas",
-                "kiri-bawah",
-                "kanan-bawah",
-              ] as PosisiLogo[]).map((v) => ({ v, label: labelPosisiLogo(v) }))}
-              nilai={pengaturan.posisiLogo}
-              onChange={(v) => {
-                // v0.8.0 — chip pojok = preset cepat: isi langsung logoX/logoY
-                const pre = POSISI_LOGO_PRESET[v];
-                onChange({ ...pengaturan, posisiLogo: v, logoX: pre.x, logoY: pre.y });
-              }}
-            />
-          </div>
-          {/* v0.8.0 — pratinjau interaktif: seret logo utk posisi bebas, tarik titik utk ubas ukuran */}
-          <PratinjauLogo
-            srcUrl={srcUrl}
-            logoUrl={`/api/file?p=${encodeURIComponent(pengaturan.logoId)}`}
-            lebar={lebarVideo}
-            tinggi={tinggiVideo}
-            logoX={pengaturan.logoX}
-            logoY={pengaturan.logoY}
-            ukuran={pengaturan.ukuranLogo}
-            mode={pengaturan.mode}
-            warnaLatar={pengaturan.warnaLatar}
-            onPosisi={(x, y) =>
-              onChange({ ...pengaturan, logoX: x, logoY: y })
-            }
-            onUkuran={(n) => set("ukuranLogo", n)}
-          />
-          <BarisSlider
-            label="Ukuran logo (lebar terhadap frame)"
-            nilai={pengaturan.ukuranLogo}
-            min={5}
-            max={40}
-            onChange={(n) => set("ukuranLogo", n)}
-            fmt={(n) => `${n}%`}
-          />
-        </div>
-      )}
-    </Kartu>
-  );
-}
-
 /* ============ RINGKASAN ============ */
 
 export function PanelRingkasan({
@@ -2569,190 +1796,778 @@ export function PanelRingkasan({
 }
 
 /* ========================================================================
-   v3.3.0 — PEMILIH COVER (galeri template)
-   3 gaya lama (modern/klasik/futuristik) = kategori "DASAR" di dalam galeri
-   yang sama dengan 100 template NOVACUT (10 layout × 10 palet) — BUKAN menu
-   terpisah (permintaan user). Pratinjau = SVG yang SAMA dengan mesin ekspor
-   (coverNovacut.ts) lewat pengukur perkiraan — ekspor server memakai TTF
-   nyata, jadi posisi wrap bisa beda beberapa piksel, desain identik.
+   v3.4.0 — TIGA MENU DIJIPLAK DARI KINOSTRA v3.16.0 (permintaan user:
+   "hapus semua menu cover, ganti total dengan KINOSTRA" + lanjutan trio
+   mod 13 / 08+09 / 06 — struktur & label PERSIS KINOSTRA, rasa amber VidSplit):
+     • PanelCoverKino    ← mod 13  COVER VIDEO PEMBUKA · NOVACUT
+                         (index.html #m8b; sumber, layout 10 × palet 10, bingkai,
+                          efek Ken Burns, animasi masuk judul/part, transisi 28)
+     • PanelEfekKino     ← mod 08  EFEK VISUAL & WATERMARK  +  mod 09 GERAK &
+                         TRANSISI (vfx manual + FILTER WARNA 10 + watermark
+                         teks/logo/opasitas + kecepatan + Ken Burns + 28 transisi
+                         + 20 efek klip NOVACUT yang tetap dipertahankan)
+     • PanelSubtitleKino ← mod 06  SUBTITEL AI · VOCALIS v4
+                         (bahasa auto Jawa/Indonesia, mesin TURBO/Sedang/Cepat/
+                          Ringan, mode lagu, auto-subtitel, lewati sunyi, burn-in,
+                          geser waktu, SRT, daftar baris)
+   Mesin: coverNovacut.ts + ffmpeg.ts (rantaiIntroKino/vfx/kb/wm) +
+   whisperCpp.ts + subtitle.ts — lihat commit v3.4.0.
    ======================================================================== */
-export function PemilihCover({
+// (import di atas — panel KINOSTRA memakai modul yang sama)
+
+
+/* ---------- util seg ala modul KINOSTRA (.seg) ---------- */
+function Seg<T extends string>({
   nilai,
   onChange,
-  izinPolos = false,
-  judulPratinjau = "Judul Video",
-  labelPratinjau = "Part 01",
+  pilihan,
 }: {
-  nilai: string;
-  onChange: (id: string) => void;
-  /** tampilkan tile "Polos (lama)" utk mengosongkan template (khusus intro) */
-  izinPolos?: boolean;
-  judulPratinjau?: string;
-  labelPratinjau?: string;
+  nilai: T;
+  onChange: (v: T) => void;
+  pilihan: Array<{ v: T; l: string }>;
 }) {
-  const katalog = daftarTemplateCover();
-  const dasar = katalog.filter((t) => t.kategori === "dasar");
-  const novacut = katalog.filter((t) => t.kategori === "novacut");
-  const [kat, setKat] = useState<"dasar" | "novacut">(
-    nilai && !["modern", "klasik", "futuristik"].includes(nilai) ? "novacut" : "dasar",
-  );
-  const [buka, setBuka] = useState(false);
-  const ukur = pengukurPerkiraan();
-  const url = (id: string) =>
-    svgCoverDataUrl(
-      {
-        template: id,
-        W: 180,
-        H: 320,
-        judul: judulPratinjau,
-        labelPart: labelPratinjau,
-        latar: "adegan",
-        skalaPart: 1,
-      },
-      ukur,
-    );
-  const daftar = kat === "dasar" ? dasar : novacut;
-  const tampil = buka ? daftar : daftar.slice(0, 9);
-
   return (
-    <div className="rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-medium text-slate-400">
-          Template cover — <span className="text-slate-300">{katalog.length + (izinPolos ? 1 : 0)} pilihan</span>
-        </p>
-        <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
-          NOVACUT
-        </span>
-      </div>
-      {/* pratinjau besar nilai aktif */}
-      <div className="mt-2 flex items-center gap-2.5">
-        <div className="w-[84px] shrink-0 overflow-hidden rounded-md border border-amber-400/40 bg-slate-950">
-          {izinPolos && !nilai ? (
-            <div className="flex h-[149px] items-center justify-center text-[10px] text-slate-500">
-              Polos
-            </div>
-          ) : (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={url(nilai || "modern")} alt="Pratinjau cover aktif" className="h-[149px] w-[84px] object-cover" />
-          )}
-        </div>
-        <p className="text-[11px] leading-snug text-slate-500">
-          {izinPolos && !nilai
-            ? "Polos (tampilan lama) — tanpa template."
-            : (katalog.find((t) => t.id === nilai)?.nama ?? nilai)}
-        </p>
-      </div>
-      {/* kategori */}
-      <div className="mt-2 grid grid-cols-2 gap-1.5">
+    <div className="flex flex-wrap gap-1">
+      {pilihan.map((p) => (
         <button
+          key={p.v}
           type="button"
-          onClick={() => setKat("dasar")}
-          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
-            kat === "dasar"
-              ? "border-amber-400/60 bg-amber-400/15 text-amber-200"
-              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+          onClick={() => onChange(p.v)}
+          className={`rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition ${
+            nilai === p.v
+              ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500 hover:text-slate-200"
           }`}
         >
-          DASAR (3) — gaya lama
+          {p.l}
         </button>
-        <button
-          type="button"
-          onClick={() => setKat("novacut")}
-          className={`rounded-md border px-2 py-1.5 text-[11px] font-medium transition ${
-            kat === "novacut"
-              ? "border-amber-400/60 bg-amber-400/15 text-amber-200"
-              : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
-          }`}
-        >
-          NOVACUT (100)
-        </button>
-      </div>
-      {/* grid template */}
-      <div className="mt-2 grid grid-cols-3 gap-1.5">
-        {izinPolos && kat === "dasar" && (
-          <button
-            type="button"
-            onClick={() => onChange("")}
-            className={`flex h-[86px] items-center justify-center rounded border text-[10px] transition ${
-              nilai === ""
-                ? "border-amber-400 ring-1 ring-amber-400/60"
-                : "border-slate-700 hover:border-slate-500"
-            } bg-slate-900 text-slate-500`}
-          >
-            Polos (lama)
-          </button>
-        )}
-        {tampil.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            title={t.nama}
-            onClick={() => onChange(t.id)}
-            className={`overflow-hidden rounded border transition hover:scale-[1.04] ${
-              nilai === t.id
-                ? "border-amber-400 ring-1 ring-amber-400/60"
-                : "border-slate-700 hover:border-slate-500"
-            }`}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={url(t.id)} alt={t.nama} loading="lazy" className="h-[86px] w-full bg-slate-950 object-cover" />
-          </button>
-        ))}
-      </div>
-      {daftar.length > 9 && kat === "novacut" && (
-        <button
-          type="button"
-          onClick={() => setBuka(!buka)}
-          className="mt-1.5 w-full rounded-md border border-slate-700 py-1.5 text-[11px] text-slate-300 transition hover:border-amber-400/60 hover:text-amber-200"
-        >
-          {buka ? "Tutup" : `Lihat semua ${daftar.length} template`}
-        </button>
-      )}
+      ))}
     </div>
   );
 }
 
-/* ========================================================================
-   v3.3.0 — PANEL EFEK (tab ke-5) — 28 TRANSISI + 20 EFEK KLIP NOVACUT
-   Port UI TransitionPicker/EffectPicker KolosalCut (settings-panel.tsx)
-   dengan warna amber VidSplit. Mesin: xfade ffmpeg antar ekor part
-   sebelumnya & kepala part ini (transisi silang sungguhan) + rantai
-   filter efek — keduanya memaksa jalur RENDER (bukan potong langsung/
-   KILAT) — dijelaskan di catatan bawah panel.
-   ======================================================================== */
-export function PanelEfek({
+function Lbl({ children, kanan }: { children: React.ReactNode; kanan?: React.ReactNode }) {
+  return (
+    <p className="mt-2.5 mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+      <span>{children}</span>
+      {kanan}
+    </p>
+  );
+}
+
+function Cek({ nilai, onChange, label }: { nilai: boolean; onChange: (v: boolean) => void; label: string }) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2 py-0.5 text-[11px] text-slate-300">
+      <input
+        type="checkbox"
+        checked={nilai}
+        onChange={(e) => onChange(e.target.checked)}
+        className="h-3.5 w-3.5 accent-amber-400"
+      />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+/* ---------- template id efektif (satu sumber kebenaran dgn jobs.ts) ---------- */
+function idTemplateEfektif(p: Pengaturan): string {
+  if (p.coverLayout) {
+    if (p.coverLayout === "modern" || p.coverLayout === "klasik" || p.coverLayout === "futuristik")
+      return p.coverLayout;
+    if (p.coverPalet) return `${p.coverLayout}--${p.coverPalet}`;
+  }
+  return "";
+}
+
+/* ================================================================
+   13 · COVER VIDEO PEMBUKA · NOVACUT (mod 13 KINOSTRA)
+   ================================================================ */
+export function PanelCoverKino({
   pengaturan,
   onChange,
+  nomorVideo,
+  opsiThumb,
+  onOpsiThumb,
+  onImporCover,
+  coverSibuk,
+  // v2.1.0 — suara intro (fitur VidSplit, tetap di menu cover baru)
+  suaraInfo,
+  onSuaraFile,
+  onHapusSuara,
+  suaraSibuk,
+  bukaDialogAudio,
 }: {
   pengaturan: Pengaturan;
   onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+  /** v2.5.0 — opsi thumbnail GLOBAL (berlaku semua video otomatis) */
+  opsiThumb: OpsiThumbnail;
+  onOpsiThumb: (o: OpsiThumbnail) => void;
+  /** v3.4.0 — sumber MANUAL: unggah gambar cover */
+  onImporCover: (f: File) => void;
+  coverSibuk: boolean;
+  /** v2.1.0 — info suara intro terpasang */
+  suaraInfo: { nama: string } | null;
+  onSuaraFile: (f: File) => void;
+  onHapusSuara: () => void;
+  suaraSibuk: boolean;
+  /** mode desktop: dialog natif utk audio */
+  bukaDialogAudio?: () => void;
 }) {
   const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
     onChange({ ...pengaturan, [k]: v });
-  const [kat, setKat] = useState<(typeof TRANSITION_CATS)[number]["id"]>("trailer");
+  const ukur = pengukurPerkiraan();
+  const aktif = pengaturan.introAktif === true;
+  const tplId = idTemplateEfektif(pengaturan) || "impact--cyber";
+  const urlPratinjau = svgCoverDataUrl(
+    {
+      template: tplId,
+      W: 162,
+      H: 288,
+      judul: pengaturan.coverJudul.trim() || "Judul Video",
+      labelPart:
+        pengaturan.coverKataPart === "" ? "" : pengaturan.coverKataPart === "#" ? "#1" : `${pengaturan.coverKataPart} 01`,
+      latar: pengaturan.coverLatar,
+      skalaPart: pengaturan.coverSkalaPart,
+      bingkai: pengaturan.coverBingkai,
+    },
+    ukur,
+  );
+  // pemetaan seg EFEK COVER KINOSTRA ↔ AnimasiIntro VidSplit
+  const fxNilai: "in" | "out" | "panx" | "pany" | "off" =
+    pengaturan.introAnimasi === "zoom-masuk"
+      ? "in"
+      : pengaturan.introAnimasi === "zoom-keluar"
+        ? "out"
+        : pengaturan.introAnimasi === "geser-kiri"
+          ? "panx"
+          : pengaturan.introAnimasi === "geser-atas" || pengaturan.introAnimasi === "geser-bawah"
+            ? "pany"
+            : "off";
+  const gantiFx = (v: "in" | "out" | "panx" | "pany" | "off") =>
+    set(
+      "introAnimasi",
+      v === "in" ? "zoom-masuk" : v === "out" ? "zoom-keluar" : v === "panx" ? "geser-kiri" : v === "pany" ? "geser-bawah" : "mati",
+    );
+
+  return (
+    <Kartu
+      nomor="13"
+      judul="COVER VIDEO PEMBUKA · NOVACUT"
+      badge="KINOSTRA"
+      deskripsi={`Cover tampil di awal file hasil ekspor — 100 template (10 layout × 10 palet), bingkai, Ken Burns & 28 transisi — video #${nomorVideo}`}
+      ikon={<ImageIcon className="h-4 w-4" />}
+    >
+      <div className="rounded-lg border border-slate-700/60 bg-slate-800/40 p-2.5 text-[11px] leading-relaxed text-slate-400">
+        Port penuh mod <b className="text-slate-300">13</b> KINOSTRA — cover + transisi dianimasikan
+        beneran saat ekspor (Ken Burns + animasi teks NOVACUT).
+      </div>
+
+      <div className="mt-2.5">
+        <Seg
+          nilai={aktif ? "on" : "off"}
+          onChange={(v) => set("introAktif", v === "on")}
+          pilihan={[
+            { v: "off", l: "MATI" },
+            { v: "on", l: "AKTIF" },
+          ]}
+        />
+      </div>
+
+      {aktif && (
+        <>
+          <Lbl>SUMBER COVER</Lbl>
+          <Seg
+            nilai={pengaturan.coverSumber}
+            onChange={(v) => set("coverSumber", v)}
+            pilihan={[
+              { v: "manual", l: "MANUAL" },
+              { v: "auto", l: "OTOMATIS TIAP PART" },
+              { v: "single", l: "1 SAMPUL SEMUA PART" },
+            ]}
+          />
+          {pengaturan.coverSumber === "manual" && (
+            <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
+              {pengaturan.coverFile ? (
+                <p className="truncate text-[11px] text-emerald-300">
+                  Cover terpasang: {pengaturan.coverFile.split("/").pop()}
+                </p>
+              ) : null}
+              <div className="mt-2">
+                <JatuhBerkas
+                  terima="image/*,.png,.jpg,.jpeg,.webp"
+                  onFile={onImporCover}
+                  sibuk={coverSibuk}
+                  hint="IMPOR COVER… (PNG/JPG — jadi latar semua cover)"
+                />
+              </div>
+            </div>
+          )}
+          {pengaturan.coverSumber === "single" && (
+            <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+              Adegan terbaik dipindai SEKALI (menit 1–3) dan dipakai SEMUA part — nomor part tetap
+              otomatis.
+            </p>
+          )}
+
+          {/* pratinjau besar + judul */}
+          <div className="mt-3 flex items-start gap-3">
+            <div className="w-[108px] shrink-0 overflow-hidden rounded-md border border-amber-400/40 bg-slate-950">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={urlPratinjau} alt="Pratinjau cover aktif" className="h-[192px] w-[108px] object-cover" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <Lbl>JUDUL DI COVER</Lbl>
+              <input
+                value={pengaturan.coverJudul}
+                onChange={(e) => set("coverJudul", e.target.value.slice(0, 80))}
+                placeholder="Kosongkan = judul video (nama file)"
+                maxLength={80}
+                className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+              />
+              <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+                Pratinjau = hasil ekspor (SVG yang sama dgn mesin server). GAYA LAMA Modern/Klasik/
+                Futuristik tetap ada di baris bawah — persis keputusan v3.3.0.
+              </p>
+            </div>
+          </div>
+
+          {/* LAYOUT COVER — 10 GAYA */}
+          <Lbl>LAYOUT COVER — 10 GAYA</Lbl>
+          <Seg
+            nilai={pengaturan.coverLayout}
+            onChange={(v) => set("coverLayout", v)}
+            pilihan={NOVACUT_LAYOUTS.map((l) => ({ v: l.k, l: l.n.split(" ")[0] }))}
+          />
+          <Lbl>GAYA LAMA (DASAR)</Lbl>
+          <Seg
+            nilai={pengaturan.coverLayout}
+            onChange={(v) => set("coverLayout", v)}
+            pilihan={[
+              { v: "", l: "POLOS" },
+              { v: "modern", l: "MODERN" },
+              { v: "klasik", l: "KLASIK" },
+              { v: "futuristik", l: "FUTURISTIK" },
+            ]}
+          />
+
+          {/* PALET WARNA — 10 NUANSA */}
+          <Lbl>PALET WARNA — 10 NUANSA</Lbl>
+          <Seg
+            nilai={pengaturan.coverPalet}
+            onChange={(v) => set("coverPalet", v)}
+            pilihan={NOVACUT_PALETTES.map((p) => ({ v: p.k, l: p.n }))}
+          />
+
+          {/* LATAR + BINGKAI + EFEK */}
+          <Lbl>LATAR COVER</Lbl>
+          <Seg
+            nilai={pengaturan.coverLatar}
+            onChange={(v) => set("coverLatar", v)}
+            pilihan={[
+              { v: "adegan", l: "ADEGAN VIDEO" },
+              { v: "hitam", l: "HITAM" },
+            ]}
+          />
+          <Lbl>BINGKAI COVER</Lbl>
+          <Seg
+            nilai={pengaturan.coverBingkai}
+            onChange={(v) => set("coverBingkai", v)}
+            pilihan={[
+              { v: "none", l: "TANPA" },
+              { v: "klasik", l: "KLASIK" },
+              { v: "modern", l: "MODERN" },
+              { v: "futuristik", l: "FUTURISTIK" },
+            ]}
+          />
+          <Lbl>EFEK COVER — GERAK LATAR</Lbl>
+          <Seg
+            nilai={fxNilai}
+            onChange={gantiFx}
+            pilihan={[
+              { v: "in", l: "ZOOM IN" },
+              { v: "out", l: "ZOOM OUT" },
+              { v: "panx", l: "PAN X" },
+              { v: "pany", l: "PAN Y" },
+              { v: "off", l: "DIAM" },
+            ]}
+          />
+
+          {/* ANIMASI MASUK */}
+          <Lbl>ANIMASI MASUK JUDUL COVER</Lbl>
+          <Seg
+            nilai={pengaturan.coverAnimJudul}
+            onChange={(v) => set("coverAnimJudul", v as AnimasiCover)}
+            pilihan={ANIMASI_COVER.map((a) => ({ v: a.id, l: a.nama }))}
+          />
+          <Lbl>ANIMASI MASUK TULISAN PART COVER</Lbl>
+          <Seg
+            nilai={pengaturan.coverAnimPart}
+            onChange={(v) => set("coverAnimPart", v as AnimasiCover)}
+            pilihan={ANIMASI_COVER.map((a) => ({ v: a.id, l: a.nama }))}
+          />
+          <p className="mt-1 text-[10px] leading-snug text-slate-500">
+            Animasi berjalan saat cover tayang (judul langsung, part ditunda 0,25 dtk — pola
+            KINOSTRA). TANPA = teks statis di dalam template (perilaku lama).
+          </p>
+
+          {/* DURASI + LABEL PART */}
+          <Lbl>DURASI COVER TAMPIL</Lbl>
+          <Seg
+            nilai={String(pengaturan.durasiIntro)}
+            onChange={(v) => set("durasiIntro", Number(v))}
+            pilihan={[
+              { v: "1", l: "1 DETIK" },
+              { v: "2", l: "2 DETIK" },
+              { v: "3", l: "3 DETIK" },
+              { v: "5", l: "5 DETIK" },
+            ]}
+          />
+          <Lbl>TULISAN PART DI SAMPUL</Lbl>
+          <Seg
+            nilai={pengaturan.coverKataPart}
+            onChange={(v) => set("coverKataPart", v as KataPartCover)}
+            pilihan={KATA_PART_COVER.map((k) => ({ v: k, l: k === "" ? "TANPA" : k }))}
+          />
+          <Lbl
+            kanan={
+              <span className="text-amber-300">{Math.round(pengaturan.coverSkalaPart * 100)}%</span>
+            }
+          >
+            UKURAN TULISAN PART COVER
+          </Lbl>
+          <input
+            type="range"
+            className="w-full"
+            min={0.5}
+            max={2.5}
+            step={0.05}
+            value={pengaturan.coverSkalaPart}
+            onChange={(e) => set("coverSkalaPart", Number(e.target.value))}
+          />
+          <p className="text-[10px] text-slate-500">
+            Berlaku di ke-10 layout — kotak/strip badge otomatis menyesuaikan agar teks tetap muat.
+          </p>
+
+          {/* TRANSISI COVER → VIDEO */}
+          <Lbl>TRANSISI COVER → VIDEO — 28 GAYA</Lbl>
+          <button
+            type="button"
+            onClick={() => set("coverTrans", "")}
+            className={`mb-1.5 w-full rounded-lg border px-2.5 py-1.5 text-left text-[11px] transition ${
+              !pengaturan.coverTrans
+                ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+                : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+            }`}
+          >
+            TANPA — potong langsung (perilaku lama)
+          </button>
+          <div className="flex flex-wrap gap-1">
+            {TRANSITIONS.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                title={`${t.name} — ${t.desc}`}
+                onClick={() => set("coverTrans", t.id)}
+                className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+                  pengaturan.coverTrans === t.id
+                    ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
+                    : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+                }`}
+              >
+                {t.name}
+              </button>
+            ))}
+          </div>
+          <Lbl
+            kanan={<span className="text-amber-300">{pengaturan.coverTransDurasi.toFixed(2)} dtk</span>}
+          >
+            DURASI TRANSISI
+          </Lbl>
+          <input
+            type="range"
+            className="w-full"
+            min={0.2}
+            max={1.5}
+            step={0.05}
+            value={pengaturan.coverTransDurasi}
+            onChange={(e) => set("coverTransDurasi", Number(e.target.value))}
+          />
+          {pengaturan.coverTrans && (
+            <p className="mt-1 text-[10px] text-slate-500">
+              Mesin: xfade ffmpeg <b>{getTransition(pengaturan.coverTrans)?.xfade}</b> antara cover
+              dan frame pertama video.
+            </p>
+          )}
+        </>
+      )}
+
+      {/* ===== THUMBNAIL GAMBAR (fitur VidSplit — tetap, satu sumber desain) ===== */}
+      <div className="mt-4 rounded-xl border border-cyan-400/25 bg-cyan-400/5 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-cyan-200">
+          <ImageIcon className="h-3.5 w-3.5" /> Gambar thumbnail — cover statis tiap potongan
+          (GLOBAL)
+        </p>
+        <button
+          type="button"
+          onClick={() => onOpsiThumb({ ...opsiThumb, aktif: !opsiThumb.aktif })}
+          className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition ${
+            opsiThumb.aktif
+              ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
+              : "border-slate-700 bg-slate-800/60 text-slate-400"
+          }`}
+        >
+          <span className="flex items-center gap-1.5">
+            <ImageIcon className="h-3.5 w-3.5" /> PAKAI — gambar cover tersimpan di samping hasil
+          </span>
+          <span className="font-medium">{opsiThumb.aktif ? "Aktif" : "Mati"}</span>
+        </button>
+        {opsiThumb.aktif && (
+          <div className="mt-2 space-y-2">
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Format gambar</p>
+              <ChipPilihan
+                nilai={opsiThumb.format}
+                onChange={(v) => onOpsiThumb({ ...opsiThumb, format: v })}
+                pilihan={[
+                  { v: "jpg", label: "JPG", hint: "ringan, cocok upload" },
+                  { v: "png", label: "PNG", hint: "tajam, agak besar" },
+                ]}
+              />
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] text-slate-400">Cakupan cover</p>
+              <ChipPilihan
+                nilai={opsiThumb.mode}
+                onChange={(v) => onOpsiThumb({ ...opsiThumb, mode: v })}
+                pilihan={[
+                  { v: "per-part", label: "Tiap part beda", hint: "tiap potongan frame sendiri" },
+                  { v: "satu", label: "Satu untuk semua", hint: "1 frame video + nomor part" },
+                  { v: "identik", label: "Sama persis semua", hint: "tanpa nomor part — 100% identik" },
+                ]}
+              />
+            </div>
+            <p className="text-[10px] leading-relaxed text-slate-500">
+              Desain thumbnail mengikuti setelan COVER di atas (layout × palet, judul, label part,
+              bingkai) — satu sumber kebenaran, tanpa galeri terpisah.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* ===== SUARA INTRO (fitur VidSplit v2.1.0 — tetap ada di menu cover baru) ===== */}
+      <div className="mt-3 rounded-xl border border-slate-700/50 bg-slate-800/40 p-3">
+        <p className="mb-1.5 text-xs font-medium text-slate-300">Suara intro (opsional)</p>
+        {suaraInfo ? (
+          <div className="rounded-lg bg-slate-800/60 px-3 py-2">
+            <p className="truncate text-xs text-slate-200">{suaraInfo.nama}</p>
+            <div className="mt-1.5">
+              <BarisSlider
+                label="Volume suara intro"
+                nilai={pengaturan.introSuaraVolume}
+                min={0}
+                max={150}
+                onChange={(n) => set("introSuaraVolume", n)}
+                fmt={(n) => `${n}%`}
+              />
+            </div>
+            <audio
+              controls
+              loop
+              src={`/api/file?p=${encodeURIComponent(pengaturan.introSuaraFile)}`}
+              className="mt-2 h-8 w-full"
+            />
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] text-slate-500">
+                Diputar selama cover (berulang bila lebih pendek); memudar keluar saat transisi.
+              </p>
+              <button
+                type="button"
+                onClick={onHapusSuara}
+                className="shrink-0 rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/10"
+              >
+                Hapus
+              </button>
+            </div>
+          </div>
+        ) : (
+          <JatuhBerkas
+            terima="audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac"
+            onFile={onSuaraFile}
+            sibuk={suaraSibuk}
+            hint="IMPOR SUARA INTRO… (mp3/wav — diputar selama cover tampil)"
+            bukaDialog={bukaDialogAudio}
+          />
+        )}
+      </div>
+    </Kartu>
+  );
+}
+
+/* ================================================================
+   08 · EFEK VISUAL & WATERMARK  +  09 · GERAK & TRANSISI (mod 08+09)
+   ================================================================ */
+export function PanelEfekKino({
+  pengaturan,
+  onChange,
+  nomorVideo,
+  logoInfo,
+  onLogoFile,
+  onHapusLogo,
+  logoSibuk,
+  bukaDialogLogo,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+  logoInfo: { nama: string } | null;
+  onLogoFile: (f: File) => void;
+  onHapusLogo: () => void;
+  logoSibuk: boolean;
+  bukaDialogLogo?: () => void;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
   const aktifEfek = pengaturan.efekKlip ?? [];
   const toggleEfek = (id: string) => {
     if (aktifEfek.includes(id)) set("efekKlip", aktifEfek.filter((x) => x !== id));
     else if (aktifEfek.length < 6) set("efekKlip", [...aktifEfek, id]);
   };
+  const persen = (n: number) => `${Math.round(n * 100)}%`;
 
   return (
     <Kartu
-      nomor="EF"
-      judul="Efek & transisi NOVACUT"
-      badge="BARU"
-      deskripsi="28 transisi antar part + 20 efek klip blockbuster — port mesin NOVACUT/KolosalCut"
+      nomor="08"
+      judul="EFEK VISUAL & WATERMARK"
+      badge="KINOSTRA"
+      deskripsi={`Warna sinematik, watermark & gerak ala KINOSTRA — video #${nomorVideo}`}
       ikon={<Wand2 className="h-4 w-4" />}
     >
-      {/* ===== 1 — TRANSISI ANTAR PART (28) ===== */}
-      <div>
+      {/* ---- KECERAHAN / KONTRAS / KEJENUHAN (mod 08) ---- */}
+      <Lbl kanan={<span className="text-amber-300">{persen(pengaturan.vfxKecerahan)}</span>}>
+        KECERAHAN
+      </Lbl>
+      <input
+        type="range"
+        className="w-full"
+        min={0.5}
+        max={1.5}
+        step={0.02}
+        value={pengaturan.vfxKecerahan}
+        onChange={(e) => set("vfxKecerahan", Number(e.target.value))}
+      />
+      <Lbl kanan={<span className="text-amber-300">{persen(pengaturan.vfxKontras)}</span>}>
+        KONTRAS
+      </Lbl>
+      <input
+        type="range"
+        className="w-full"
+        min={0.5}
+        max={1.5}
+        step={0.02}
+        value={pengaturan.vfxKontras}
+        onChange={(e) => set("vfxKontras", Number(e.target.value))}
+      />
+      <Lbl kanan={<span className="text-amber-300">{persen(pengaturan.vfxKejenuhan)}</span>}>
+        KEJENUHAN WARNA
+      </Lbl>
+      <input
+        type="range"
+        className="w-full"
+        min={0}
+        max={2}
+        step={0.02}
+        value={pengaturan.vfxKejenuhan}
+        onChange={(e) => set("vfxKejenuhan", Number(e.target.value))}
+      />
+      <div className="mt-2">
+        <Cek
+          nilai={pengaturan.vfxVignette}
+          onChange={(v) => set("vfxVignette", v)}
+          label="VIGNETTE — sudut gelap fokus tengah"
+        />
+        <Cek
+          nilai={pengaturan.vfxGrain}
+          onChange={(v) => set("vfxGrain", v)}
+          label="FILM GRAIN — bintik film analog"
+        />
+      </div>
+
+      {/* ---- FILTER WARNA — SATU KLIK (port COLORFILTERS) ---- */}
+      <Lbl>FILTER WARNA — SATU KLIK</Lbl>
+      <div className="flex flex-wrap gap-1">
+        {FILTER_WARNA.map((f) => (
+          <button
+            key={f.k}
+            type="button"
+            title={f.d}
+            onClick={() => set("vfxFilter", f.k)}
+            className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+              pengaturan.vfxFilter === f.k
+                ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
+                : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+            }`}
+          >
+            {f.n}
+          </button>
+        ))}
+      </div>
+
+      {/* ---- WATERMARK (mod 08) ---- */}
+      <Lbl>WATERMARK</Lbl>
+      <Seg
+        nilai={pengaturan.wmMode}
+        onChange={(v) => set("wmMode", v)}
+        pilihan={[
+          { v: "off", l: "MATI" },
+          { v: "teks", l: "TEKS" },
+          { v: "logo", l: "LOGO" },
+        ]}
+      />
+      {pengaturan.wmMode === "teks" && (
+        <div className="mt-2">
+          <input
+            value={pengaturan.wmTeks}
+            onChange={(e) => set("wmTeks", e.target.value.slice(0, 28))}
+            placeholder="@KAMU — maks 28 huruf"
+            maxLength={28}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-sm text-slate-100 outline-none focus:border-amber-400/70"
+          />
+        </div>
+      )}
+      {pengaturan.wmMode === "logo" && (
+        <div className="mt-2 rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
+          {logoInfo ? (
+            <p className="truncate text-[11px] text-emerald-300">Logo: {logoInfo.nama}</p>
+          ) : (
+            <p className="text-[11px] text-slate-500">belum ada logo</p>
+          )}
+          <div className="mt-2">
+            <JatuhBerkas
+              terima="image/*,.png,.jpg,.webp"
+              onFile={onLogoFile}
+              sibuk={logoSibuk}
+              hint="PILIH LOGO… (PNG transparan)"
+              bukaDialog={bukaDialogLogo}
+            />
+          </div>
+          {logoInfo && (
+            <button
+              type="button"
+              onClick={onHapusLogo}
+              className="mt-2 rounded-md border border-red-400/40 px-2 py-0.5 text-[10px] text-red-300 hover:bg-red-400/10"
+            >
+              Hapus logo
+            </button>
+          )}
+        </div>
+      )}
+      {pengaturan.wmMode !== "off" && (
+        <>
+          <Lbl>POSISI WATERMARK</Lbl>
+          <Seg
+            nilai={pengaturan.posisiLogo}
+            onChange={(v) => {
+              // v3.4.0 — seg 4 arah ala KINOSTRA → posisi bebas diset ke preset
+              const preset: Record<string, [number, number]> = {
+                "kiri-atas": [4, 6],
+                "kanan-atas": [96, 6],
+                "kiri-bawah": [4, 92],
+                "kanan-bawah": [96, 92],
+              };
+              const [x, y] = preset[v] ?? [96, 92];
+              onChange({ ...pengaturan, posisiLogo: v, logoX: x, logoY: y });
+            }}
+            pilihan={[
+              { v: "kiri-atas", l: "KIRI ATAS" },
+              { v: "kanan-atas", l: "KANAN ATAS" },
+              { v: "kiri-bawah", l: "KIRI BAWAH" },
+              { v: "kanan-bawah", l: "KANAN BAWAH" },
+            ]}
+          />
+          <Lbl kanan={<span className="text-amber-300">{Math.round(pengaturan.wmOpasitas * 100)}%</span>}>
+            OPASITAS
+          </Lbl>
+          <input
+            type="range"
+            className="w-full"
+            min={0.1}
+            max={1}
+            step={0.05}
+            value={pengaturan.wmOpasitas}
+            onChange={(e) => set("wmOpasitas", Number(e.target.value))}
+          />
+          <Lbl
+            kanan={
+              <span className="text-amber-300">
+                {pengaturan.wmMode === "logo" ? `${pengaturan.ukuranLogo}% lebar` : `${Math.round((pengaturan.ukuranLogo / 15) * 10) / 10}×`}
+              </span>
+            }
+          >
+            UKURAN
+          </Lbl>
+          <input
+            type="range"
+            className="w-full"
+            min={5}
+            max={40}
+            step={1}
+            value={pengaturan.ukuranLogo}
+            onChange={(e) => set("ukuranLogo", Number(e.target.value))}
+          />
+        </>
+      )}
+
+      {/* ===== 09 · GERAK & TRANSISI (mod 09) ===== */}
+      <div className="mt-4 border-t border-slate-800 pt-3">
         <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-300">
-          <Timer className="h-3.5 w-3.5" /> Transisi antar part
+          <Move className="h-3.5 w-3.5" /> GERAK &amp; TRANSISI
+          <span className="rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-amber-300">
+            mod 09
+          </span>
         </p>
-        <p className="mb-1.5 text-[11px] leading-snug text-slate-500">
-          Tampil di AWAL tiap part — dilebur <b>xfade sungguhan</b> dgn ekor part sebelumnya
-          (bukan sekadar fade hitam). GAYA (tab Video) lama fade/slide otomatis dipetakan ke sini.
-        </p>
+        <Lbl>KECEPATAN VIDEO</Lbl>
+        <Seg
+          nilai={String(pengaturan.kecepatanVideo)}
+          onChange={(v) => set("kecepatanVideo", Number(v))}
+          pilihan={LANGKAH_KECEPATAN.map((k) => ({
+            v: String(k),
+            l: k === 1 ? "1× NORMAL" : `${String(k).replace(".", ",")}×`,
+          }))}
+        />
+        <Lbl>KEN BURNS — PERBESAR PERLAHAN OTOMATIS</Lbl>
+        <Seg
+          nilai={pengaturan.kbMode}
+          onChange={(v) => set("kbMode", v)}
+          pilihan={[
+            { v: "off", l: "MATI" },
+            { v: "in", l: "ZOOM IN" },
+            { v: "out", l: "ZOOM OUT" },
+            { v: "panx", l: "GESER KIRI→KANAN" },
+            { v: "pany", l: "GESER ATAS→BAWAH" },
+            { v: "diag", l: "ZOOM+GESER" },
+          ]}
+        />
+        {pengaturan.kbMode !== "off" && (
+          <>
+            <Lbl
+              kanan={<span className="text-amber-300">{Math.round(pengaturan.kbKekuatan * 100)}%</span>}
+            >
+              KEKUATAN GERAK
+            </Lbl>
+            <input
+              type="range"
+              className="w-full"
+              min={0.05}
+              max={0.6}
+              step={0.05}
+              value={pengaturan.kbKekuatan}
+              onChange={(e) => set("kbKekuatan", Number(e.target.value))}
+            />
+          </>
+        )}
+
+        <Lbl>TRANSISI ANTAR BAGIAN — 28 GAYA NOVACUT</Lbl>
         <button
           type="button"
           onClick={() => set("efekTransisi", "")}
@@ -2764,116 +2579,464 @@ export function PanelEfek({
         >
           Tanpa transisi (langsung nyambung)
         </button>
-        <div className="mb-1.5 grid grid-cols-4 gap-1">
-          {TRANSITION_CATS.map((c) => (
+        <div className="flex flex-wrap gap-1">
+          {TRANSITIONS.map((t) => (
             <button
-              key={c.id}
+              key={t.id}
               type="button"
-              onClick={() => setKat(c.id)}
-              className={`rounded-md border px-1 py-1 text-[9.5px] font-semibold uppercase tracking-wide transition ${
-                kat === c.id
-                  ? "border-amber-400/60 bg-amber-400/15 text-amber-200"
-                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500"
+              title={`${t.name} — ${t.desc}`}
+              onClick={() => set("efekTransisi", t.id)}
+              className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+                pengaturan.efekTransisi === t.id
+                  ? "border-amber-400/80 bg-amber-400/20 text-amber-200"
+                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500 hover:text-slate-200"
               }`}
             >
-              {c.name}
+              {t.name}
             </button>
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {TRANSITIONS.filter((t) => t.cat === kat).map((t) => {
-            const on = pengaturan.efekTransisi === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                title={t.desc}
-                onClick={() => set("efekTransisi", t.id)}
-                className={`rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
-                  on
-                    ? "border-amber-400/70 bg-amber-400/15 text-amber-100"
-                    : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
-                }`}
-              >
-                <span className="block font-medium leading-tight">{t.name}</span>
-                <span className="mt-0.5 block truncate text-[10px] opacity-70">{t.desc}</span>
-              </button>
-            );
-          })}
+        <Lbl
+          kanan={<span className="text-amber-300">{pengaturan.efekTransisiDurasi.toFixed(2)} dtk</span>}
+        >
+          DURASI TRANSISI
+        </Lbl>
+        <input
+          type="range"
+          className="w-full"
+          min={0.2}
+          max={1.5}
+          step={0.05}
+          value={pengaturan.efekTransisiDurasi}
+          onChange={(e) => set("efekTransisiDurasi", Number(e.target.value))}
+        />
+
+        {/* 20 efek klip NOVACUT — dipertahankan (fitur v3.3.0 user) */}
+        <Lbl kanan={<span className="text-amber-300">{aktifEfek.length}/6 aktif</span>}>
+          EFEK KLIP NOVACUT — 20 GAYA
+        </Lbl>
+        <div className="flex flex-wrap gap-1">
+          {CLIP_EFFECTS.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              title={e.desc}
+              onClick={() => toggleEfek(e.id)}
+              className={`rounded-md border px-2 py-1 text-[10px] font-medium transition ${
+                aktifEfek.includes(e.id)
+                  ? "border-fuchsia-400/70 bg-fuchsia-400/15 text-fuchsia-200"
+                  : "border-slate-700 bg-slate-800/60 text-slate-400 hover:border-slate-500 hover:text-slate-200"
+              }`}
+            >
+              {e.name}
+            </button>
+          ))}
         </div>
-        {!!pengaturan.efekTransisi && (
-          <div className="mt-2">
-            <BarisSlider
-              label="Durasi transisi"
-              nilai={pengaturan.efekTransisiDurasi}
-              min={0.2}
-              max={1.5}
-              step={0.1}
-              onChange={(n) => set("efekTransisiDurasi", n)}
-              fmt={(n) => `${n.toFixed(1)} detik`}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* ===== 2 — EFEK KLIP (20) ===== */}
-      <div className="mt-4 border-t border-slate-700/50 pt-3">
-        <p className="mb-1 flex items-center gap-1.5 text-xs font-medium text-slate-300">
-          <Layers className="h-3.5 w-3.5" /> Efek klip — warna &amp; suasana
-          <span className="ml-auto rounded bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-semibold text-amber-300">
-            {aktifEfek.length}/6 aktif
-          </span>
-        </p>
-        <p className="mb-1.5 text-[11px] leading-snug text-slate-500">
-          Bisa dipadukan (maks 6) — mis. Teal &amp; Orange + Vignette + Film Grain.
-        </p>
-        {(["grade", "fx"] as const).map((grup) => (
-          <div key={grup} className="mb-2">
-            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-              {grup === "grade" ? "Color grading" : "Efek visual"}
-            </p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {CLIP_EFFECTS.filter((e) => e.group === grup).map((e) => {
-                const on = aktifEfek.includes(e.id);
-                return (
-                  <button
-                    key={e.id}
-                    type="button"
-                    title={e.desc}
-                    onClick={() => toggleEfek(e.id)}
-                    className={`rounded-lg border px-2 py-1.5 text-left text-[11px] transition ${
-                      on
-                        ? "border-emerald-400/60 bg-emerald-400/10 text-emerald-100"
-                        : "border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-500"
-                    }`}
-                  >
-                    <span className="block font-medium leading-tight">{e.name}</span>
-                    <span className="mt-0.5 block truncate text-[10px] opacity-70">{e.desc}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        {aktifEfek.length > 0 && (
-          <button
-            type="button"
-            onClick={() => set("efekKlip", [])}
-            className="w-full rounded-lg border border-slate-700 py-1.5 text-[11px] text-slate-300 transition hover:border-rose-400/60 hover:text-rose-200"
-          >
-            Bersihkan efek ({aktifEfek.length} aktif)
-          </button>
-        )}
-      </div>
-
-      {/* ===== catatan mesin ===== */}
-      <div className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/5 p-2.5">
-        <p className="text-[11px] leading-snug text-amber-200/90">
-          Transisi/efek aktif → part dirender ulang dgn mesin RENDER ffmpeg (bukan Potong
-          Langsung/KILAT) — hasil lebih kaya tapi ekspor lebih lama. Matikan keduanya untuk
-          kembali ke pemotongan kilat tanpa render.
+        <p className="mt-1.5 text-[10px] leading-snug text-slate-500">
+          Transisi &amp; efek memaksa jalur RENDER ffmpeg (POTONG LANGSUNG/KILAT otomatis
+          ditinggalkan bila aktif) — semuanya terbakar nyata ke video.
         </p>
       </div>
     </Kartu>
   );
 }
+
+/* ================================================================
+   06 · SUBTITEL AI · VOCALIS v4 (mod 06 KINOSTRA)
+   ================================================================ */
+const BAHASA_V4: Array<{ v: "jwid" | "jw" | "id" | "enid"; l: string }> = [
+  { v: "jwid", l: "OTOMATIS · JAWA / INDONESIA" },
+  { v: "jw", l: "JAWA" },
+  { v: "id", l: "INDONESIA" },
+  { v: "enid", l: "INGGRIS → TERJEMAH ID" },
+];
+const MESIN_V4: Array<{ v: "turbo" | "akurat" | "cepat" | "ringan"; l: string }> = [
+  { v: "turbo", l: "TURBO · PALING AKURAT (±547 MB)" },
+  { v: "akurat", l: "SEDANG · SEIMBANG (±181 MB)" },
+  { v: "cepat", l: "CEPAT · RINGAN & TAJAM (±60 MB)" },
+  { v: "ringan", l: "RINGAN · TERCEPAT (±32 MB)" },
+];
+
+/** segmen → isi .srt (client, murni) */
+function segmenKeSrt(segmen: Array<{ a: number; b: number; t: string }>): string {
+  const w = (d: number) => {
+    const ms = Math.max(0, Math.round(d * 1000));
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    const s = Math.floor((ms % 60000) / 1000);
+    const mss = String(ms % 1000).padStart(3, "0");
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")},${mss}`;
+  };
+  return segmen
+    .map((s, i) => `${i + 1}\n${w(s.a)} --> ${w(s.b)}\n${s.t}\n`)
+    .join("\n");
+}
+
+/** parse .srt sederhana → segmen (client, murni) */
+function srtKeSegmen(isi: string): Array<{ a: number; b: number; t: string }> {
+  const ms = (w: string): number => {
+    const m = /(\d{2}):(\d{2}):(\d{2})[,.](\d{1,3})/.exec(w);
+    if (!m) return 0;
+    return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4].padEnd(3, "0")) / 1000;
+  };
+  const keluar: Array<{ a: number; b: number; t: string }> = [];
+  for (const blok of isi.replace(/\r/g, "").split(/\n{2,}/)) {
+    const baris = blok.split("\n").filter(Boolean);
+    if (baris.length < 2) continue;
+    const idxWaktu = baris.findIndex((b) => b.includes("-->"));
+    if (idxWaktu < 0) continue;
+    const [a, b] = baris[idxWaktu].split("-->");
+    const teks = baris.slice(idxWaktu + 1).join(" ").trim();
+    if (teks) keluar.push({ a: ms(a), b: ms(b), t: teks });
+  }
+  return keluar;
+}
+
+export function PanelSubtitleKino({
+  pengaturan,
+  onChange,
+  nomorVideo,
+  fileRel,
+  adaAudio,
+  onSubsSedia,
+}: {
+  pengaturan: Pengaturan;
+  onChange: (p: Pengaturan) => void;
+  nomorVideo: number;
+  /** path relatif video aktif di work/ ("" pada mode tertentu) */
+  fileRel: string;
+  adaAudio: boolean;
+  /** v3.4.0 — segmen hasil BUAT/IMPOR dilaporkan ke page (ikut payload ekspor
+   *  sbg override → ekspor TIDAK menghitung ulang + geser waktu dipakai) */
+  onSubsSedia: (fileRel: string, segmen: Array<{ a: number; b: number; t: string }> | null) => void;
+}) {
+  const set = <K extends keyof Pengaturan>(k: K, v: Pengaturan[K]) =>
+    onChange({ ...pengaturan, [k]: v });
+  const [sibuk, setSibuk] = useState(false);
+  // v3.4.0 — hasil disimpan BERSAMA KUNCI video+setelan: ganti video/setelan →
+  // data otomatis dianggap basi TANPA setState dalam effect (anti cascadig render)
+  const kunciHasil = `${fileRel}|${pengaturan.subtitleBahasa}|${pengaturan.subtitleModel}|${pengaturan.subtitleLagu}|${pengaturan.subtitleLewatiSunyi}`;
+  const [hasil, setHasil] = useState<{
+    kunci: string;
+    segmen: Array<{ a: number; b: number; t: string }>;
+    pesan: { ok: boolean; teks: string } | null;
+  } | null>(null);
+  const [lihatSemua, setLihatSemua] = useState(false);
+  // penghitung detik berjalan: cap waktu mulai + tik interval (tanpa setState sync)
+  const [mulaiJam, setMulaiJam] = useState<number | null>(null);
+  const [kini, setKini] = useState(0);
+  useEffect(() => {
+    if (mulaiJam === null) return;
+    const i = setInterval(() => setKini(Date.now()), 1000);
+    return () => clearInterval(i);
+  }, [mulaiJam]);
+  const detikJalan = mulaiJam !== null ? Math.floor((kini - mulaiJam) / 1000) : 0;
+  const segmen = hasil?.kunci === kunciHasil ? hasil.segmen : null;
+  const pesan = hasil?.kunci === kunciHasil ? hasil.pesan : null;
+  const simpanHasil = (
+    segmenBaru: Array<{ a: number; b: number; t: string }>,
+    pesanBaru: { ok: boolean; teks: string } | null,
+  ) => setHasil({ kunci: kunciHasil, segmen: segmenBaru, pesan: pesanBaru });
+
+  const buatSubtitle = async () => {
+    if (sibuk || !fileRel || !adaAudio) return;
+    setSibuk(true);
+    setMulaiJam(Date.now());
+    setKini(Date.now());
+    try {
+      const r = await fetch("/api/subtitle-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file: fileRel, pengaturan, penuh: true }),
+      });
+      const j = (await r.json()) as {
+        ok: boolean;
+        pesan?: string;
+        segmen?: Array<{ a: number; b: number; t: string }>;
+        jumlahSegmen?: number;
+      };
+      if (!j.ok) throw new Error(j.pesan || "Analisis gagal");
+      const daftar = j.segmen || [];
+      simpanHasil(daftar, { ok: true, teks: `VOCALIS v4 siap — ${daftar.length} baris teks (cache terisi, ekspor tak menghitung ulang)` });
+      onSubsSedia(fileRel, daftar);
+    } catch (e) {
+      simpanHasil([], { ok: false, teks: e instanceof Error ? e.message : "Koneksi server terputus" });
+    } finally {
+      setSibuk(false);
+      setMulaiJam(null);
+    }
+  };
+
+  const eksporSrt = () => {
+    if (!segmen?.length) return;
+    const blob = new Blob([segmenKeSrt(segmen)], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${(fileRel.split("/").pop() || "vidsplit").replace(/\.[^.]+$/, "")}.srt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
+  const imporSrt = async (f: File) => {
+    try {
+      const isi = await f.text();
+      const daftar = srtKeSegmen(isi).slice(0, 5000);
+      if (!daftar.length) throw new Error("Tidak ada baris .srt yang terbaca");
+      simpanHasil(daftar, { ok: true, teks: `${daftar.length} baris .srt diimpor — teks ini yang dibakar saat ekspor` });
+      onSubsSedia(fileRel, daftar);
+    } catch (e) {
+      simpanHasil([], { ok: false, teks: e instanceof Error ? e.message : "Impor gagal" });
+    }
+  };
+
+  const bersihkanSub = () => {
+    setHasil(null);
+    onSubsSedia(fileRel, null);
+  };
+
+  const tampil = (segmen || []).slice(0, lihatSemua ? 200 : 30);
+  const sisa = (segmen?.length || 0) - tampil.length;
+
+  return (
+    <Kartu
+      nomor="06"
+      judul="SUBTITEL AI · VOCALIS v4"
+      badge="KINOSTRA"
+      deskripsi={`Mesin native whisper.cpp — 100% lokal · video #${nomorVideo}`}
+      ikon={<Captions className="h-4 w-4" />}
+    >
+      {/* BAHASA + MESIN (select ala mod 06) */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            BAHASA VIDEO
+          </span>
+          <select
+            value={pengaturan.subtitleBahasa}
+            onChange={(e) => set("subtitleBahasa", e.target.value as "jwid" | "jw" | "id" | "enid")}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-xs text-slate-100 outline-none focus:border-amber-400/70"
+          >
+            {BAHASA_V4.map((b) => (
+              <option key={b.v} value={b.v}>
+                {b.l}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+            MESIN VOCALIS v4
+          </span>
+          <select
+            value={pengaturan.subtitleModel}
+            onChange={(e) => set("subtitleModel", e.target.value as "turbo" | "akurat" | "cepat" | "ringan")}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-xs text-slate-100 outline-none focus:border-amber-400/70"
+          >
+            {MESIN_V4.map((m) => (
+              <option key={m.v} value={m.v}>
+                {m.l} — {LABEL_MODEL[m.v]}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="mt-2">
+        <Cek
+          nilai={pengaturan.subtitleLagu}
+          onChange={(v) => set("subtitleLagu", v)}
+          label="MODE LAGU / VOKAL (VIDEO BERNYANYI)"
+        />
+        <Cek
+          nilai={pengaturan.subtitleAktif}
+          onChange={(v) => set("subtitleAktif", v)}
+          label="AUTO-SUBTITEL — SEMUA VIDEO OTOMATIS DIBUATKAN SUBTITEL SAAT EKSPOR / SPLIT / BATCH"
+        />
+        <Cek
+          nilai={pengaturan.subtitleLewatiSunyi}
+          onChange={(v) => set("subtitleLewatiSunyi", v)}
+          label="MODE TURBO — LEWATI BAGIAN TANPA SUARA (JAUH LEBIH CEPAT)"
+        />
+        <Cek
+          nilai={pengaturan.subtitleBakar}
+          onChange={(v) => set("subtitleBakar", v)}
+          label="BURN-IN SUBTITEL KE VIDEO"
+        />
+      </div>
+
+      {/* BUAT SUBTITEL DARI VOKAL */}
+      <button
+        type="button"
+        onClick={buatSubtitle}
+        disabled={sibuk || !fileRel || !adaAudio}
+        title={!adaAudio ? "Video ini tidak punya suara" : "Analisis suara penuh + isi cache (ekspor nanti instan)"}
+        className="mt-2.5 flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 py-2 text-xs font-semibold text-sky-300 transition enabled:hover:border-sky-400 enabled:hover:text-sky-200 disabled:opacity-50"
+      >
+        <BrainCircuit className="h-4 w-4" />
+        {sibuk ? `MENGANALISIS SUARA… ${detikJalan} dtk` : "BUAT SUBTITEL DARI VOKAL"}
+      </button>
+      <p className="mt-1.5 text-[11px] leading-snug text-slate-500">
+        {sibuk
+          ? "Video panjang butuh beberapa menit — biarkan tab terbuka."
+          : "VOCALIS v4 siap · mesin native (tanpa batas memori browser) · 100% lokal — model diunduh sekali saat pertama dipakai."}
+      </p>
+      {pesan && (
+        <p
+          className={`mt-1.5 rounded-md border px-2 py-1.5 text-[11px] ${
+            pesan.ok
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+              : "border-amber-500/30 bg-amber-500/10 text-amber-300"
+          }`}
+        >
+          {pesan.teks}
+        </p>
+      )}
+
+      {/* GESER WAKTU + SRT */}
+      <Lbl>GESER WAKTU SEMUA BARIS</Lbl>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => set("subtitleGeser", Math.max(-30, (pengaturan.subtitleGeser || 0) - 0.5))}
+          className="rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-[11px] text-slate-300 hover:border-slate-500"
+        >
+          −0,5 DTK
+        </button>
+        <span
+          className={`text-xs font-medium ${
+            (pengaturan.subtitleGeser || 0) === 0 ? "text-slate-500" : "text-amber-300"
+          }`}
+        >
+          {(pengaturan.subtitleGeser || 0) === 0
+            ? "0,0 dtk"
+            : `${pengaturan.subtitleGeser > 0 ? "+" : ""}${pengaturan.subtitleGeser.toFixed(1)} dtk`}
+        </span>
+        <button
+          type="button"
+          onClick={() => set("subtitleGeser", Math.min(30, (pengaturan.subtitleGeser || 0) + 0.5))}
+          className="rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-[11px] text-slate-300 hover:border-slate-500"
+        >
+          +0,5 DTK
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={eksporSrt}
+          disabled={!segmen?.length}
+          className="flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-[11px] text-slate-300 transition enabled:hover:border-amber-400/60 enabled:hover:text-amber-200 disabled:opacity-40"
+        >
+          <FileDown className="h-3.5 w-3.5" /> EKSPOR .SRT
+        </button>
+        <label
+          className={`flex cursor-pointer items-center gap-1 rounded-md border border-slate-700 bg-slate-800/60 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-amber-400/60 hover:text-amber-200 ${
+            !fileRel ? "pointer-events-none opacity-40" : ""
+          }`}
+        >
+          <Upload className="h-3.5 w-3.5" /> IMPOR SRT…
+          <input
+            type="file"
+            accept=".srt,text/plain"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void imporSrt(f);
+              e.currentTarget.value = "";
+            }}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={bersihkanSub}
+          disabled={!segmen}
+          title="Buang daftar teks video ini"
+          className="flex items-center gap-1 rounded-md border border-red-400/40 px-2 py-1.5 text-[11px] text-red-300 transition enabled:hover:bg-red-400/10 disabled:opacity-40"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* DAFTAR BARIS (subList) */}
+      <div className="mt-2 max-h-52 space-y-1 overflow-y-auto rounded-md border border-slate-700/60 bg-slate-900/60 p-2">
+        {segmen?.length ? (
+          <>
+            {tampil.map((s, i) => (
+              <div key={i} className="flex gap-2 text-[11px] leading-snug">
+                <span className="shrink-0 font-mono text-[10px] text-sky-400/80">
+                  {formatWaktuSub(s.a)}–{formatWaktuSub(s.b)}
+                </span>
+                <span className="text-slate-300">{s.t}</span>
+              </div>
+            ))}
+            {sisa > 0 && !lihatSemua && (
+              <button
+                type="button"
+                onClick={() => setLihatSemua(true)}
+                className="text-[10px] font-medium text-sky-400 hover:text-sky-300"
+              >
+                +{sisa} baris lainnya — tampilkan semua
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="py-3 text-center text-[10px] uppercase tracking-[0.14em] text-slate-600">
+            BELUM ADA SUBTITEL
+          </div>
+        )}
+      </div>
+
+      {/* UKURAN + POSISI (mod 06: skala 0.6–1.8× & posY 0.45–0.97) */}
+      <Lbl kanan={<span className="text-amber-300">{(pengaturan.subtitleUkuran / 26).toFixed(2)}×</span>}>
+        UKURAN SUBTITEL
+      </Lbl>
+      <input
+        type="range"
+        className="w-full"
+        min={15}
+        max={47}
+        step={1}
+        value={pengaturan.subtitleUkuran}
+        onChange={(e) => set("subtitleUkuran", Number(e.target.value))}
+      />
+      <Lbl
+        kanan={
+          <span className="text-amber-300">
+            {Math.round(pengaturan.subtitleY)}% ·{" "}
+            {pengaturan.subtitleY >= 85 ? "BAWAH" : pengaturan.subtitleY >= 65 ? "TENGAH-BAWAH" : "TENGAH"}
+          </span>
+        }
+      >
+        POSISI SUBTITEL — GESER KE ATAS / KE BAWAH
+      </Lbl>
+      <input
+        type="range"
+        className="w-full"
+        min={45}
+        max={97}
+        step={0.5}
+        value={pengaturan.subtitleY}
+        onChange={(e) => set("subtitleY", Number(e.target.value))}
+      />
+
+      {/* WARNA (fitur VidSplit v0.54 — dipertahankan) */}
+      <div className="mt-3 space-y-1.5 rounded-lg border border-slate-700/70 bg-slate-800/30 p-2.5">
+        <p className="text-[11px] font-medium text-slate-400">Warna subtitle</p>
+        <PilihWarna
+          label="Warna teks"
+          nilai={pengaturan.subtitleWarna || "#ffffff"}
+          onChange={(v) => set("subtitleWarna", v)}
+        />
+        <PilihWarna
+          label="Warna outline"
+          nilai={pengaturan.subtitleOutlineWarna || "#000000"}
+          onChange={(v) => set("subtitleOutlineWarna", v)}
+        />
+      </div>
+      <p className="mt-2 text-[10px] leading-snug text-slate-500">
+        VOCALIS v4 (whisper.cpp) — otomatis Jawa/Indonesia diujing dua kali (leksikon prefiks-4,
+        pola KINOSTRA); burn-in mati = transkrip tak dijalankan (ekspor lebih cepat).
+      </p>
+    </Kartu>
+  );
+}
+

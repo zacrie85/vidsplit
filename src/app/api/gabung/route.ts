@@ -18,6 +18,8 @@ import {
   rapikanPosisiXY,
   rapikanPosisiY,
   ANIMASI_TEKS,
+  ANIMASI_COVER,
+  FILTER_WARNA,
   type NamaFont,
   type Pengaturan,
 } from "@/lib/vidsplit/types";
@@ -112,7 +114,9 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   p.introTemplate =
     p.introTemplate && templateCoverValid(String(p.introTemplate)) ? String(p.introTemplate) : "";
   p.subtitleModel =
-    p.subtitleModel === "ringan" || p.subtitleModel === "akurat" ? p.subtitleModel : "cepat";
+    p.subtitleModel === "ringan" || p.subtitleModel === "akurat" || p.subtitleModel === "turbo"
+      ? p.subtitleModel
+      : "cepat";
   p.subtitleBahasa =
     p.subtitleBahasa === "jw" || p.subtitleBahasa === "jwid" || p.subtitleBahasa === "enid"
       ? p.subtitleBahasa
@@ -120,6 +124,40 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
   // sinkron field usang → mesin baru (jobs lama masih membacanya)
   p.subtitleCepat = p.subtitleModel !== "akurat";
   p.subtitleDeteksiBahasa = p.subtitleBahasa === "enid";
+  // v3.4.0 — MENU KINOSTRA: clamp field baru (gabung = mesin render penuh juga)
+  if (!"auto single manual".split(" ").includes(String(p.coverSumber))) p.coverSumber = "auto";
+  p.coverFile = typeof p.coverFile === "string" ? p.coverFile.slice(0, 500) : "";
+  p.coverJudul = String(p.coverJudul || "").slice(0, 300);
+  if (!/^[a-z]*$/.test(String(p.coverLayout))) p.coverLayout = "impact";
+  if (!/^[a-z]*$/.test(String(p.coverPalet))) p.coverPalet = "cyber";
+  if (p.coverLatar !== "hitam") p.coverLatar = "adegan";
+  if (!["none", "klasik", "modern", "futuristik"].includes(String(p.coverBingkai)))
+    p.coverBingkai = "none";
+  p.coverKataPart = (["", "PART", "EPISODE", "EPS", "BAGIAN", "#"] as const).includes(
+    p.coverKataPart as never,
+  )
+    ? p.coverKataPart
+    : "PART";
+  p.coverSkalaPart = clamp(p.coverSkalaPart, 0.5, 2.5, 1);
+  p.coverAnimJudul = ANIMASI_COVER.some((a) => a.id === p.coverAnimJudul) ? p.coverAnimJudul : "";
+  p.coverAnimPart = ANIMASI_COVER.some((a) => a.id === p.coverAnimPart) ? p.coverAnimPart : "";
+  p.coverTrans = isTransisiValid(String(p.coverTrans || "")) ? String(p.coverTrans || "") : "";
+  p.coverTransDurasi = clamp(p.coverTransDurasi, 0.2, 1.5, 0.6);
+  p.vfxKecerahan = clamp(p.vfxKecerahan, 0.5, 1.5, 1);
+  p.vfxKontras = clamp(p.vfxKontras, 0.5, 1.5, 1);
+  p.vfxKejenuhan = clamp(p.vfxKejenuhan, 0, 2, 1);
+  p.vfxVignette = p.vfxVignette === true;
+  p.vfxGrain = p.vfxGrain === true;
+  p.vfxFilter = FILTER_WARNA.some((f) => f.k === p.vfxFilter) ? p.vfxFilter : "";
+  if (!["off", "teks", "logo"].includes(String(p.wmMode))) p.wmMode = "off";
+  p.wmTeks = String(p.wmTeks || "@VIDSPLIT").slice(0, 28);
+  p.wmOpasitas = clamp(p.wmOpasitas, 0.1, 1, 0.6);
+  if (!["off", "in", "out", "panx", "pany", "diag"].includes(String(p.kbMode))) p.kbMode = "off";
+  p.kbKekuatan = clamp(p.kbKekuatan, 0.05, 0.6, 0.3);
+  p.subtitleLagu = p.subtitleLagu === true;
+  p.subtitleLewatiSunyi = p.subtitleLewatiSunyi !== false;
+  p.subtitleBakar = p.subtitleBakar !== false;
+  p.subtitleGeser = clamp(p.subtitleGeser, -30, 30, 0);
   return p;
 }
 

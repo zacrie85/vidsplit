@@ -162,6 +162,12 @@ export interface OpsiTranskrip {
   model?: ModelSubtitle;
   /** v3.3.0 — bahasa suara: id / jw / jwid (probe ganda) / enid (→ terjemah) */
   bahasa?: BahasaSubtitle;
+  /** v3.4.0 — MODE LAGU/VOKAL (mod 06 VOCALIS v4 KINOSTRA): ambang sunyi
+   *  lebih rendah — vokal bernyanyi pelan tidak ikut terbuang sbg "sunyi" */
+  modeLagu?: boolean;
+  /** v3.4.0 — LEWATI SUNYI (mod 06 KINOSTRA): true = blok tanpa suara
+   *  DILEWATI (cepat — bawaan); false = SEMUA blok dianalisis (lengkap) */
+  lewatiSunyi?: boolean;
   /** v0.53.0 — blok PERTAMA dibuat lebih pendek (detik, "kickstart") supaya
    *  zona part-part awal cepat tercakup dan render part bisa mulai lebih awal.
    *  0/undefined = perilaku lama (blok seragam DURASI_BLOK). */
@@ -788,18 +794,22 @@ async function transkripDiterjemahkanCpp(
   const modelPath = path.join(info.dirModel, namaModelGgml(model));
 
   // blok + laporan zona — pola persis jalur ONNX (kickstart & sunyi tetap)
+  // v3.4.0 — mode lagu: ambang sunyi ×0.5 (vokal pelan tidak terbuang);
+  // lewatiSunyi=false: SEMUA blok dianalisis (tak ada yang dilompati)
+  const ambangSunyi = opsi?.modeLagu ? AMBATANG_SUNYI * 0.5 : AMBATANG_SUNYI;
   const semuaBlok = bagiBlokAudio(audio, DURASI_BLOK, OVERLAP_BLOK, opsi?.blokPertamaDtk || 0);
   const indeksAktif: number[] = [];
   let sunyi = 0;
   semuaBlok.forEach((b, i) => {
-    if (apakahBlokSunyi(b.data)) sunyi += 1;
+    const bs = apakahBlokSunyi(b.data, ambangSunyi);
+    if (bs && opsi?.lewatiSunyi !== false) sunyi += 1;
     else indeksAktif.push(i);
   });
   opsi?.onBlokDaftar?.(
     semuaBlok.map((b) => ({
       mulai: b.mulai,
       akhir: b.mulai + b.data.length / 16000,
-      sunyi: apakahBlokSunyi(b.data),
+      sunyi: apakahBlokSunyi(b.data, ambangSunyi),
     })),
   );
 

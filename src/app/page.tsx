@@ -27,18 +27,17 @@ import {
 import { PanelEkspor } from "@/components/vds/PanelEkspor";
 import { PanelRiwayat } from "@/components/vds/PanelRiwayat";
 import {
-  PanelCoverIntro,
+  PanelCoverKino,
   PanelBacksound,
   PanelDeskripsi,
+  PanelEfekKino,
   PanelFrame,
   PanelJudul,
   PanelMode,
   PanelPart,
   PanelPembicara,
   PanelRingkasan,
-  PanelSubtitle,
-  PanelWatermark,
-  PanelEfek,
+  PanelSubtitleKino,
 } from "@/components/vds/BagianAtur";
 import { gayaCoverValid } from "@/lib/vidsplit/types";
 import { Preview } from "@/components/vds/Preview";
@@ -673,7 +672,21 @@ export default function Halaman() {
       introTeksWarna: s.introTeksWarna,
       introSuaraFile: s.introSuaraFile,
       introSuaraVolume: s.introSuaraVolume,
-          introTemplate: s.introTemplate, // v3.3.0 — template cover ikut
+      introTemplate: s.introTemplate, // v3.3.0 — jaga-jaga simpanan lama
+      // v3.4.0 — MENU COVER KINOSTRA ikut utuh
+      coverSumber: s.coverSumber,
+      coverFile: s.coverFile,
+      coverJudul: s.coverJudul,
+      coverLayout: s.coverLayout,
+      coverPalet: s.coverPalet,
+      coverLatar: s.coverLatar,
+      coverBingkai: s.coverBingkai,
+      coverKataPart: s.coverKataPart,
+      coverSkalaPart: s.coverSkalaPart,
+      coverAnimJudul: s.coverAnimJudul,
+      coverAnimPart: s.coverAnimPart,
+      coverTrans: s.coverTrans,
+      coverTransDurasi: s.coverTransDurasi,
     } as const;
     // info suara ikut tampil di semua kartu bila video aktif punya suara intro
     const infoSuara = s.introSuaraFile ? videoAktif.suaraInfo : null;
@@ -682,7 +695,7 @@ export default function Halaman() {
     );
     setDasar((p) => ({ ...p, ...inti }));
     toast.success(
-      `Setelan intro (${s.introAktif ? "AKTIF" : "MATI"}, frame ${s.introPosisi}%, ${s.durasiIntro} dtk${s.introSuaraFile ? ", dgn suara intro" : ""}) diterapkan ke SEMUA video (${daftar.length}) — thumbnail cover memang global`,
+      `Setelan COVER KINOSTRA (${s.introAktif ? "AKTIF" : "MATI"}, ${s.coverLayout}${s.coverPalet ? "--" + s.coverPalet : ""}, ${s.durasiIntro} dtk, transisi ${s.coverTrans || "tanpa"}) diterapkan ke SEMUA video (${daftar.length}) — thumbnail cover memang global`,
     );
   };
 
@@ -702,6 +715,11 @@ export default function Halaman() {
           // v3.3.0 — model whisper.cpp + bahasa suara ikut diterapkan
           subtitleModel: s.subtitleModel,
           subtitleBahasa: s.subtitleBahasa,
+          // v3.4.0 — VOCALIS v4 (mod 06 KINOSTRA) ikut utuh
+          subtitleLagu: s.subtitleLagu,
+          subtitleLewatiSunyi: s.subtitleLewatiSunyi,
+          subtitleBakar: s.subtitleBakar,
+          subtitleGeser: s.subtitleGeser,
           // v0.54.0 — warna subtitle ikut diterapkan ke semua video
           subtitleWarna: s.subtitleWarna,
           subtitleOutlineWarna: s.subtitleOutlineWarna,
@@ -717,6 +735,10 @@ export default function Halaman() {
       subtitleCepat: s.subtitleCepat,
       subtitleModel: s.subtitleModel,
       subtitleBahasa: s.subtitleBahasa,
+      subtitleLagu: s.subtitleLagu,
+      subtitleLewatiSunyi: s.subtitleLewatiSunyi,
+      subtitleBakar: s.subtitleBakar,
+      subtitleGeser: s.subtitleGeser,
       // v0.54.0 — warna subtitle ikut diterapkan ke semua video
       subtitleWarna: s.subtitleWarna,
       subtitleOutlineWarna: s.subtitleOutlineWarna,
@@ -812,6 +834,32 @@ export default function Halaman() {
     setDaftar((d) => d.map((v, i) => (i === aktif ? { ...v, suaraInfo: null } : v)));
   };
 
+  // ================= v3.4.0 — MENU KINOSTRA =================
+  // sumber cover MANUAL (mod 13): unggah gambar → work/upload (kind=logo store
+  // gambar dgn nama unik) → coverFile path relatif
+  const [sibukCover, setSibukCover] = useState(false);
+  const unggahCover = async (f: File) => {
+    setSibukCover(true);
+    try {
+      const r = await fetch(`/api/upload?kind=logo&nama=${encodeURIComponent(f.name)}`, {
+        method: "POST",
+        body: f,
+        headers: { "Content-Type": "application/octet-stream" },
+      });
+      const j = (await r.json()) as { ok: boolean; file?: string; error?: string };
+      if (!j.ok || !j.file) throw new Error(j.error || "Unggah cover gagal");
+      perbaruiAktif((p) => ({ ...p, coverSumber: "manual", coverFile: j.file as string }));
+      toast.success(`Cover "${f.name}" dipasang — sumber MANUAL aktif`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Unggah cover gagal");
+    } finally {
+      setSibukCover(false);
+    }
+  };
+  // v3.4.0 — BUAT SUBTITEL / IMPOR SRT (mod 06): segmen per video → payload
+  // ekspor sbg override (ekspor TIDAK menghitung ulang AI)
+  const [subsSedia, setSubsSedia] = useState<Record<string, Array<{ a: number; b: number; t: string }>>>({});
+
   const totalDurasi = daftar.reduce((a, v) => a + v.info.durasi, 0);
   // v2.0.0 — hitungan part MENGHORMATI jumlah otomatis & zona hapus (mode adegan
   // = 1 sementara, dipastikan saat ekspor oleh analisis adegan)
@@ -852,11 +900,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.3.0
+                v3.4.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.3.0
+              Suite video otomatis · Desktop v3.4.0
             </span>
           </span>
         </div>
@@ -1266,13 +1314,21 @@ export default function Halaman() {
                       tinggiVideo={videoAktif.info.tinggi}
                       onTerapkanUkuran={() => terapkanUkuranSemua("deskripsi")}
                     />
-                    <PanelSubtitle
+                    {/* v3.4.0 — mod 06 KINOSTRA: VOCALIS v4 (ganti total) */}
+                    <PanelSubtitleKino
                       pengaturan={videoAktif.pengaturan}
                       onChange={gantiPengaturanAktif}
                       nomorVideo={aktif + 1}
-                      onTerapkanSemua={terapkanSubtitleSemua}
                       fileRel={videoAktif.info.file}
                       adaAudio={videoAktif.info.adaAudio}
+                      onSubsSedia={(fileRel, segmen) =>
+                        setSubsSedia((m) => {
+                          const m2 = { ...m };
+                          if (segmen && segmen.length) m2[fileRel] = segmen;
+                          else delete m2[fileRel];
+                          return m2;
+                        })
+                      }
                     />
                   </>
                 )}
@@ -1286,19 +1342,8 @@ export default function Halaman() {
                       onTerapkanSemua={terapkanFrameKeSemua}
                       nomorVideo={aktif + 1}
                     />
-                    <PanelWatermark
-                      pengaturan={videoAktif.pengaturan}
-                      onChange={gantiPengaturanAktif}
-                      logoInfo={videoAktif.logoInfo}
-                      onLogoFile={unggahLogo}
-                      onHapusLogo={hapusLogo}
-                      logoSibuk={sibukLogo}
-                      lebarVideo={videoAktif.info.lebar}
-                      tinggiVideo={videoAktif.info.tinggi}
-                      srcUrl={`/api/file?p=${encodeURIComponent(videoAktif.info.file)}`}
-                      nomorVideo={aktif + 1}
-                      bukaDialog={diDesktop ? pilihLogoDesktop : undefined}
-                    />
+                    {/* v3.4.0 — PanelWatermark DIHAPUS: watermark pindah ke menu
+                        EFEK VISUAL & WATERMARK (mod 08 KINOSTRA) — satu tempat */}
                     {/* v2.0.0 — BACKSOUND MUSIK SENDIRI */}
                     <PanelBacksound
                       pengaturan={videoAktif.pengaturan}
@@ -1311,23 +1356,35 @@ export default function Halaman() {
                   </>
                 )}
                 {tabAtur === "efek" && (
-                  <PanelEfek pengaturan={videoAktif.pengaturan} onChange={gantiPengaturanAktif} />
+                  /* v3.4.0 — mod 08+09 KINOSTRA: efek visual & watermark + gerak & transisi */
+                  <PanelEfekKino
+                    pengaturan={videoAktif.pengaturan}
+                    onChange={gantiPengaturanAktif}
+                    nomorVideo={aktif + 1}
+                    logoInfo={videoAktif.logoInfo}
+                    onLogoFile={unggahLogo}
+                    onHapusLogo={hapusLogo}
+                    logoSibuk={sibukLogo}
+                    bukaDialogLogo={diDesktop ? pilihLogoDesktop : undefined}
+                  />
                 )}
                 {tabAtur === "cover" && (
                   <>
-                    {/* v2.5.0 — menu 6 GABUNGAN: Thumbnail otomatis (global) + Background
-                        intro (per video) + tombol Terapkan intro ke semua */}
-                    <PanelCoverIntro
+                    {/* v3.4.0 — mod 13 KINOSTRA: COVER VIDEO PEMBUKA · NOVACUT
+                        (menu cover lama DIHAPUS SEMUA — PemilihCover & PanelCoverIntro) */}
+                    <PanelCoverKino
                       pengaturan={videoAktif.pengaturan}
                       onChange={gantiPengaturanAktif}
                       nomorVideo={aktif + 1}
-                      // v2.1.0 — suara intro
+                      onImporCover={unggahCover}
+                      coverSibuk={sibukCover}
+                      // v2.1.0 — suara intro (fitur VidSplit tetap)
                       suaraInfo={videoAktif.suaraInfo}
                       onSuaraFile={unggahSuaraIntro}
                       onHapusSuara={hapusSuaraIntro}
                       suaraSibuk={sibukSuaraIntro}
                       bukaDialogAudio={diDesktop ? pilihSuaraIntroDesktop : undefined}
-                      // v2.5.0 — thumbnail global + terapkan intro ke semua
+                      // v2.5.0 — thumbnail global (desain ikut setelan cover di atas)
                       opsiThumb={{
                         aktif: opsiEkspor.thumbnailAktif,
                         kata: opsiEkspor.thumbnailKata,
@@ -1335,18 +1392,24 @@ export default function Halaman() {
                         mode: opsiEkspor.thumbnailMode,
                         gaya: opsiEkspor.thumbnailGaya,
                       }}
-                      onOpsiThumb={(o) =>
+                      onOpsiThumb={(
+                        o: {
+                          aktif: boolean;
+                          format: "jpg" | "png";
+                          mode: "per-part" | "satu" | "identik";
+                          kata: string;
+                          gaya: string;
+                        },
+                      ) =>
                         setOpsiEkspor({
                           ...opsiEkspor,
                           thumbnailAktif: o.aktif,
-                          thumbnailKata: o.kata,
+                          thumbnailKata: o.kata as "Part" | "Bagian" | "Episode",
                           thumbnailFormat: o.format,
                           thumbnailMode: o.mode,
                           thumbnailGaya: o.gaya,
                         })
                       }
-                      totalVideo={daftar.length}
-                      onTerapkanIntroSemua={terapkanIntroKeSemua}
                     />
                   </>
                 )}
@@ -1377,6 +1440,8 @@ export default function Halaman() {
                   tinggi: v.info.tinggi,
                   fps: v.info.fps,
                   adaAudio: v.info.adaAudio,
+                  // v3.4.0 — teks BUAT SUBTITEL/IMPOR SRT (override ekspor)
+                  ...(subsSedia[v.info.file] ? { subs: subsSedia[v.info.file] } : {}),
                 }))}
                 opsiEkspor={opsiEkspor}
                 onOpsiEkspor={setOpsiEkspor}
@@ -1419,14 +1484,14 @@ export default function Halaman() {
                   },
                   {
                     kunci: "subtitle",
-                    label: "Subtitle AI (08)",
-                    hint: "Salin setelan subtitle (aktif/ukuran/posisi/bahasa/model/warna) ke semua video",
+                    label: "Subtitle AI · VOCALIS v4 (06)",
+                    hint: "Salin setelan VOCALIS v4 (aktif/bahasa/model/lagu/sunyi/burn-in/geser/ukuran/posisi/warna) ke semua video",
                     onKlik: terapkanSubtitleSemua,
                   },
                   {
                     kunci: "intro",
-                    label: "Cover & intro (06)",
-                    hint: "Salin setelan intro + template cover video aktif ke semua video",
+                    label: "Cover Video Pembuka (13)",
+                    hint: "Salin setelan cover KINOSTRA (sumber/layout/palet/latar/bingkai/animasi/transisi) ke semua video",
                     onKlik: terapkanIntroKeSemua,
                   },
                 ]}

@@ -4,28 +4,35 @@
 // (whisper-cli lokal: `-m model -f wav -l id -sow -ml 1 -pp -oj`)
 // + probe ganda Jawa/Indonesia ala KINOSTRA (leksikon wScoreLex):
 //   • whisper.cpp JAUH lebih cepat dari jalur ONNX lama (C++ murni)
-//   • 3 model ggml q5_1: tiny (RINGAN) / base (CEPAT) / small (AKURAT)
+//   • 4 model ggml q5_1: tiny (RINGAN) / base (CEPAT) / small (AKURAT)
+//     / large-v3-turbo (TURBO ±547 MB — menu VOCALIS v4 KINOSTRA mod 06)
 //   • progres dihitung dari stderr `progress = N%`
 //   • output JSON: transcription[].offsets.from/to (MILIDETIK) + text
 //   • bahasa: id / jw / jwid (probe ganda) / enid (→ terjemah opus-mt
 //     di subtitle.ts, mesin pengenalan tetap whisper.cpp)
+//   • v3.4.0 — MODE LAGU + LEWATI SUNYI (port speechWindows/planChunks
+//     subs.js KINOSTRA): PCM 16k dipindai RMS → blok suara digabung
+//     (jeda lagu lebih longgar), whisper-cli dijalankan PER BLOK dgn
+//     wav terpotong → waktu blok digeser balik; bagian sunyi dilompati.
 // Binary & model dibundel di resources/whisper (extraResources) —
 // dev: assets/whisper/{bin,models}. Binary tidak ada → pemanggil
 // (subtitle.ts) otomatis jatuh ke mesin ONNX lama (nol regresi).
 // ============================================================
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync as readFileSyncWav } from "node:fs";
 import { mkdirSync, statSync, unlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { BahasaSubtitle, ModelSubtitle } from "./types";
+import { LABEL_MODEL } from "./types";
 import type { SegmenSub } from "./subtitle";
 
-/** peta model → berkas ggml q5_1 (sama persis dgn KolosalCut) */
+/** peta model → berkas ggml q5_1 (turbo = ggml-large-v3-turbo-q5_1 ±547 MB) */
 const MODEL_FILES: Record<ModelSubtitle, string> = {
   ringan: "ggml-tiny-q5_1.bin",
   cepat: "ggml-base-q5_1.bin",
   akurat: "ggml-small-q5_1.bin",
+  turbo: "ggml-large-v3-turbo-q5_1.bin",
 };
 
 /** nama berkas model ggml utk pilihan user (utk pemanggil luar) */
@@ -33,11 +40,78 @@ export function namaModelGgml(model: ModelSubtitle): string {
   return MODEL_FILES[model] ?? MODEL_FILES.cepat;
 }
 
-export const LABEL_MODEL: Record<ModelSubtitle, string> = {
-  ringan: "Ringan (Tiny)",
-  cepat: "Cepat (Base)",
-  akurat: "Akurat (Small)",
-};
+export { LABEL_MODEL };
+
+// ---------- v3.4.0 — LEWATI SUNYI + MODE LAGU (port subs.js KINOSTRA) ----------
+
+/** jendela suara dari PCM mono 16-bit (port speechWindows):
+ *  jendela 0,2 dtk — RMS > ambang = bersuara; mode lagu = ambang lebih rendah
+ *  (vokal bernyanyi lebih pelan & kontinu). Return rentang [mulai, akhir] dtk. */
+export function jendelaSuaraPcm(
+  pcm: Int16Array,
+  sr = 16000,
+  modeLagu = false,
+): Array<[number, number]> {
+  const win = Math.round(sr * 0.2);
+  const total = Math.floor(pcm.length / win);
+  // ambang: derau dasar dinamis — persentil 20 dari RMS jendela × faktor
+  const rmsJendela: number[] = [];
+  for (let i = 0; i < total; i++) {
+    let jumlah = 0;
+    for (let j = i * win; j < (i + 1) * win; j++) jumlah += pcm[j] * pcm[j];
+    rmsJendela.push(Math.sqrt(jumlah / win));
+  }
+  const urut = [...rmsJendela].sort((a, b) => a - b);
+  const dasar = urut[Math.floor(urut.length * 0.2)] || 0;
+  const ambang = Math.max(dasar * (modeLagu ? 2.2 : 3.0), modeLagu ? 120 : 220);
+  const jendela: Array<[number, number]> = [];
+  let mulai = -1;
+  for (let i = 0; i < total; i++) {
+    const suara = rmsJendela[i] > ambang;
+    if (suara && mulai < 0) mulai = i;
+    if (!suara && mulai >= 0) {
+      jendela.push([mulai * 0.2, i * 0.2]);
+      mulai = -1;
+    }
+  }
+  if (mulai >= 0) jendela.push([mulai * 0.2, total * 0.2]);
+  return jendela;
+}
+
+/** Gabung jendela suara → BLOK transkrip (port planChunks): jeda < gabung
+ *  dtk dilebur (lagu 3.5 — vokal kontinu; bicara 1.5); blok minimum 1 dtk;
+ *  maks 40 blok (lebih banyak → whisper dijalankan berulang, tetap murah
+ *  karena bagian sunyi dilompati). Murni. */
+export function blokBicara(
+  jendela: Array<[number, number]>,
+  durasiTotal: number,
+  modeLagu = false,
+): Array<[number, number]> {
+  const gabung = modeLagu ? 3.5 : 1.5;
+  const blok: Array<[number, number]> = [];
+  let awal = -1, akhir = -1;
+  for (const [a, b] of jendela) {
+    if (awal < 0) {
+      awal = a;
+      akhir = b;
+    } else if (a - akhir <= gabung) {
+      akhir = Math.max(akhir, b);
+    } else {
+      blok.push([awal, akhir]);
+      awal = a;
+      akhir = b;
+    }
+  }
+  if (awal >= 0) blok.push([awal, akhir]);
+  // blok terlalu pendek (<1 dtk) dilebur ke tetangga — penggalan bikin whisper bingung
+  const rapat = blok.filter(([a, b]) => b - a >= 1 || a < 0.5);
+  const hasil = rapat.length ? rapat : blok.length ? [blok[0]] : [];
+  // clamp dalam durasi
+  return hasil
+    .map(([a, b]) => [Math.max(0, a), Math.min(Math.max(0.5, durasiTotal), b)] as [number, number])
+    .filter(([a, b]) => b > a + 0.4)
+    .slice(0, 40);
+}
 
 // ---------- pencarian binary & model ----------
 
@@ -338,6 +412,11 @@ export interface OpsiTranskripCpp {
   dirTmp: string;
   /** durasi sumber (dtk) — utk peta progres ekstraksi */
   durasiSumber?: number;
+  /** v3.4.0 — mode lagu/vokal: jendela suara lebih longgar (mod 06 KINOSTRA) */
+  modeLagu?: boolean;
+  /** v3.4.0 — LEWATI SUNYI (mode turbo): bagian tanpa suara dilompati —
+   *  whisper dijalankan PER BLOK bicara saja (jauh lebih cepat) */
+  lewatiSunyi?: boolean;
 }
 
 /**
@@ -393,22 +472,108 @@ export async function transkripWhisperCpp(
       }
     }
 
-    // tahap 3 — transkrip penuh (progres 0.1–1)
-    opsi.onProgres?.(0.11, "Mengenali suara (whisper.cpp)...");
-    await panggilWhisperCli({
-      bin: info.bin,
-      modelPath,
-      wavPath,
-      bahasa,
-      outBase,
-      onProgres: (f) => opsi.onProgres?.(0.1 + f * 0.9, "Mengenali suara (whisper.cpp)..."),
-      isBatal: opsi.isBatal,
-    });
+    // tahap 2b — v3.4.0 LEWATI SUNYI: pindai PCM → blok bicara (port
+    // speechWindows+planChunks subs.js KINOSTRA). 1 blok penuh = jalur lama.
+    let blok: Array<[number, number]> | null = null;
+    if (opsi.lewatiSunyi) {
+      try {
+        const pcm = bacaPcmWav(wavPath);
+        if (pcm && pcm.length > 0) {
+          const kandidat = blokBicara(
+            jendelaSuaraPcm(pcm, 16000, opsi.modeLagu === true),
+            opsi.durasiSumber || pcm.length / 16000,
+            opsi.modeLagu === true,
+          );
+          // berguna hanya bila benar-benar ada bagian sunyi terlewat
+          const totalBicara = kandidat.reduce((s, [a, b]) => s + (b - a), 0);
+          const durasiPenuh = opsi.durasiSumber || pcm.length / 16000;
+          if (kandidat.length > 1 && totalBicara < durasiPenuh * 0.92) blok = kandidat;
+        }
+      } catch {
+        blok = null; // gagal pindai → jalur penuh (aman)
+      }
+    }
 
-    // tahap 4 — parse & gabung kata → segmen
-    const { readFileSync } = await import("node:fs");
-    const kata = parseJsonWhisper(readFileSync(jsonPath, "utf8"));
-    const segmen = gabungKataWhisper(kata);
+    // tahap 3 — transkrip (progres 0.1–1). PER BLOK bila lewati-sunyi aktif
+    // dan ada bagian sunyi; waktu kata digeser balik ke posisi aslinya.
+    const kata: KataWhisper[] = [];
+    if (blok) {
+      const totalBicara = blok.reduce((s, [a, b]) => s + (b - a), 0);
+      let berjalan = 0;
+      for (let bi = 0; bi < blok.length; bi++) {
+        if (opsi.isBatal?.()) throw new Error("Teks otomatis dibatalkan");
+        const [a, b] = blok[bi];
+        const panjang = b - a;
+        const wavBlok = path.join(opsi.dirTmp, `${stempel}-b${bi}.wav`);
+        const basisBlok = path.join(opsi.dirTmp, `${stempel}-b${bi}`);
+        const { kode } = await jalankanBin(
+          opsi.ffmpegBin,
+          ["-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-ss", a.toFixed(3), "-t", (panjang + 0.25).toFixed(3), "-i", wavPath, "-c", "copy", wavBlok],
+        );
+        if (kode !== 0) continue;
+        opsi.onProgres?.(
+          0.1 + (berjalan / Math.max(0.1, totalBicara)) * 0.9,
+          `Mengenali suara (blok ${bi + 1}/${blok.length})...`,
+        );
+        try {
+          const kataBlok = await whisperCliJson({
+            bin: info.bin,
+            modelPath,
+            wavPath: wavBlok,
+            bahasa,
+            outBase: basisBlok,
+            onProgres: (f) =>
+              opsi.onProgres?.(
+                0.1 + ((berjalan + f * panjang) / Math.max(0.1, totalBicara)) * 0.9,
+                `Mengenali suara (blok ${bi + 1}/${blok.length})...`,
+              ),
+            isBatal: opsi.isBatal,
+          });
+          for (const k of kataBlok) kata.push({ a: k.a + a, b: k.b + a, t: k.t });
+        } catch {
+          /* blok gagal → dilewati */
+        }
+        berjalan += panjang;
+        for (const f of [wavBlok, `${basisBlok}.json`]) {
+          try {
+            if (existsSync(f)) unlinkSync(f);
+          } catch {
+            /* opsional */
+          }
+        }
+      }
+      if (!kata.length) {
+        // semua blok gagal → jalur penuh (aman)
+        opsi.onProgres?.(0.11, "Mengenali suara (whisper.cpp)...");
+        await panggilWhisperCli({
+          bin: info.bin,
+          modelPath,
+          wavPath,
+          bahasa,
+          outBase,
+          onProgres: (f) => opsi.onProgres?.(0.1 + f * 0.9, "Mengenali suara (whisper.cpp)..."),
+          isBatal: opsi.isBatal,
+        });
+        const { readFileSync } = await import("node:fs");
+        kata.push(...parseJsonWhisper(readFileSync(jsonPath, "utf8")));
+      }
+    } else {
+      opsi.onProgres?.(0.11, "Mengenali suara (whisper.cpp)...");
+      await panggilWhisperCli({
+        bin: info.bin,
+        modelPath,
+        wavPath,
+        bahasa,
+        outBase,
+        onProgres: (f) => opsi.onProgres?.(0.1 + f * 0.9, "Mengenali suara (whisper.cpp)..."),
+        isBatal: opsi.isBatal,
+      });
+      const { readFileSync } = await import("node:fs");
+      kata.push(...parseJsonWhisper(readFileSync(jsonPath, "utf8")));
+    }
+
+    // tahap 4 — gabung kata → segmen
+    const segmen = gabungKataWhisper(kata.sort((x, y) => x.a - y.a));
     opsi.onProgres?.(1, "Teks otomatis siap");
     return segmen;
   } finally {
@@ -438,5 +603,24 @@ async function teksProbe(
     return kata.map((k) => k.t).join(" ");
   } catch {
     return "";
+  }
+}
+
+/** v3.4.0 — baca PCM 16-bit mono dari WAV 16 kHz (hasil ekstrakWav).
+ *  Cari chunk "data" (bukan asumsi header 44 byte), kembalikan sampel. */
+export function bacaPcmWav(file: string): Int16Array | null {
+  try {
+    const buf = readFileSyncWav(file);
+    const idx = buf.indexOf("data", 12, "ascii");
+    if (idx < 0) return null;
+    const ukuran = buf.readUInt32LE(idx + 4);
+    const mulai = idx + 8;
+    const akhir = ukuran > 0 ? Math.min(mulai + ukuran, buf.length) : buf.length;
+    const sampel = Math.floor((akhir - mulai) / 2);
+    const pcm = new Int16Array(sampel);
+    for (let i = 0; i < sampel; i++) pcm[i] = buf.readInt16LE(mulai + i * 2);
+    return pcm;
+  } catch {
+    return null;
   }
 }

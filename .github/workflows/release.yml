@@ -49,7 +49,7 @@ jobs:
           Get-ChildItem -Path (Split-Path $cli.FullName) -Filter "*.dll" | ForEach-Object {
             Copy-Item $_.FullName "assets/whisper/bin/"
           }
-          foreach ($m in @("tiny", "base", "small")) {
+          foreach ($m in @("tiny", "base", "small", "large-v3-turbo")) {
             $target = "assets/whisper/models/ggml-$m-q5_1.bin"
             for ($i = 1; $i -le 5; $i++) {
               try {
@@ -68,7 +68,10 @@ jobs:
             $f = Get-Item "assets/whisper/models/ggml-$m-q5_1.bin"
             if ($f.Length -lt 20MB) { throw "Model $m terlalu kecil ($($f.Length) byte) — unduhan rusak" }
           }
-          Write-Host "whisper.cpp + 3 model siap."
+          # v3.4.0 — model TURBO (large-v3-turbo ±547 MB, VOCALIS v4 mod 06 KINOSTRA)
+          $ft = Get-Item "assets/whisper/models/ggml-large-v3-turbo-q5_1.bin"
+          if ($ft.Length -lt 400MB) { throw "Model turbo terlalu kecil ($($ft.Length) byte) — unduhan rusak" }
+          Write-Host "whisper.cpp + 4 model siap (tiny/base/small + turbo)."
 
       - name: Pasang Node.js 22
         uses: actions/setup-node@v4

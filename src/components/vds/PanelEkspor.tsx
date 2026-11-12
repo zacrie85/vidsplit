@@ -36,6 +36,9 @@ interface ItemVideo {
   tinggi?: number;
   fps?: number;
   adaAudio?: boolean;
+  /** v3.4.0 — teks BUAT SUBTITEL / IMPOR SRT (mod 06 VOCALIS v4) — override
+   *  ekspor: server memakai baris ini apa adanya (tanpa analisis ulang AI) */
+  subs?: Array<{ a: number; b: number; t: string }>;
 }
 
 const LABEL_STATUS: Record<string, string> = {
@@ -190,6 +193,8 @@ export function PanelEkspor({
             nama: v.nama,
             logo: v.pengaturan.logoId || undefined,
             pengaturan: v.pengaturan,
+            // v3.4.0 — override subtitle VOCALIS/SRT ikut dikirim per video
+            ...(v.subs && v.subs.length ? { subs: v.subs.slice(0, 5000) } : {}),
           })),
           modeEkspor,
           // v2.0.0 — KOMPRES PINTAR: target ukuran MB (kosong = bebas)

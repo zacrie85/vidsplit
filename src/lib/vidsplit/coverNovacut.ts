@@ -243,15 +243,61 @@ export interface OpsiSvgCover {
   latar: "adegan" | "hitam";
   /** skala tulisan part 0.5–2.5 (bawaan 1) */
   skalaPart?: number;
+  /** v3.4.0 — bingkai cover di atas segalanya (port NCCOVER_FRAMES, alpha 0.75) */
+  bingkai?: "none" | "klasik" | "modern" | "futuristik";
 }
 
 /**
  * Bangun markup SVG SATU cover penuh (port 3 fase ncLayoutPass jadi lapisan
- * statis: latar+dekorasi → judul → part → tanpa bingkai animasi).
+ * statis: latar+dekorasi → judul → part → bingkai).
  * Latar "adegan": dasar transparan — ffmpeg menempelkan PNG ini di atas frame.
  * Latar "hitam": hitam + vignette radial (port ncDrawBackground).
+ * v3.4.0 — bagian dalam dibangun PER LAPIS (bg/judul/part/bingkai) supaya
+ * intro bisa dianimasikan ala KINOSTRA: bg = Ken Burns (zoompan), judul & part
+ * = overlay dgn ekspresi animasi, bingkai = statis paling atas
+ * (port ncBuildCoverLayers). svgCover() tetap mengembalikan SATU dokumen
+ * lengkap — output penuh IDENTIK dgn v3.3.0 saat bingkai "none".
  */
 export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
+  const L = lapisanCover(o, ukur);
+  const novacut = !L.dasar;
+  const isi = [
+    ...(novacut ? [L.defs] : []),
+    ...L.bg,
+    ...L.judul,
+    ...L.part,
+    ...L.bingkai,
+  ];
+  return bungkusSvg(o, isi);
+}
+
+/** akar dokumen SVG (murni) */
+function bungkusSvg(o: Pick<OpsiSvgCover, "W" | "H">, isi: string[]): string {
+  const W = Math.max(2, Math.round(o.W));
+  const H = Math.max(2, Math.round(o.H));
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${isi.join("")}</svg>`;
+}
+
+export interface LapisanCover {
+  /** true = template dasar lama (modern/klasik/futuristik) atau tanpa template */
+  dasar: boolean;
+  /** defs gradien+glow (hanya template NOVACUT — ikut dokumen bg & judul) */
+  defs: string;
+  /** latar + scrim + dekorasi layout (digerakkan Ken Burns) */
+  bg: string[];
+  /** blok judul (kotak + teks) — dianimasikan coverAnimJudul */
+  judul: string[];
+  /** badge/tulisan part — dianimasikan coverAnimPart (tunda 0,25 dtk) */
+  part: string[];
+  /** bingkai statis paling atas (alpha 0.75) */
+  bingkai: string[];
+}
+
+/**
+ * v3.4.0 — EMPAT LAPIS SVG cover (port ncBuildCoverLayers KINOSTRA).
+ * Dokumen utuh utk tiap lapis = svgCoverLapisDoc().
+ */
+export function lapisanCover(o: OpsiSvgCover, ukur: PengukurTeks): LapisanCover {
   const W = Math.max(2, Math.round(o.W));
   const H = Math.max(2, Math.round(o.H));
   const tpl = cariTemplateCover(o.template);
@@ -259,8 +305,14 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
   const part = (o.labelPart || "").trim();
   const ps = Math.min(2.5, Math.max(0.5, o.skalaPart ?? 1));
 
-  const svg: string[] = [];
-  svg.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">`);
+  const bgS: string[] = [];
+  const judulS: string[] = [];
+  const partS: string[] = [];
+  const bingkaiS: string[] = [];
+  // alias berjalan — kode fase memakai svg.push(...) persis pola lama
+  let svg = bgS;
+  let defs = "";
+  let dasar = true;
 
   // ---------- template DASAR (3 gaya lama, dibangun ulang di sistem baru) ----------
   if (!tpl || tpl.kategori === "dasar") {
@@ -275,6 +327,7 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
     if (k === "klasik") {
       // bingkai emas ganda + garis emas bawah kotak judul (port hiasan "emas")
       const jarak = r2(16 * u);
+      svg = bingkaiS; // v3.4.0 — hiasan = lapis bingkai (paling atas, urutan akhir)
       svg.push(`<rect x="${r2(2 * u)}" y="${r2(2 * u)}" width="${W - 4 * u}" height="${H - 4 * u}" fill="none" stroke="#d4af37" stroke-opacity="0.9" stroke-width="${r2(5 * u)}"/>`);
       svg.push(`<rect x="${jarak}" y="${jarak}" width="${r2(W - jarak * 2)}" height="${r2(H - jarak * 2)}" fill="none" stroke="#d4af37" stroke-opacity="0.45" stroke-width="${r2(2 * u)}"/>`);
     } else if (k === "futuristik") {
@@ -286,6 +339,7 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
         [0, H - t, s, t], [0, H - s, t, s],
         [W - s, H - t, s, t], [W - t, H - s, t, s],
       ];
+      svg = bingkaiS;
       for (const [x, y, w, h] of br)
         svg.push(`<rect x="${r2(x)}" y="${r2(y)}" width="${r2(w)}" height="${r2(h)}" fill="#22d3ee" opacity="0.9"/>`);
     }
@@ -301,7 +355,8 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
     const barisJ = Math.max(1, ft.baris.length);
     const yJudul = H * 0.055;
     const hBoxJ = barisJ * ft.fs * 1.35 + ft.fs * 0.5;
-    // kotak judul gelap + teks
+    // kotak judul gelap + teks (lapis JUDUL — dianimasikan)
+    svg = judulS;
     svg.push(`<rect x="0" y="${r2(yJudul)}" width="${W}" height="${r2(hBoxJ)}" fill="${gayaTeks.kotakJ}" opacity="${gayaTeks.opJ}"/>`);
     ft.baris.forEach((b, i) => {
       svg.push(
@@ -316,6 +371,7 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
       const yLabel = H * 0.76;
       const fsL = 56 * u;
       const hL = fsL * 1.6;
+      svg = partS; // v3.4.0 — label = lapis PART sendiri
       svg.push(`<rect x="0" y="${r2(yLabel)}" width="${W}" height="${r2(hL)}" fill="${gayaTeks.kotakL}" opacity="${gayaTeks.opL}"/>`);
       if (k === "futuristik")
         svg.push(`<rect x="0" y="${r2(yLabel - 2 * u)}" width="${W}" height="${r2(2 * u)}" fill="#e879f9" opacity="0.9"/>`);
@@ -323,18 +379,18 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
         `<text x="${W / 2}" y="${r2(yLabel + hL * 0.72)}" font-family="${FONT_COVER[gayaTeks.font].family}" font-size="${r2(fsL)}" font-weight="${FONT_COVER[gayaTeks.font].bobot}" fill="${gayaTeks.warnaL}" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
       );
     }
-    svg.push("</svg>");
-    return svg.join("");
+    return { dasar, defs, bg: bgS, judul: judulS, part: partS, bingkai: bingkaiS };
   }
 
   // ---------- template NOVACUT (port ncLayoutPass) ----------
+  dasar = false;
   const pal = NOVACUT_PALETTES.find((p) => p.k === tpl.palet) ?? NOVACUT_PALETTES[0];
   const lay = tpl.layout ?? "impact";
   const fg = pal.fg;
   const acc = pal.acc;
 
-  // defs gradien + glow
-  svg.push(
+  // defs gradien + glow — v3.4.0: string terpisah (ikut dokumen FULL, bg & judul)
+  defs =
     `<defs>` +
       `<linearGradient id="ncg1" x1="0" y1="0" x2="${lay === "side" ? 1 : 0}" y2="${lay === "side" ? 0 : 1}">` +
       `<stop offset="0" stop-color="${pal.bg1}"/><stop offset="1" stop-color="${pal.bg2}"/></linearGradient>` +
@@ -348,10 +404,10 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
       `<filter id="ncglow" x="-30%" y="-30%" width="160%" height="160%">` +
       `<feGaussianBlur stdDeviation="${r2(H * 0.014)}" result="b"/>` +
       `<feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>` +
-      `</filter></defs>`,
-  );
+      `</filter></defs>`;
 
   // ===== FASE bg — latar + dekorasi =====
+  svg = bgS;
   if (o.latar === "hitam") {
     svg.push(`<rect width="${W}" height="${H}" fill="#000"/>`);
     svg.push(`<rect width="${W}" height="${H}" fill="url(#ncvig)"/>`);
@@ -388,6 +444,7 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
   }
 
   // ===== FASE title =====
+  svg = judulS;
   const teks = (
     b: string,
     x: number,
@@ -488,6 +545,7 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
   }
 
   // ===== FASE part (port fase part, semua ukuran × ps) =====
+  svg = partS;
   if (part) {
     const badge = (px: number, py: number, size: number, align: "left" | "center" | "right") => {
       const tw = ukur.lebar(part.toUpperCase(), "condensed", size);
@@ -547,8 +605,114 @@ export function svgCover(o: OpsiSvgCover, ukur: PengukurTeks): string {
     } else if (lay === "band") badge(W * 0.06, H * 0.78, H * 0.03 * ps, "left");
   }
 
-  svg.push("</svg>");
-  return svg.join("");
+  // ===== v3.4.0 — BINGKAI COVER (port NCCOVER_FRAMES/ncDrawCoverFrame — alpha 0.75)
+  svg = bingkaiS;
+  const gayaBingkai = o.bingkai ?? "none";
+  if (gayaBingkai !== "none") {
+    const accent = dasar ? "#22d3ee" : acc;
+    ncBingkaiSvg(svg, W, H, gayaBingkai, accent);
+  }
+
+  return { dasar, defs, bg: bgS, judul: judulS, part: partS, bingkai: bingkaiS };
+}
+
+/* ================================================================
+   v3.4.0 — BINGKAI COVER — port ncFrameKlasik / ncFrameModern /
+   ncFrameFuturistik (nccover.js, globalAlpha 0.75) jadi bentuk SVG.
+   ================================================================ */
+function ncBingkaiSvg(out: string[], W: number, H: number, style: string, accent: string): void {
+  const A = 0.75; // globalAlpha KINOSTRA
+  const m = Math.min(W, H) * 0.05;
+  const g = (op: number) => ` opacity="${r2(A * op)}"`;
+  if (style === "klasik") {
+    const gold = "#ecd9a0", deep = "#c9a24b";
+    const lw = Math.max(2, H * 0.006);
+    out.push(`<rect x="${r2(m)}" y="${r2(m)}" width="${r2(W - m * 2)}" height="${r2(H - m * 2)}" fill="none" stroke="${gold}" stroke-width="${r2(lw)}"${g(1)}/>`);
+    const m2 = m * 1.6;
+    out.push(`<rect x="${r2(m2)}" y="${r2(m2)}" width="${r2(W - m2 * 2)}" height="${r2(H - m2 * 2)}" fill="none" stroke="${gold}" stroke-width="${r2(Math.max(1, H * 0.0022))}"${g(1)}/>`);
+    const d = m * 0.6;
+    for (const [cx, cy] of [[m, m], [W - m, m], [m, H - m], [W - m, H - m]]) {
+      // berlian (persegi diputar 45°) + bulatan emas kecil — port save/rotate/fillRect
+      out.push(
+        `<rect x="${r2(cx - d / 2)}" y="${r2(cy - d / 2)}" width="${r2(d)}" height="${r2(d)}" fill="${deep}"${g(1)} transform="rotate(45 ${r2(cx)} ${r2(cy)})"/>`,
+      );
+      out.push(`<circle cx="${r2(cx)}" cy="${r2(cy)}" r="${r2(d * 0.26)}" fill="${gold}"${g(1)}/>`);
+    }
+    const lw3 = Math.max(1.5, H * 0.003);
+    const a = m * 0.5;
+    // 4 busur samping (port x.arc partial) — tonjolan setengah lingkaran ke luar
+    const arc = (px: number, py: number, dx: number, dy: number) => {
+      const d = dx
+        ? `M ${r2(px - a)} ${r2(py)} A ${r2(a)} ${r2(a)} 0 0 ${py <= H / 2 ? 1 : 0} ${r2(px + a)} ${r2(py)}`
+        : `M ${r2(px)} ${r2(py - a)} A ${r2(a)} ${r2(a)} 0 0 ${px <= W / 2 ? 0 : 1} ${r2(px)} ${r2(py + a)}`;
+      out.push(`<path d="${d}" fill="none" stroke="${gold}" stroke-width="${r2(lw3)}"${g(1)}/>`);
+      void dy;
+    };
+    arc(W / 2, m, 1, 0);
+    arc(W / 2, H - m, 1, 0);
+    arc(m, H / 2, 0, 1);
+    arc(W - m, H / 2, 0, 1);
+  } else if (style === "modern") {
+    const r = H * 0.022;
+    out.push(`<rect x="${r2(m)}" y="${r2(m)}" width="${r2(W - m * 2)}" height="${r2(H - m * 2)}" rx="${r2(r)}" fill="none" stroke="#ffffff" stroke-width="${r2(Math.max(2.5, H * 0.0075))}"${g(1)}/>`);
+    const mo = m * 0.62;
+    out.push(`<rect x="${r2(mo)}" y="${r2(mo)}" width="${r2(W - mo * 2)}" height="${r2(H - mo * 2)}" rx="${r2(r * 0.7)}" fill="none" stroke="#ffffff" stroke-width="${r2(Math.max(1, H * 0.002))}"${g(0.55)}/>`);
+    const s = Math.min(W, H) * 0.02;
+    out.push(`<rect x="${r2(W - m - s / 2)}" y="${r2(m - s / 2)}" width="${r2(s)}" height="${r2(s)}" fill="${accent}"${g(1)}/>`);
+    out.push(`<rect x="${r2(m - s / 2)}" y="${r2(H - m - s / 2)}" width="${r2(s)}" height="${r2(s)}" fill="${accent}"${g(1)}/>`);
+  } else if (style === "futuristik") {
+    const ch = Math.min(W, H) * 0.035;
+    // oktagon tipis (alpha 0.5) — port garis oktagon alpha*0.5
+    out.push(
+      `<path d="M ${r2(m + ch)} ${r2(m)} L ${r2(W - m - ch)} ${r2(m)} L ${r2(W - m)} ${r2(m + ch)} L ${r2(W - m)} ${r2(H - m - ch)} L ${r2(W - m - ch)} ${r2(H - m)} L ${r2(m + ch)} ${r2(H - m)} L ${r2(m)} ${r2(H - m - ch)} L ${r2(m)} ${r2(m + ch)} Z" fill="none" stroke="${accent}" stroke-width="${r2(Math.max(1, H * 0.0022))}"${g(0.5)}/>`,
+    );
+    const L = Math.min(W, H) * 0.13;
+    out.push(
+      `<g${g(1)} stroke="${accent}" stroke-width="${r2(Math.max(3, H * 0.0085))}" fill="none">` +
+        // glow ala shadowBlur → filter feGaussianBlur ringan (alpha tak berubah bentuk)
+        `<path d="M ${r2(m + L)} ${r2(m)} L ${r2(m)} ${r2(m)} L ${r2(m)} ${r2(m + L)}"/>` +
+        `<path d="M ${r2(W - m - L)} ${r2(m)} L ${r2(W - m)} ${r2(m)} L ${r2(W - m)} ${r2(m + L)}"/>` +
+        `<path d="M ${r2(m + L)} ${r2(H - m)} L ${r2(m)} ${r2(H - m)} L ${r2(m)} ${r2(H - m - L)}"/>` +
+        `<path d="M ${r2(W - m - L)} ${r2(H - m)} L ${r2(W - m)} ${r2(H - m)} L ${r2(W - m)} ${r2(H - m - L)}"/>` +
+        `</g>`,
+    );
+    const n = 14, tw = Math.max(1.5, H * 0.0028);
+    for (let i = 3; i < n - 2; i++) {
+      const px = m + ((W - m * 2) * i) / n;
+      const len = i % 2 === 0 ? H * 0.014 : H * 0.008;
+      out.push(`<rect x="${r2(px - tw / 2)}" y="${r2(m + H * 0.004)}" width="${r2(tw)}" height="${r2(len)}" fill="${accent}"${g(1)}/>`);
+      out.push(`<rect x="${r2(px - tw / 2)}" y="${r2(H - m - H * 0.004 - len)}" width="${r2(tw)}" height="${r2(len)}" fill="${accent}"${g(1)}/>`);
+    }
+    const tri = Math.min(W, H) * 0.011;
+    out.push(`<path d="M ${r2(m)} ${r2(H / 2 - tri)} L ${r2(m + tri * 1.3)} ${r2(H / 2)} L ${r2(m)} ${r2(H / 2 + tri)} Z" fill="${accent}"${g(1)}/>`);
+    out.push(`<path d="M ${r2(W - m)} ${r2(H / 2 - tri)} L ${r2(W - m - tri * 1.3)} ${r2(H / 2)} L ${r2(W - m)} ${r2(H / 2 + tri)} Z" fill="${accent}"${g(1)}/>`);
+  }
+}
+
+/** v3.4.0 — dokumen SVG utuh utk SATU lapis (bg/judul/part/bingkai).
+ *  Latar adegan = transparan; bg NOVACUT & judul ikut defs (gradien/glow). */
+export function svgCoverLapisDoc(
+  o: OpsiSvgCover,
+  lapis: LapisanCover,
+  isi: string[],
+): string {
+  const butuhDefs = !lapis.dasar && (isi === lapis.bg || isi === lapis.judul);
+  return bungkusSvg(o, butuhDefs ? [lapis.defs, ...isi] : isi);
+}
+
+/** v3.4.0 — EMPAT dokumen SVG (port ncBuildCoverLayers): bg (Ken Burns),
+ *  judul & part (animasi overlay), bingkai (statis atas). */
+export function svgCoverLapis(
+  o: OpsiSvgCover,
+  ukur: PengukurTeks,
+): { bg: string; judul: string; part: string; bingkai: string } {
+  const L = lapisanCover(o, ukur);
+  return {
+    bg: svgCoverLapisDoc(o, L, L.bg),
+    judul: svgCoverLapisDoc(o, L, L.judul),
+    part: svgCoverLapisDoc(o, L, L.part),
+    bingkai: svgCoverLapisDoc(o, L, L.bingkai),
+  };
 }
 
 /** Data-URL SVG utk pratinjau client (img src) — murni */

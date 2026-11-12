@@ -716,6 +716,15 @@ export function gerbangFastcut(
   if (p.transisiPart) return "TRANSISI PART";
   if (p.efekTransisi) return "TRANSISI NOVACUT";
   if (p.efekKlip && p.efekKlip.length) return "EFEK NOVACUT";
+  // v3.4.0 — MENU KINOSTRA: efek visual/watermark/ken burns memaksa render
+  if (Math.abs((p.vfxKecerahan ?? 1) - 1) > 0.001) return "KECERAHAN";
+  if (Math.abs((p.vfxKontras ?? 1) - 1) > 0.001) return "KONTRAS";
+  if (Math.abs((p.vfxKejenuhan ?? 1) - 1) > 0.001) return "KEJENUHAN";
+  if (p.vfxVignette) return "VIGNETTE";
+  if (p.vfxGrain) return "FILM GRAIN";
+  if (p.vfxFilter) return "FILTER WARNA";
+  if (p.wmMode === "teks" && (p.wmTeks || "").trim()) return "WATERMARK TEKS";
+  if (p.kbMode && p.kbMode !== "off") return "KEN BURNS";
   if (Math.abs((p.kecepatanVideo || 1) - 1) > 1e-9) return "KECEPATAN VIDEO";
   if (p.resolusiOutput !== "auto") return "RESOLUSI TETAP";
   if (p.zoomPembicara !== "mati") return "ZOOM PEMBICARA";
