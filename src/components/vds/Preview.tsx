@@ -3,7 +3,7 @@
 // VidSplit — pratinjau live: video 9:16 + overlay judul & Part berganti otomatis
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pause, Play, SkipBack, SkipForward, Volume2, VolumeX } from "lucide-react";
-import { formatDurasi, FONT_CSS, neonDari, posisiTeksBlok, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
+import { formatDurasi, FONT_CSS, neonDari, posisiTeksBlok, pratinjauPotret, urlBingkaiWarna, type Pengaturan } from "@/lib/vidsplit/types";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { gayaBingkaiJudul, svgBingkaiJudulKotak } from "@/lib/vidsplit/bingkaiJudul";
 import { TATA_TEMPLATE, kotakKePx } from "@/lib/vidsplit/templatLayar";
@@ -125,7 +125,12 @@ export function Preview({
   //  yang sudah di buat sesuai layoutnya, dan untuk video vertikal kalau bisa
   //  untuk preview nya juga sedikit di perbesar"): lanskap 1100→1280 (kolom
   //  layar lebar), potret dibatasi page (tinggiPotret dinaikkan).
-  const potret = modeAsli ? tinggi > lebar : true;
+  // v3.5.1 — AKAR BUG "Video Original kecil banget" KETEMU: wadah bracket di
+  //  page.tsx adalah w-fit (sejak v3.1.0) → di dalamnya `w-full` kolaps ke lebar
+  //  baris kontrol (±285px) karena video absolut tak mengisi → lanskap menyusut.
+  //  potret kini dari fungsi BERSAMA pratinjauPotret() dan page.tsx memakai
+  //  fungsi yg sama utk memilih wadah w-fit/w-full — dua sisi tak mungkin zinkel.
+  const potret = pratinjauPotret(pengaturan.mode, lebar, tinggi);
   const kelasBungkusan = potret ? "mx-auto w-fit" : "mx-auto w-full max-w-[1280px]";
 
   // v0.42.0 — teks DIBUNGKUS dgn aturan yang SAMA dgn render drawtext (bungkus.ts):

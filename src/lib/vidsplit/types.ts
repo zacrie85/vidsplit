@@ -11,6 +11,20 @@ import { BINGKAI_JUDUL } from "./bingkaiJudul";
 export type ModeKonversi = "blur" | "crop" | "warna" | "asli" | "template";
 export type Resolusi = "1080" | "720";
 
+/** v3.5.1 — bentuk pratinjau live, DIPAKAI BERSAMA oleh Preview.tsx & page.tsx
+ *  agar wadah bracket di halaman selalu sepaham dgn bingkai di dalamnya:
+ *  · true  = POTRET (9:16 / sumber vertikal / template) → tinggi-mengatur,
+ *    wadah halaman w-fit (bracket menempel bingkai);
+ *  · false = LANSKAP/persegi (Video original dgn sumber melebar) → lebar-mengatur,
+ *    wadah halaman WAJIB w-full — kalau w-fit, lebar kolaps ke baris kontrol
+ *    (±285px) karena video absolut tak ikut mengisi → pratinjau kecil banget
+ *    (bug laporan user: "Video Original gambar nya kecil banget"). */
+export function pratinjauPotret(mode: string, lebar: number, tinggi: number): boolean {
+  if (mode === "template") return true;
+  if (mode !== "asli" || !(lebar > 0) || !(tinggi > 0)) return true;
+  return tinggi > lebar;
+}
+
 /* ============ v2.0.0 — SPLIT PER ADEGAN & JUMLAH PART OTOMATIS ============ */
 
 /** v2.0.0 — cara memecah part: "durasi" = per batas durasi (perilaku lama),

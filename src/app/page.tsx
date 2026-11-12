@@ -53,6 +53,7 @@ import {
   judulDariNama,
   migrasiSimpanan,
   pengaturanDefault,
+  pratinjauPotret,
   rentangPartHapus,
   terapkanFrame,
   terapkanSebagian,
@@ -900,11 +901,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.5.0
+                v3.5.1
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.5.0
+              Suite video otomatis · Desktop v3.5.1
             </span>
           </span>
         </div>
@@ -1029,7 +1030,18 @@ export default function Halaman() {
             }}
           >
             {videoAktif ? (
-              <div className="relative mx-auto w-fit">
+              // v3.5.1 — wadah bracket IKUT bentuk pratinjau (fungsi bersama
+              // pratinjauPotret): potret = w-fit (bracket menempel bingkai),
+              // lanskap = w-full max-w-[1280px] — kalau w-fit, lebar bingkai
+              // kolaps ke baris kontrol (±285px) → Video Original kecil banget
+              // (bug laporan user, ada sejak v3.1.0).
+              <div
+                className={`relative mx-auto ${
+                  pratinjauPotret(videoAktif.pengaturan.mode, videoAktif.info.lebar, videoAktif.info.tinggi)
+                    ? "w-fit"
+                    : "w-full max-w-[1280px]"
+                }`}
+              >
                 <span aria-hidden className="bracket bracket-tl" />
                 <span aria-hidden className="bracket bracket-br" />
                 <Preview
