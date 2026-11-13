@@ -1,4 +1,18 @@
 
+## v3.9.1 — FOLDER OUTPUT APLIKASI TIDAK LAGI MENYIMPAN SALINAN + TOMBOL BERSIH-BERSIH (2026-11-13)
+
+Laporan user (konfirmasi lanjutan): "aplikasi masih menyimpan otomatis video hasil export & split pada C:\Users\...\AppData\Roaming\vidsplit\data\output" — padahal folder tujuan sudah dipilih (folder-wajib sudah berlaku sejak v3.8.0; uji v3.9.0 membuktikan POST /api/export tanpa folder = 400).
+
+AKAR: hasil dirender dulu ke folder kerja aplikasi (work/output/<id> = data\output\<id>) lalu DISALIN ke folder tujuan; salinan kerja dibuang HANYA bila setelan bersihkanKerja aktif — bawaannya FALSE (warisan desain "riwayat bisa diunduh ulang"), sehingga salinan menumpuk di data\output. Riwayat sebenarnya sudah tahu dua lokasi (folderOutput(e.id) + e.folderTersimpan — riwayat.ts 107-108), jadi salinan kerja aman dibuang.
+
+PERUBAHAN (src/lib/vidsplit/tujuan.ts + src/app/api/tujuan/route.ts + PanelTujuan.tsx): (1) BAWAAN BARU bersihkanKerja = TRUE — setelah tersalin & terverifikasi (ukuran sama), salinan di data\output dibuang, folder job <id> dan folder output bila kosong ikut dihapus (buangSalinanKerja + rmSync recursive). (2) MIGRASI SEKALI: penanda versi v:2 pada folder-tujuan.json; file LAMA tanpa penanda (bersihkanKerja false = bawaan lama, bukan pilihan) → dipaksa true + ditulis ulang dgn penanda; file v:2 = pilihan user → dipatuhi (false tetap false). (3) TOMBOL BARU PanelTujuan "Bersihkan sisa hasil lama di folder output aplikasi" → POST /api/tujuan {aksi:"bersihkan-output"} → bersihkanFolderOutputLama(10 menit): folder job tua & berkas lepas tua dihapus (folder <10 menit = job berjalan, AMAN tidak disentuh); hasil toast "Dihapus N berkas (X MB)". (4) TEKS UI DIPERBAIKI: peringatan lama "Ekspor tetap bisa jalan tanpa folder" (SALAH — gerbang v3.8.0 menolak) → "Ekspor butuh folder hasil dulu — pilih folder di tombol Pilih…"; catatan bersihkanKerja kini menyebut eksplisit data\output.
+
+UJI: uji-v391.ts BARU 17/17 (pola proses-anak dgn VIDSPLIT_WORK isolat: bawaan true; migrasi file lama → true + penanda v:2; pilihan user v:2 dipatuhi false/true; buangSalinanKerja hapus folder job + output kosong; bersihkanFolderOutputLama 1 folder+1 lepas=2148 byte, folder baru AMAN; salin E2E → salinan kerja hilang, hasil tetap di tujuan). VERIFIKASI APP NYATA: folder-tujuan.json lama (false) → GET /api/tujuan = bersihkanKerja TRUE (migrasi); POST aksi bersihkan-output hapus job-lama (1 folder/1 berkas); browser: PanelTujuan toggle "Ya" + tombol bersih tampil. REGRESI penuh hijau: v390 17, v380 9, v372 11, v371 7, v370 15, v360 21, v350 27, v340 34, v330 18, asli 19 (+v391 17) = 199 cek; tsc 0; build sukses.
+
+CATATAN OPERASIONAL: sandbox mengalami rollback diskcampur (HEAD terlempar ke snapshot lama v0.15.0, sebagian file hilang; node_modules kehilangan @resvg/resvg-js). PULIH via origin/main (commit v3.9.0 e39810b utuh di GitHub): backup edit v3.9.1 → git checkout origin/main -- . → kembalikan edit → bun install ulang. SEMUA skrip uji regenerasi kini TERKOMMIT di git (pelajaran: commit eksplisit + verifikasi stat sebelum push).
+
+package.json 3.9.1; badge v3.9.1; worklog v3.9.1.
+
 ## v3.9.0 — MESIN EKSPOR & SPLIT ALA KINOSTRA: DEKODE GPU + BLUR 1/4 RESOLUSI (2026-11-13)
 
 Laporan user: ekspor & split video yang SAMA — Kinostra selesai ±10 menit, VidSplit hingga 70 menit (beda 7×); permintaan: "cara export & split yang dipakai VidSplit digantikan SEMUANYA dengan yang dipakai Kinostra".

@@ -1,8 +1,12 @@
 // GET /api/tujuan — setelan folder tujuan hasil ekspor (folder pilihan + saklar otomatis)
 // POST /api/tujuan {folder?, otomatis?, bersihkanKerja?} — simpan setelan;
 //   folder divalidasi (harus absolut, dibuat bila belum ada, uji tulis sungguhan).
+// POST {aksi:"bersihkan-output"} — v3.9.1: hapus SISA hasil ekspor lama di folder
+//   output aplikasi (data\output); folder job yang masih baru (<10 menit, job
+//   berjalan) tidak disentuh.
 import { NextRequest, NextResponse } from "next/server";
 import {
+  bersihkanFolderOutputLama,
   muatSetelanTujuan,
   perbaruiSetelanTujuan,
   validasiFolderTujuan,
@@ -19,9 +23,16 @@ export async function POST(req: NextRequest) {
     folder?: string | null;
     otomatis?: boolean;
     bersihkanKerja?: boolean;
+    aksi?: string;
   } | null;
   if (!b) {
     return NextResponse.json({ ok: false, error: "Body tidak sah" }, { status: 400 });
+  }
+
+  // v3.9.1 — aksi bersih-bersih folder output lama (terpisah dr penyimpanan setelan)
+  if (b.aksi === "bersihkan-output") {
+    const hasil = bersihkanFolderOutputLama(10);
+    return NextResponse.json({ ok: true, hasil });
   }
 
   let folder = b.folder;

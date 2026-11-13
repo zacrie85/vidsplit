@@ -2,7 +2,12 @@
 // ekspor & split dijalankan; begitu render berakhir hasil otomatis DISALIN ke sana —
 // tidak perlu lagi mengunduh satu per satu dari aplikasi.
 // Setelan persisten di work/folder-tujuan.json (ikut folder data aplikasi).
-import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+// v3.9.1 — permintaan user: folder output aplikasi (data\output) TIDAK BOLEH lagi
+// menyimpan salinan hasil. Bawaan bersihkanKerja = TRUE (salinan kerja dibuang
+// setelah tersalin & terverifikasi). Setelan LAMA tanpa penanda versi dianggap
+// masih memakai bawaan-lama (false) → dimigrasi SEKALI ke true; file dgn penanda
+// v:2 berisi pilihan user sendiri → dipatuhi apa adanya.
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import path from "node:path";
 import { dirWork } from "./ffmpeg";
@@ -13,9 +18,8 @@ export interface SetelanTujuan {
   folder: string | null;
   /** salin otomatis hasil ke folder tujuan saat ekspor berakhir (default aktif) */
   otomatis: boolean;
-  /** v3.8.0 — bawaan AKTIF: salinan di folder kerja dibuang setelah tersalin &
-   *  terverifikasi — folder output aplikasi tak lagi menumpuk hasil (permintaan
-   *  user: "folder output dihilangkan"). Field lama tetap dibaca utk kompatibel. */
+  /** v3.9.1 bawaan AKTIF — buang salinan di folder kerja (data\output) setelah
+   *  tersalin & terverifikasi ke folder tujuan; folder output aplikasi tak menumpuk */
   bersihkanKerja: boolean;
 }
 
@@ -24,6 +28,10 @@ export const setelanTujuanDefault: SetelanTujuan = {
   otomatis: true,
   bersihkanKerja: true,
 };
+
+/** Penanda versi setelan: tanpa penanda = format lama (bawaan bersihkanKerja false)
+ *  → migrasi sekali ke true; dengan penanda = pilihan user, dipatuhi. */
+const VERSI_SETELAN = 2;
 
 function fileSetelan(): string {
   return path.join(dirWork(""), "folder-tujuan.json");
@@ -36,19 +44,31 @@ let rantaiSimpan: Promise<void> = Promise.resolve();
 export function muatSetelanTujuan(): SetelanTujuan {
   if (cache) return cache;
   cache = { ...setelanTujuanDefault };
+  let adaFile = false;
+  let versiFile = 0;
   try {
-    const mentah = JSON.parse(readFileSync(fileSetelan(), "utf8")) as Partial<SetelanTujuan>;
+    const mentah = JSON.parse(readFileSync(fileSetelan(), "utf8")) as Partial<SetelanTujuan> & {
+      v?: number;
+    };
     if (mentah && typeof mentah === "object") {
+      adaFile = true;
+      versiFile = typeof mentah.v === "number" ? mentah.v : 0;
       if (typeof mentah.folder === "string" && mentah.folder.trim()) {
         cache.folder = mentah.folder.trim();
       }
       if (typeof mentah.otomatis === "boolean") cache.otomatis = mentah.otomatis;
       if (typeof mentah.bersihkanKerja === "boolean") {
-        cache.bersihkanKerja = mentah.bersihkanKerja;
+        // v3.9.1 — false pada file TANPA penanda versi = bawaan lama, bukan
+        // pilihan user → migrasi ke true. File v:2 = pilihan user → dipatuhi.
+        cache.bersihkanKerja = versiFile < VERSI_SETELAN ? true : mentah.bersihkanKerja;
       }
     }
   } catch {
     /* belum ada / rusak — pakai default */
+  }
+  // v3.9.1 — tulis kembali dgn penanda versi bila file lama sudah dimigrasi
+  if (adaFile && versiFile < VERSI_SETELAN) {
+    simpanLangsung({ ...cache });
   }
   return cache;
 }
@@ -56,7 +76,11 @@ export function muatSetelanTujuan(): SetelanTujuan {
 function simpanLangsung(s: SetelanTujuan) {
   cache = s;
   try {
-    writeFileSync(fileSetelan(), JSON.stringify(s, null, 1), "utf8");
+    writeFileSync(
+      fileSetelan(),
+      JSON.stringify({ v: VERSI_SETELAN, ...s }, null, 1),
+      "utf8",
+    );
   } catch {
     /* disk penuh / tak bisa tulis — cache tetap terpakai selama sesi */
   }
@@ -66,6 +90,11 @@ export function simpanSetelanTujuan(s: SetelanTujuan): Promise<void> {
   const tugas = rantaiSimpan.then(() => simpanLangsung(s));
   rantaiSimpan = tugas.catch(() => undefined);
   return tugas;
+}
+
+/** Kosongkan cache setelan (pola resetUjiGpu — dipakai uji migrasi antar kasus). */
+export function resetCacheUji(): void {
+  cache = null;
 }
 
 /** Gabungkan sebagian field ke setelan tersimpan (dipakai API POST). */
@@ -177,7 +206,9 @@ export async function salinHasilKeTujuan(
   return { folder: folderJob, gagal };
 }
 
-/** Buang salinan hasil di folder kerja (hanya yang sudah terverifikasi tersalin). */
+/** Buang salinan hasil di folder kerja (hanya yang sudah terverifikasi tersalin).
+ *  v3.9.1 — foldernya sendiri (output/<id>, lalu output bila kosong) juga dihapus
+ *  agar data\output benar-benar tidak menyimpan apa pun setelah ekspor. */
 export function buangSalinanKerja(job: { id: string; outputs: KeluaranJob[] }): void {
   const sumberFolder = path.join(dirWork("output"), job.id);
   for (const o of job.outputs) {
@@ -187,4 +218,90 @@ export function buangSalinanKerja(job: { id: string; outputs: KeluaranJob[] }): 
       /* file mungkin sudah tiada — abaikan */
     }
   }
+  try {
+    rmSync(sumberFolder, { recursive: true, force: true });
+  } catch {
+    /* masih dipakai proses lain — dibiarkan; isinya sudah terhapus */
+  }
+  try {
+    rmSync(path.join(dirWork("output")), { recursive: true, force: true });
+  } catch {
+    /* tak kosong (job lain jalan) — normal, biarkan */
+  }
+}
+
+export interface HasilBersihOutput {
+  /** jumlah folder job lama yang dihapus */
+  folder: number;
+  /** jumlah berkas dihapus */
+  berkas: number;
+  /** total byte yang dibebaskan */
+  byte: number;
+}
+
+/** v3.9.1 — BERSIHKAN FOLDER OUTPUT LAMA (permintaan user: hilangkan sisa
+ *  hasil ekspor lama di data\output). Hanya folder job yang TIDAK disentuh
+ *  selama `minMenit` (job yang sedang jalan masih baru — aman). Berkas lepas
+ *  di akar output ikut dihapus bila cukup tua. */
+export function bersihkanFolderOutputLama(minMenit = 10): HasilBersihOutput {
+  const hasil: HasilBersihOutput = { folder: 0, berkas: 0, byte: 0 };
+  const akar = dirWork("output");
+  let daftar: string[] = [];
+  try {
+    daftar = readdirSync(akar);
+  } catch {
+    return hasil; // folder output belum ada — tidak ada yang perlu dibersihkan
+  }
+  const batas = Date.now() - minMenit * 60_000;
+  for (const nama of daftar) {
+    const penuh = path.join(akar, nama);
+    let st: import("node:fs").Stats;
+    try {
+      st = statSync(penuh);
+    } catch {
+      continue;
+    }
+    if (st.mtimeMs > batas) continue; // masih baru — jangan sentuh (job berjalan)
+    const { berkas, byte } = ukurIsi(penuh);
+    try {
+      rmSync(penuh, { recursive: true, force: true });
+      hasil.folder += 1;
+      hasil.berkas += berkas;
+      hasil.byte += byte;
+    } catch {
+      /* dipakai proses lain — lewati */
+    }
+  }
+  return hasil;
+}
+
+function readdirSyncSafe(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+function ukurIsi(dir: string): { berkas: number; byte: number } {
+  let berkas = 0;
+  let byte = 0;
+  for (const nama of readdirSyncSafe(dir)) {
+    const penuh = path.join(dir, nama);
+    let st: import("node:fs").Stats;
+    try {
+      st = statSync(penuh);
+    } catch {
+      continue;
+    }
+    if (st.isDirectory()) {
+      const dalam = ukurIsi(penuh);
+      berkas += dalam.berkas;
+      byte += dalam.byte;
+    } else if (st.isFile()) {
+      berkas += 1;
+      byte += st.size;
+    }
+  }
+  return { berkas, byte };
 }
