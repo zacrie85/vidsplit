@@ -266,11 +266,14 @@ export function PanelEkspor({
    * Server-set (potong langsung fastcut) jalan otomatis di jalur server.
    */
   const ekspor = async () => {
-    // v0.6.4 — ingatkan bila simpan otomatis aktif tapi folder tujuan belum dipilih
-    if (setelanTujuan?.otomatis && !setelanTujuan?.folder) {
-      toast.warning(
-        "Simpan otomatis aktif tapi folder tujuan belum dipilih — hasil hanya bisa diunduh dari aplikasi",
+    // v3.8.0 — FOLDER HASIL WAJIB (permintaan user: "folder output dihilangkan —
+    // pengguna harus memilih dulu folder hasil eksport & split"). Belum memilih →
+    // tolak & arahkan; hasil TIDAK lagi tersimpan otomatis di folder output aplikasi.
+    if (!setelanTujuan?.folder) {
+      toast.error(
+        "Pilih dulu FOLDER HASIL EKSPOR di kartu di atas — hasil ekspor & split akan tersimpan ke folder pilihanmu, tanpa salinan menumpuk di aplikasi",
       );
+      return;
     }
     const siapKilat =
       typeof window !== "undefined" &&
@@ -456,6 +459,12 @@ export function PanelEkspor({
 
   /** v2.0.0 — GABUNG VIDEO: semua video di Kotak Video → SATU MP4 utuh */
   const gabung = async () => {
+    if (!setelanTujuan?.folder) {
+      toast.error(
+        "Pilih dulu FOLDER HASIL EKSPOR di kartu di atas — hasil gabungan akan tersimpan ke folder pilihanmu",
+      );
+      return;
+    }
     if (daftar.length < 2) {
       toast.error("GABUNG VIDEO butuh minimal 2 video di Kotak Video");
       return;

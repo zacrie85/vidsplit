@@ -617,6 +617,10 @@ export interface Pengaturan {
   /** layout cover — kunci NOVACUT_LAYOUTS (impact/lower/banner/…/band) */
   coverLayout: string;
   /** palet warna cover — kunci NOVACUT_PALETTES (cyber/sunset/gold/…/ocean) */
+  /** v3.8.0 — PILIHAN FONT judul cover (kunci FONT_COVER; "" = bawaan layout) */
+  coverFontJudul: string;
+  /** v3.8.0 — PILIHAN FONT part cover ("" = bawaan layout) */
+  coverFontPart: string;
   coverPalet: string;
   /** latar sampul: adegan (frame video) | hitam (polos + vignette) */
   coverLatar: "adegan" | "hitam";
@@ -799,6 +803,8 @@ export const pengaturanDefault: Pengaturan = {
   coverFile: "",
   coverJudul: "",
   coverLayout: "impact",
+  coverFontJudul: "",
+  coverFontPart: "",
   coverPalet: "cyber",
   coverLatar: "adegan" as "adegan" | "hitam",
   coverBingkai: "none" as BingkaiCover,

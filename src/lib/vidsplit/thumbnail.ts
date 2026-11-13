@@ -301,6 +301,9 @@ export function renderCoverTemplatePng(opsi: {
   skalaPart?: number;
   /** v3.4.0 — bingkai cover di atas segalanya (port NCCOVER_FRAMES) */
   bingkai?: "none" | "klasik" | "modern" | "futuristik";
+  /** v3.8.0 — PILIHAN FONT judul/part cover ("" = bawaan layout) */
+  fontJudul?: string;
+  fontPart?: string;
 }): Buffer {
   const svg = svgCover(
     {
@@ -312,6 +315,8 @@ export function renderCoverTemplatePng(opsi: {
       latar: opsi.latar,
       skalaPart: opsi.skalaPart,
       bingkai: opsi.bingkai,
+      fontJudul: (opsi.fontJudul || "") as never,
+      fontPart: (opsi.fontPart || "") as never,
     },
     pengukurTeksServer(),
   );

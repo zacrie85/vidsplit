@@ -13,14 +13,16 @@ export interface SetelanTujuan {
   folder: string | null;
   /** salin otomatis hasil ke folder tujuan saat ekspor berakhir (default aktif) */
   otomatis: boolean;
-  /** buang salinan di folder kerja setelah tersalin & terverifikasi (hemat ruang) */
+  /** v3.8.0 — bawaan AKTIF: salinan di folder kerja dibuang setelah tersalin &
+   *  terverifikasi — folder output aplikasi tak lagi menumpuk hasil (permintaan
+   *  user: "folder output dihilangkan"). Field lama tetap dibaca utk kompatibel. */
   bersihkanKerja: boolean;
 }
 
 export const setelanTujuanDefault: SetelanTujuan = {
   folder: null,
   otomatis: true,
-  bersihkanKerja: false,
+  bersihkanKerja: true,
 };
 
 function fileSetelan(): string {

@@ -108,7 +108,6 @@ export function PanelTujuan({
     }
   };
 
-  const aktif = !!setelan?.otomatis;
   const adaFolder = !!setelan?.folder;
 
   return (
@@ -117,79 +116,52 @@ export function PanelTujuan({
         <Folder className="h-3.5 w-3.5 text-amber-400" /> Folder hasil ekspor
       </p>
 
-      <button
-        type="button"
-        onClick={() => void simpan({ otomatis: !aktif })}
-        disabled={simpanSibuk}
-        className={`flex w-full items-center justify-between rounded-lg border px-3 py-2 text-left text-xs transition disabled:opacity-60 ${
-          aktif
-            ? "border-emerald-400/50 bg-emerald-400/10 text-emerald-200"
-            : "border-slate-700 bg-slate-800/60 text-slate-400"
-        }`}
-      >
-        <span className="flex items-center gap-1.5">
-          <FolderOpen className="h-3.5 w-3.5" />
-          Simpan otomatis hasil ke folder pilihan
+      {/* v3.8.0 — folder WAJIB: hasil ekspor & split TIDAK lagi tersimpan otomatis
+          di folder output aplikasi (data\output). Pengguna memilih folder, hasil
+          langsung hidup di sana; salinan kerja dibuang setelah terverifikasi. */}
+      <div className="flex items-center gap-2">
+        <span
+          className={`min-w-0 flex-1 truncate rounded-lg border px-2.5 py-1.5 font-mono text-[10px] ${
+            adaFolder
+              ? "border-emerald-500/40 bg-slate-900/60 text-emerald-200"
+              : "border-amber-400/60 bg-slate-900/60 text-amber-300"
+          }`}
+          title={setelan?.folder ?? ""}
+        >
+          {setelan?.folder ?? "WAJIB — belum ada folder hasil"}
         </span>
-        <span className="font-medium">{aktif ? "Aktif" : "Mati"}</span>
-      </button>
-
-      {aktif && (
-        <>
-          <div className="mt-2 flex items-center gap-2">
-            <span
-              className="min-w-0 flex-1 truncate rounded-lg border border-slate-700/70 bg-slate-900/60 px-2.5 py-1.5 font-mono text-[10px] text-slate-300"
-              title={setelan?.folder ?? ""}
-            >
-              {setelan?.folder ?? "Belum ada folder — pilih dulu di tombol kanan"}
-            </span>
-            <button
-              type="button"
-              onClick={() => void pilihFolder()}
-              disabled={simpanSibuk}
-              className="shrink-0 rounded-lg border border-amber-400/60 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-400/20 disabled:opacity-50"
-            >
-              {simpanSibuk ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Pilih…"}
-            </button>
-            {adaFolder && (
-              <button
-                type="button"
-                onClick={() => void bukaFolder()}
-                title="Buka folder tujuan"
-                className="shrink-0 rounded-lg border border-slate-600 p-1.5 text-slate-300 hover:border-amber-400 hover:text-amber-300"
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
+        <button
+          type="button"
+          onClick={() => void pilihFolder()}
+          disabled={simpanSibuk}
+          className="shrink-0 rounded-lg border border-amber-400/60 bg-amber-400/10 px-2.5 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-400/20 disabled:opacity-50"
+        >
+          {simpanSibuk ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Pilih…"}
+        </button>
+        {adaFolder && (
           <button
             type="button"
-            onClick={() => void simpan({ bersihkanKerja: !setelan?.bersihkanKerja })}
-            disabled={simpanSibuk || !adaFolder}
-            className={`mt-2 flex w-full items-center justify-between rounded-lg border px-3 py-1.5 text-left text-[11px] transition disabled:opacity-50 ${
-              setelan?.bersihkanKerja
-                ? "border-sky-400/50 bg-sky-400/10 text-sky-200"
-                : "border-slate-700 bg-slate-800/60 text-slate-400"
-            }`}
+            onClick={() => void bukaFolder()}
+            title="Buka folder hasil di Explorer"
+            className="shrink-0 rounded-lg border border-slate-600 p-1.5 text-slate-300 hover:border-amber-400 hover:text-amber-300"
           >
-            <span>Buang salinan di aplikasi setelah tersalin (hemat ruang)</span>
-            <span className="font-medium">{setelan?.bersihkanKerja ? "Ya" : "Tidak"}</span>
+            <FolderOpen className="h-3.5 w-3.5" />
           </button>
+        )}
+      </div>
 
-          {!adaFolder && (
-            <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-300/80">
-              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
-              Ekspor tetap bisa jalan tanpa folder — hasil hanya bisa diunduh dari aplikasi.
-            </p>
-          )}
-          {setelan?.bersihkanKerja && (
-            <p className="mt-1.5 text-[11px] text-slate-500">
-              Salinan di aplikasi dibuang setelah tersalin & terverifikasi — tombol unduh per file
-              untuk ekspor berikutnya mengambil dari folder tujuan (ZIP) atau kosong.
-            </p>
-          )}
-        </>
+      {adaFolder ? (
+        <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-emerald-300/90">
+          <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
+          Semua hasil ekspor &amp; split otomatis tersimpan ke folder ini — tanpa salinan
+          menumpuk di folder output aplikasi.
+        </p>
+      ) : (
+        <p className="mt-1.5 flex items-start gap-1.5 text-[11px] text-amber-300/90">
+          <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+          Ekspor &amp; split baru bisa jalan setelah folder dipilih — hasil langsung
+          tersimpan di folder pilihanmu.
+        </p>
       )}
 
       {/* status penyalinan job yang sedang/terakhir berjalan */}

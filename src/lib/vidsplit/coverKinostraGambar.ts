@@ -116,19 +116,74 @@ export function ncFontStack(id: JenisFontKino): string {
       return '"DejaVu Sans", "Segoe UI", sans-serif';
   }
 }
+/* ---------- v3.8.0 — PEMILIH FONT JUDUL/PART cover (pratinjau canvas) ----------
+   Kunci = kunci FONT_COVER server (coverNovacut.ts). ""/null = bawaan layout.
+   Stack memakai @font-face "VDS *" (globals.css) — pratinjau = ekspor. */
+export const FAMILI_KINO: Record<string, string> = {
+  impact: '"VDS Anton", Impact, "Arial Black", sans-serif',
+  condensed: '"VDS Bebas Neue", "Arial Narrow", sans-serif',
+  serif: '"VDS Cinzel Decorative", Georgia, serif',
+  display: '"VDS Black Ops One", "Arial Black", sans-serif',
+  sans: '"DejaVu Sans", "Segoe UI", sans-serif',
+  monoton: '"VDS Monoton", "Arial Black", sans-serif',
+  cinzel: '"VDS Cinzel", Georgia, serif',
+  playfair: '"VDS Playfair Display", Georgia, serif',
+  marcellus: '"VDS Marcellus", Georgia, serif',
+  julius: '"VDS Julius Sans One", "Segoe UI", sans-serif',
+  oswald: '"VDS Oswald", "Arial Narrow", sans-serif',
+  sixcaps: '"VDS Six Caps", "Arial Narrow", sans-serif',
+  teko: '"VDS Teko", "Arial Narrow", sans-serif',
+  alfaslab: '"VDS Alfa Slab One", "Arial Black", sans-serif',
+  abril: '"VDS Abril Fatface", Georgia, serif',
+  creepster: '"VDS Creepster", "Arial Black", sans-serif',
+};
+
+/* pilihan font aktif (diatur PanelCoverKinostra sebelum menggambar) */
+let fontOvJudul = "";
+let fontOvPart = "";
+
+/** set pilihan font judul/part cover pratinjau — "" = bawaan layout */
+export function aturFontKino(judul: string, part: string): void {
+  fontOvJudul = judul || "";
+  fontOvPart = part || "";
+}
+
+/** stack font JUDUL: ikut pilihan user bila ada, selain itu font khas layout */
+export function ncFontStackJudul(id: JenisFontKino): string {
+  return (fontOvJudul && FAMILI_KINO[fontOvJudul]) || ncFontStack(id);
+}
+
+/** stack font PART: ikut pilihan user bila ada, selain itu font khas layout */
+export function ncFontStackPart(id: JenisFontKino): string {
+  return (fontOvPart && FAMILI_KINO[fontOvPart]) || ncFontStack(id);
+}
+
 /** pastikan font bundel termuat sebelum mengukur/menggambar (best-effort) */
 export async function siapkanFontKino(): Promise<void> {
   try {
     if (typeof document === "undefined" || !document.fonts) return;
     await Promise.all(
-      (
+        (
         [
-          ['900 40px "VDS Anton"', "VDS Anton"],
+          // v3.8.0 — semua face pilihan font cover (agar pratinjau = ekspor)
+          ['400 40px "VDS Anton"', "VDS Anton"],
           ['700 40px "VDS Bebas Neue"', "VDS Bebas Neue"],
-          ['400 40px "VDS Playfair Display"', "VDS Playfair Display"],
+          ['700 40px "VDS Cinzel"', "VDS Cinzel"],
+          ['700 40px "VDS Cinzel Decorative"', "VDS Cinzel Decorative"],
+          ['700 40px "VDS Playfair Display"', "VDS Playfair Display"],
+          ['400 40px "VDS Marcellus"', "VDS Marcellus"],
+          ['400 40px "VDS Julius Sans One"', "VDS Julius Sans One"],
+          ['600 40px "VDS Oswald"', "VDS Oswald"],
+          ['400 40px "VDS Six Caps"', "VDS Six Caps"],
+          ['700 40px "VDS Teko"', "VDS Teko"],
+          ['400 40px "VDS Alfa Slab One"', "VDS Alfa Slab One"],
+          ['400 40px "VDS Abril Fatface"', "VDS Abril Fatface"],
+          ['400 40px "VDS Black Ops One"', "VDS Black Ops One"],
+          ['400 40px "VDS Creepster"', "VDS Creepster"],
+          ['400 40px "VDS Monoton"', "VDS Monoton"],
           ['400 40px "DejaVu Sans"', "DejaVu Sans"],
         ] as [string, string][]
-      ).map(([f]) => document.fonts.load(f, "PART 01 Judul").catch(() => undefined)),
+      ).map(([f]) => document.fonts.load(f, "PART 01 Judul ABC").catch(() => undefined)),
     );
   } catch {
     /* font gagal muat → canvas jatuh ke fallback stack */
@@ -254,7 +309,7 @@ export function ncDrawPartBadge(
   align: CanvasTextAlign = "left",
 ): void {
   if (!part) return;
-  x.font = `700 ${size}px ${ncFontStack("condensed")}`;
+  x.font = `700 ${size}px ${ncFontStackPart("condensed")}`;
   const prev = x.textAlign;
   x.textAlign = align;
   const tw = x.measureText(String(part).toUpperCase()).width;
@@ -359,8 +414,8 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
     x.lineJoin = "round";
     if (lay === "impact") {
       x.textAlign = "center";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("impact")}`, H * 0.115, W * 0.84, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("impact")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("impact")}`, H * 0.115, W * 0.84, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("impact")}`;
       const lh = ft.fs * (0.125 / 0.115);
       const startY = H / 2 - ((ft.lines.length - 1) * lh) / 2 + H * 0.03;
       ft.lines.forEach((ln, i) => {
@@ -374,8 +429,8 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       x.fillRect(W / 2 - W * 0.08, startY + ft.lines.length * lh - lh * 0.48, W * 0.16, H * 0.012);
     } else if (lay === "lower") {
       x.textAlign = "left";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("impact")}`, H * 0.085, W * 0.64, 2, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("impact")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("impact")}`, H * 0.085, W * 0.64, 2, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("impact")}`;
       const lh = ft.fs * (0.095 / 0.085);
       ft.lines.forEach((ln, i) => {
         x.fillStyle = "#000";
@@ -385,7 +440,7 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       });
     } else if (lay === "banner") {
       x.textAlign = "center";
-      const bf = (s: number) => `900 ${s}px ${ncFontStack("condensed")}`;
+      const bf = (s: number) => `900 ${s}px ${ncFontStackJudul("condensed")}`;
       let ft = ncFitTitle(x, title, bf, H * 0.1, W * 0.86, 1, H * 0.07);
       if (ft.lines.length > 1) ft = ncFitTitle(x, title, bf, H * 0.062, W * 0.86, 3, H * 0.024);
       x.font = bf(ft.fs);
@@ -396,15 +451,15 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       } else x.fillText((ft.lines[0] || "").toUpperCase(), W / 2, H * 0.15);
     } else if (lay === "side") {
       x.textAlign = "left";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("impact")}`, H * 0.095, W * 0.5, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("impact")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("impact")}`, H * 0.095, W * 0.5, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("impact")}`;
       const lh = ft.fs * (0.11 / 0.095);
       x.fillStyle = fg;
       ft.lines.forEach((ln, i) => x.fillText(ln, W * 0.05, H * 0.42 + i * lh));
     } else if (lay === "boxed") {
       x.textAlign = "center";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("condensed")}`, H * 0.09, W * 0.72, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("condensed")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("condensed")}`, H * 0.09, W * 0.72, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("condensed")}`;
       const lh = ft.fs * (0.105 / 0.09);
       ft.lines.forEach((ln, i) => {
         x.fillStyle = fg;
@@ -412,8 +467,8 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       });
     } else if (lay === "neon") {
       x.textAlign = "center";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("display")}`, H * 0.1, W * 0.8, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("display")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("display")}`, H * 0.1, W * 0.8, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("display")}`;
       const lh = ft.fs * 1.3;
       ft.lines.forEach((ln, i) => {
         const y = H * 0.48 + (i - (ft.lines.length - 1) / 2) * lh;
@@ -424,15 +479,15 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       });
     } else if (lay === "bars") {
       x.textAlign = "center";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("condensed")}`, H * 0.075, W * 0.8, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("condensed")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("condensed")}`, H * 0.075, W * 0.8, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("condensed")}`;
       const lh = ft.fs * (0.085 / 0.075);
       x.fillStyle = fg;
       ft.lines.forEach((ln, i) => x.fillText(ln.toUpperCase(), W / 2, H * 0.62 + (i - (ft.lines.length - 1) / 2) * lh));
     } else if (lay === "sticker") {
       x.textAlign = "center";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("impact")}`, H * 0.105, W * 0.8, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("impact")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("impact")}`, H * 0.105, W * 0.8, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("impact")}`;
       const lh = ft.fs * (0.115 / 0.105);
       ft.lines.forEach((ln, i) => {
         const y = H * 0.62 + (i - (ft.lines.length - 1) / 2) * lh;
@@ -443,8 +498,8 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       });
     } else if (lay === "outline") {
       x.textAlign = "center";
-      const ft = ncFitTitle(x, (title || "").toUpperCase(), (s) => `900 ${s}px ${ncFontStack("impact")}`, H * 0.17, W * 0.9, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("impact")}`;
+      const ft = ncFitTitle(x, (title || "").toUpperCase(), (s) => `900 ${s}px ${ncFontStackJudul("impact")}`, H * 0.17, W * 0.9, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("impact")}`;
       const lh = ft.fs;
       ft.lines.forEach((ln, i) => {
         const y = H * 0.52 + (i - (ft.lines.length - 1) / 2) * lh;
@@ -459,8 +514,8 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
       x.translate(W / 2, H / 2);
       x.rotate(-0.06);
       x.textAlign = "center";
-      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStack("condensed")}`, H * 0.085, W * 0.84, 3, H * 0.024);
-      x.font = `900 ${ft.fs}px ${ncFontStack("condensed")}`;
+      const ft = ncFitTitle(x, title, (s) => `900 ${s}px ${ncFontStackJudul("condensed")}`, H * 0.085, W * 0.84, 3, H * 0.024);
+      x.font = `900 ${ft.fs}px ${ncFontStackJudul("condensed")}`;
       const lh = ft.fs * (0.095 / 0.085);
       x.fillStyle = fg;
       ft.lines.forEach((ln, i) => x.fillText(ln.toUpperCase(), 0, (i - (ft.lines.length - 1) / 2) * lh + H * 0.032));
@@ -474,17 +529,17 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
   if (lay === "impact") ncDrawPartBadge(x, part, pal, W / 2, H * 0.74, H * 0.032 * ps, "center");
   else if (lay === "lower") {
     x.textAlign = "left";
-    x.font = `700 ${H * 0.03 * ps}px ${ncFontStack("sans")}`;
+    x.font = `700 ${H * 0.03 * ps}px ${ncFontStackPart("sans")}`;
     x.fillStyle = acc;
     x.fillText(String(part).toUpperCase(), W * 0.04, H * 0.885);
   } else if (lay === "banner") ncDrawPartBadge(x, part, pal, W / 2, H * 0.8, H * 0.032 * ps, "center");
   else if (lay === "side") {
     x.textAlign = "left";
     x.fillStyle = acc;
-    x.font = `700 ${H * 0.028 * ps}px ${ncFontStack("sans")}`;
+    x.font = `700 ${H * 0.028 * ps}px ${ncFontStackPart("sans")}`;
     x.fillText(String(part).toUpperCase(), W * 0.05, H * 0.42 - H * 0.06);
   } else if (lay === "boxed") {
-    x.font = `700 ${H * 0.026 * ps}px ${ncFontStack("sans")}`;
+    x.font = `700 ${H * 0.026 * ps}px ${ncFontStackPart("sans")}`;
     const bw2 = Math.max(W * 0.32, x.measureText(String(part).toUpperCase()).width + H * 0.026 * ps * 2);
     x.fillStyle = pal.bg1;
     x.fillRect(W / 2 - bw2 / 2, H * 0.28, bw2, H * 0.045 * ps);
@@ -494,12 +549,12 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
   } else if (lay === "neon") {
     x.textAlign = "center";
     x.fillStyle = "#fff";
-    x.font = `700 ${H * 0.028 * ps}px ${ncFontStack("sans")}`;
+    x.font = `700 ${H * 0.028 * ps}px ${ncFontStackPart("sans")}`;
     x.fillText(String(part).toUpperCase(), W / 2, H * 0.62);
   } else if (lay === "bars") {
     x.textAlign = "center";
     x.fillStyle = acc;
-    x.font = `700 ${H * 0.024 * ps}px ${ncFontStack("sans")}`;
+    x.font = `700 ${H * 0.024 * ps}px ${ncFontStackPart("sans")}`;
     x.fillText(String(part).toUpperCase(), W / 2, H * 0.8);
   } else if (lay === "sticker") {
     x.save();
@@ -513,12 +568,12 @@ export function ncLayoutPass(lay: string, phase: "bg" | "title" | "part", x: Can
     else x.rect(-bw / 2, -bh / 2, bw, bh);
     x.fill();
     x.fillStyle = "#000";
-    x.font = `900 ${H * 0.032 * ps}px ${ncFontStack("impact")}`;
+    x.font = `900 ${H * 0.032 * ps}px ${ncFontStackPart("impact")}`;
     x.textAlign = "center";
     x.fillText(String(part).toUpperCase().slice(0, 12), 0, H * 0.012 * ps);
     x.restore();
   } else if (lay === "outline") {
-    x.font = `900 ${H * 0.032 * ps}px ${ncFontStack("impact")}`;
+    x.font = `900 ${H * 0.032 * ps}px ${ncFontStackPart("impact")}`;
     const sw2 = Math.max(W * 0.6, x.measureText(String(part).toUpperCase()).width + H * 0.032 * ps * 2);
     const sh2 = H * 0.05 * ps;
     x.fillStyle = acc;

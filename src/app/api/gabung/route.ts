@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { siapkanBingkai } from "@/lib/vidsplit/bingkai";
 import { pathAman, probe } from "@/lib/vidsplit/ffmpeg";
 import { mulaiGabungAntrean, type ItemEkspor } from "@/lib/vidsplit/jobs";
+import { muatSetelanTujuan } from "@/lib/vidsplit/tujuan";
 import {
   BATAS_VIDEO,
   INFO_FONT,
@@ -163,6 +164,19 @@ function rapikanPengaturan(raw: Partial<Pengaturan> | undefined): Pengaturan {
 
 export async function POST(req: NextRequest) {
   try {
+    // v3.8.0 — FOLDER TUJUAN WAJIB (sama dgn /api/export): hasil gabungan
+    // tersimpan ke folder pilihan user, bukan menumpuk di folder output aplikasi.
+    const setelanT = muatSetelanTujuan();
+    if (!setelanT.folder) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            "Pilih dulu FOLDER HASIL EKSPOR di panel EKSPOR & SPLIT ANTREAN — hasil gabungan akan tersimpan ke folder pilihanmu",
+        },
+        { status: 400 },
+      );
+    }
     const body = (await req.json()) as {
       daftar?: Array<{
         file?: string;

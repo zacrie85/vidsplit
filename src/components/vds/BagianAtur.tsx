@@ -88,9 +88,12 @@ import {
   ncClamp01,
   ncComposeCoverFrame,
   siapkanFontKino,
+  aturFontKino,
+  FAMILI_KINO,
   type LapisCoverKino,
   type SetelanCoverKino,
 } from "@/lib/vidsplit/coverKinostraGambar";
+import { PILIHAN_FONT_COVER } from "@/lib/vidsplit/coverNovacut";
 import { CLIP_EFFECTS, TRANSITIONS, getTransition } from "@/lib/vidsplit/efekNovacut";
 import { bungkusTeksRender } from "@/lib/vidsplit/bungkus";
 import { BarisSlider, ChipPilihan, JatuhBerkas, Kartu, PilihWarna } from "./bits";
@@ -2152,6 +2155,8 @@ export function PanelCoverKinostra({
   );
 
   const bangunLapis = useCallback(() => {
+    // v3.8.0 — PEMILIH FONT: set pilihan sebelum menggambar ("" = bawaan layout)
+    aturFontKino(pengaturan.coverFontJudul || "", pengaturan.coverFontPart || "");
     const latar = pengaturan.coverLatar === "adegan" ? frameVideoRef.current : null;
     return ncBuildCoverLayers(
       PB_W,
@@ -2164,7 +2169,7 @@ export function PanelCoverKinostra({
       },
       () => document.createElement("canvas"),
     );
-  }, [ncSetelan, pengaturan.coverJudul, pengaturan.coverLatar, labelPart]);
+  }, [ncSetelan, pengaturan.coverJudul, pengaturan.coverLatar, labelPart, pengaturan.coverFontJudul, pengaturan.coverFontPart]);
 
   // pratinjau STATIS = komposisi final (tanpa animasi) — persis KINOSTRA
   useEffect(() => {
@@ -2356,6 +2361,36 @@ export function PanelCoverKinostra({
             onChange={(v) => set("coverPalet", v)}
             pilihan={KINO_PALETTES.map((p) => ({ v: p.k, label: p.n }))}
           />
+
+          {/* v3.8.0 — FONT JUDUL & PART COVER (permintaan user: pilih font yang
+              dipakai tulisan judul & part di cover) — dipakai PRATINJAU & EKSPOR */}
+          <Lbl>FONT JUDUL COVER</Lbl>
+          <select
+            value={pengaturan.coverFontJudul || ""}
+            onChange={(e) => set("coverFontJudul", e.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-xs text-slate-100 outline-none focus:border-amber-400/70"
+          >
+            <option value="">BAWAAN LAYOUT (font khas tiap gaya)</option>
+            {PILIHAN_FONT_COVER.map((f) => (
+              <option key={f.k} value={f.k} style={{ fontFamily: FAMILI_KINO[f.k] }}>
+                {f.label}
+              </option>
+            ))}
+          </select>
+
+          <Lbl>FONT PART COVER</Lbl>
+          <select
+            value={pengaturan.coverFontPart || ""}
+            onChange={(e) => set("coverFontPart", e.target.value)}
+            className="w-full rounded-lg border border-slate-700 bg-slate-800/70 p-2 text-xs text-slate-100 outline-none focus:border-amber-400/70"
+          >
+            <option value="">BAWAAN LAYOUT (font khas tiap gaya)</option>
+            {PILIHAN_FONT_COVER.map((f) => (
+              <option key={f.k} value={f.k} style={{ fontFamily: FAMILI_KINO[f.k] }}>
+                {f.label}
+              </option>
+            ))}
+          </select>
 
           {/* LATAR + BINGKAI + EFEK */}
           <Lbl>LATAR COVER</Lbl>

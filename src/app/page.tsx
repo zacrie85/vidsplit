@@ -888,10 +888,10 @@ export default function Halaman() {
   }
 
   return (
-    <main className="mx-auto max-w-[1720px] px-4 pb-16 pt-4 sm:px-6">
+    <main className="mx-auto flex min-h-[100dvh] max-w-[1720px] flex-col px-4 pb-4 pt-4 sm:px-6">
       {/* ===== v2.6.0 — TOPBAR KINOSTRA (referensi user): logo + subjudul mono,
            chip status 100% OFFLINE / FFMPEG AKTIF, sakelar mode, IMPOR MEDIA ===== */}
-      <header className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <header className="mb-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
         {/* logo: marka kurung oranye + nama + subjudul */}
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="hud text-2xl font-black leading-none text-amber-500">▮▮</span>
@@ -901,11 +901,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.7.2
+                v3.8.0
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.7.2
+              Suite video otomatis · Desktop v3.8.0
             </span>
           </span>
         </div>
@@ -978,7 +978,7 @@ export default function Halaman() {
           }}
         />
       </header>
-      <p className="mb-4 text-xs text-slate-500">
+      <p className="mb-4 shrink-0 text-xs text-slate-500">
         Kotak video (maks {BATAS_VIDEO}) = kartu atas panel kanan → klik baris video → atur lewat
         tab <b className="text-slate-400">Video / Teks / Gaya / Efek / Cover</b> (v3.3.0: 28
         transisi + 20 efek NOVACUT di tab EFEK, cover 100 template di COVER, teks otomatis
@@ -1017,7 +1017,7 @@ export default function Halaman() {
           VidSplit tetap — struktur KolosalCut, rasa VidSplit. Mode Musik & Cerita dan mesin
           (POTONG LANGSUNG / KILAT GPU / ffmpeg) tidak disentuh sama sekali. */}
       {mode === "video" && (
-      <div className="grid xl:h-[calc(100vh-148px)] xl:grid-cols-[minmax(0,1fr)_minmax(0,400px)] xl:min-h-0">
+      <div className="grid grow xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)_minmax(0,400px)]">
         {/* ============ KOLOM KIRI — STAGE + TIMELINE (persis KolosalCut) ============ */}
         <div className="flex min-h-0 min-w-0 flex-col">
           {/* stage — latarkisi 38px KINOSTRA + bracket; scroll sendiri anti-dorong timeline */}
@@ -1133,7 +1133,97 @@ export default function Halaman() {
         </div>
 
         {/* ============ SIDEBAR KANAN 400px — ANTREAN → TAB PENGATURAN → EKSPOR ============ */}
+                {/* ============ v3.8.0 KOLOM TENGAH — EKSPOR & SPLIT ANTREAN + RK RINGKASAN +
+             RIWAYAT EKSPOR (permintaan user, gambar referensi 3: pindahkan dari
+             bawah kolom kanan jadi kolom SENDIRI berdampingan dgn kolom pengaturan) ============ */}
         <aside className="panel-kino min-h-0 min-w-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
+          {videoAktif ? (
+            <>
+          {/* ---- PANEL EKSPOR — terpisah ala ExportPanel KolosalCut (v1.3.5) ---- */}
+          {videoAktif && (
+            <>
+              <PanelEkspor
+                daftar={daftar.map((v) => ({
+                  file: v.info.file,
+                  nama: v.info.nama,
+                  durasi: v.info.durasi,
+                  pengaturan: v.pengaturan,
+                  // v2.9.0 — info sumber utk MESIN KILAT (WebCodecs renderer)
+                  ukuran: v.info.ukuran,
+                  lebar: v.info.lebar,
+                  tinggi: v.info.tinggi,
+                  fps: v.info.fps,
+                  adaAudio: v.info.adaAudio,
+                  // v3.4.0 — teks BUAT SUBTITEL/IMPOR SRT (override ekspor)
+                  ...(subsSedia[v.info.file] ? { subs: subsSedia[v.info.file] } : {}),
+                }))}
+                opsiEkspor={opsiEkspor}
+                onOpsiEkspor={setOpsiEkspor}
+              />
+              <PanelRingkasan
+                pengaturan={videoAktif.pengaturan}
+                durasiVideo={videoAktif.info.durasi}
+                ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
+                lebarVideo={videoAktif.info.lebar}
+                tinggiVideo={videoAktif.info.tinggi}
+                logoInfo={videoAktif.logoInfo}
+                nomorVideo={aktif + 1}
+                totalVideo={daftar.length}
+                onTerapkanKeSemua={terapkanKeSemua}
+                // v3.3.0 — PUSAT TUNGGAL "Terapkan ke SEMUA" (dulu tersebar di 5 modul)
+                aksiTerapkan={[
+                  {
+                    kunci: "ukuran-judul",
+                    label: "Ukuran huruf judul (02)",
+                    hint: "Salin angka ukuran huruf judul video aktif ke semua video",
+                    onKlik: () => terapkanUkuranSemua("judul"),
+                  },
+                  {
+                    kunci: "ukuran-part",
+                    label: "Ukuran huruf Part (03)",
+                    hint: "Salin angka ukuran huruf Part video aktif ke semua video",
+                    onKlik: () => terapkanUkuranSemua("part"),
+                  },
+                  {
+                    kunci: "ukuran-deskripsi",
+                    label: "Ukuran huruf deskripsi (04)",
+                    hint: "Salin angka ukuran huruf deskripsi video aktif ke semua video",
+                    onKlik: () => terapkanUkuranSemua("deskripsi"),
+                  },
+                  {
+                    kunci: "frame",
+                    label: "Frame & bingkai (05)",
+                    hint: "Salin frame, neon, dan gradasi template ke semua video",
+                    onKlik: terapkanFrameKeSemua,
+                  },
+                  {
+                    kunci: "subtitle",
+                    label: "Subtitle AI · VOCALIS v4 (06)",
+                    hint: "Salin setelan VOCALIS v4 (aktif/bahasa/model/lagu/sunyi/burn-in/geser/ukuran/posisi/warna) ke semua video",
+                    onKlik: terapkanSubtitleSemua,
+                  },
+                  {
+                    kunci: "intro",
+                    label: "Cover Video Pembuka (13)",
+                    hint: "Salin setelan cover KINOSTRA (sumber/layout/palet/latar/bingkai/animasi/transisi) ke semua video",
+                    onKlik: terapkanIntroKeSemua,
+                  },
+                ]}
+              />
+              <PanelRiwayat />
+            </>
+          )}
+            </>
+          ) : (
+            <div className="p-4 text-xs leading-relaxed text-slate-500">
+              <b className="text-slate-400">EKSPOR &amp; SPLIT ANTREAN</b> — RK Ringkasan — Riwayat
+              Eksport muncul di kolom ini setelah ada video di KOTAK VIDEO. Pilih{" "}
+              <b className="text-amber-400/90">FOLDER HASIL EKSPOR</b> dulu di sana; hasil
+              tersimpan ke folder pilihanmu (folder output aplikasi tidak lagi menumpuk hasil).
+            </div>
+          )}
+        </aside>
+<aside className="panel-kino min-h-0 min-w-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
           {/* ---- KARTU ANTREAN (modul 00) — ala kolom ANTREAN KolosalCut ---- */}
           <Kartu
             nomor="00"
@@ -1425,85 +1515,11 @@ export default function Halaman() {
             )}
           </div>
 
-          {/* ---- PANEL EKSPOR — terpisah ala ExportPanel KolosalCut (v1.3.5) ---- */}
-          {videoAktif && (
-            <>
-              <PanelEkspor
-                daftar={daftar.map((v) => ({
-                  file: v.info.file,
-                  nama: v.info.nama,
-                  durasi: v.info.durasi,
-                  pengaturan: v.pengaturan,
-                  // v2.9.0 — info sumber utk MESIN KILAT (WebCodecs renderer)
-                  ukuran: v.info.ukuran,
-                  lebar: v.info.lebar,
-                  tinggi: v.info.tinggi,
-                  fps: v.info.fps,
-                  adaAudio: v.info.adaAudio,
-                  // v3.4.0 — teks BUAT SUBTITEL/IMPOR SRT (override ekspor)
-                  ...(subsSedia[v.info.file] ? { subs: subsSedia[v.info.file] } : {}),
-                }))}
-                opsiEkspor={opsiEkspor}
-                onOpsiEkspor={setOpsiEkspor}
-              />
-              <PanelRingkasan
-                pengaturan={videoAktif.pengaturan}
-                durasiVideo={videoAktif.info.durasi}
-                ukuranVideo={`${videoAktif.info.lebar}×${videoAktif.info.tinggi} · ${fmtUkuran(videoAktif.info.ukuran)}`}
-                lebarVideo={videoAktif.info.lebar}
-                tinggiVideo={videoAktif.info.tinggi}
-                logoInfo={videoAktif.logoInfo}
-                nomorVideo={aktif + 1}
-                totalVideo={daftar.length}
-                onTerapkanKeSemua={terapkanKeSemua}
-                // v3.3.0 — PUSAT TUNGGAL "Terapkan ke SEMUA" (dulu tersebar di 5 modul)
-                aksiTerapkan={[
-                  {
-                    kunci: "ukuran-judul",
-                    label: "Ukuran huruf judul (02)",
-                    hint: "Salin angka ukuran huruf judul video aktif ke semua video",
-                    onKlik: () => terapkanUkuranSemua("judul"),
-                  },
-                  {
-                    kunci: "ukuran-part",
-                    label: "Ukuran huruf Part (03)",
-                    hint: "Salin angka ukuran huruf Part video aktif ke semua video",
-                    onKlik: () => terapkanUkuranSemua("part"),
-                  },
-                  {
-                    kunci: "ukuran-deskripsi",
-                    label: "Ukuran huruf deskripsi (04)",
-                    hint: "Salin angka ukuran huruf deskripsi video aktif ke semua video",
-                    onKlik: () => terapkanUkuranSemua("deskripsi"),
-                  },
-                  {
-                    kunci: "frame",
-                    label: "Frame & bingkai (05)",
-                    hint: "Salin frame, neon, dan gradasi template ke semua video",
-                    onKlik: terapkanFrameKeSemua,
-                  },
-                  {
-                    kunci: "subtitle",
-                    label: "Subtitle AI · VOCALIS v4 (06)",
-                    hint: "Salin setelan VOCALIS v4 (aktif/bahasa/model/lagu/sunyi/burn-in/geser/ukuran/posisi/warna) ke semua video",
-                    onKlik: terapkanSubtitleSemua,
-                  },
-                  {
-                    kunci: "intro",
-                    label: "Cover Video Pembuka (13)",
-                    hint: "Salin setelan cover KINOSTRA (sumber/layout/palet/latar/bingkai/animasi/transisi) ke semua video",
-                    onKlik: terapkanIntroKeSemua,
-                  },
-                ]}
-              />
-              <PanelRiwayat />
-            </>
-          )}
         </aside>
       </div>
       )}
 
-      <footer className="mt-12 text-center text-[11px] text-slate-600">
+      <footer className="mt-4 shrink-0 text-center text-[11px] text-slate-600">
         VidSplit — dibuat untuk kreator konten. Diproses penuh di perangkatmu dengan ffmpeg.
       </footer>
     </main>

@@ -614,6 +614,9 @@ export function mulaiEksporAntrean(
       const opsiLapisCover = {
         bingkai: p.coverBingkai || "none",
         skalaPart: p.coverSkalaPart || 1,
+        // v3.8.0 — PILIHAN FONT judul/part cover ("" = bawaan layout)
+        fontJudul: p.coverFontJudul || "",
+        fontPart: p.coverFontPart || "",
       };
       if (p.introAktif && pilihBgPart(p.introTampil, n, totalPartVid)) {
         const fileFrame = path.join(dirTmp, `${tag}-introbg.png`);
@@ -642,6 +645,8 @@ export function mulaiEksporAntrean(
                 latar: "adegan",
                 skalaPart: opsiLapisCover.skalaPart,
                 bingkai: opsiLapisCover.bingkai,
+                fontJudul: opsiLapisCover.fontJudul,
+                fontPart: opsiLapisCover.fontPart,
               }),
             );
             // (2) frame dari sumber (W×H, dipetakan menit 1–3 / sumber single)
@@ -691,6 +696,8 @@ export function mulaiEksporAntrean(
                     latar: "adegan",
                     skalaPart: opsiLapisCover.skalaPart,
                     bingkai: opsiLapisCover.bingkai,
+                    fontJudul: (opsiLapisCover.fontJudul || "") as never,
+                    fontPart: (opsiLapisCover.fontPart || "") as never,
                   },
                   pengukurTeksServer(),
                 );
@@ -1461,19 +1468,22 @@ export function mulaiEksporAntrean(
       }
     }
 
-    // v0.6.4 — simpan otomatis: salin hasil ke folder tujuan yang dipilih user
-    // SEBELUM proses dimulai. Hasil tetap tersedia di aplikasi; salinan ini untuk
-    // langsung dipakai di folder pilihan user tanpa mengunduh satu per satu.
+    // v0.6.4 — simpan otomatis ke folder tujuan yang dipilih user SEBELUM proses
+    // dimulai. v3.8.0 (permintaan user: "folder output dihilangkan — pengguna harus
+    // memilih dulu folder hasil"): folder WAJIB (digerbangi di UI & API), salin
+    // SELALU saat folder ada, dan salinan di folder kerja (data/output) DIBUANG
+    // begitu tersalin & terverifikasi — folder output aplikasi tak lagi menumpuk
+    // hasil; hasil hidup di folder pilihan user (riwayat tetap mencatat lokasinya).
     const setelan = muatSetelanTujuan();
-    if (setelan.otomatis && setelan.folder && job.outputs.length) {
+    if (setelan.folder && job.outputs.length) {
       job.menyalin = true;
       try {
         const hasil = await salinHasilKeTujuan(job, setelan.folder);
         job.folderTersimpan = hasil.folder;
         if (hasil.gagal.length) {
           job.peringatanSalin = `${hasil.gagal.length} dari ${job.outputs.length} file gagal disalin ke folder tujuan — salinan tetap ada di aplikasi`;
-        } else if (setelan.bersihkanKerja) {
-          buangSalinanKerja(job); // hemat ruang: hanya bila SEMUA file terverifikasi tersalin
+        } else {
+          buangSalinanKerja(job); // hanya bila SEMUA file terverifikasi tersalin
         }
       } catch (e) {
         job.peringatanSalin = `Gagal menyalin ke folder tujuan: ${

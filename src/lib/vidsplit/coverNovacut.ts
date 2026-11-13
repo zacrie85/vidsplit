@@ -115,7 +115,25 @@ export function cariTemplateCover(id: string): TemplateCover | undefined {
 // diganti Black Ops One (stencil futuristik, satu keluarga vibe). Impact
 // = Anton, condensed = Bebas Neue, serif = Cinzel Decorative (gaya klasik),
 // sans = DejaVu Sans (pakai DejaVu karena Chakra Petch tak dibundel).
-export type KunciFontCover = "impact" | "condensed" | "serif" | "display" | "sans" | "monoton";
+// v3.8.0 — KunciFontCover diperluas: 10 font bundel tambahan utk PEMILIH FONT
+// JUDUL/PART cover. 6 kunci lama tetap jadi font BAWAAN tiap layout.
+export type KunciFontCover =
+  | "impact"
+  | "condensed"
+  | "serif"
+  | "display"
+  | "sans"
+  | "monoton"
+  | "cinzel"
+  | "playfair"
+  | "marcellus"
+  | "julius"
+  | "oswald"
+  | "sixcaps"
+  | "teko"
+  | "alfaslab"
+  | "abril"
+  | "creepster";
 
 export const FONT_COVER: Record<KunciFontCover, { family: string; ttf: string[]; bobot: number }> = {
   impact: { family: "Anton", ttf: ["Anton.ttf"], bobot: 400 },
@@ -124,7 +142,38 @@ export const FONT_COVER: Record<KunciFontCover, { family: string; ttf: string[];
   display: { family: "Black Ops One", ttf: ["BlackOpsOne.ttf"], bobot: 400 },
   sans: { family: "DejaVu Sans", ttf: ["DejaVuSans-Bold.ttf", "DejaVuSans.ttf"], bobot: 700 },
   monoton: { family: "Monoton", ttf: ["Monoton.ttf"], bobot: 400 },
+  cinzel: { family: "Cinzel", ttf: ["Cinzel-Bold.ttf"], bobot: 700 },
+  playfair: { family: "Playfair Display", ttf: ["PlayfairDisplay-Bold.ttf"], bobot: 700 },
+  marcellus: { family: "Marcellus", ttf: ["Marcellus.ttf"], bobot: 400 },
+  julius: { family: "Julius Sans One", ttf: ["JuliusSansOne.ttf"], bobot: 400 },
+  oswald: { family: "Oswald", ttf: ["Oswald-SemiBold.ttf"], bobot: 600 },
+  sixcaps: { family: "Six Caps", ttf: ["SixCaps.ttf"], bobot: 400 },
+  teko: { family: "Teko", ttf: ["Teko-Bold.ttf"], bobot: 700 },
+  alfaslab: { family: "Alfa Slab One", ttf: ["AlfaSlabOne.ttf"], bobot: 400 },
+  abril: { family: "Abril Fatface", ttf: ["AbrilFatface.ttf"], bobot: 400 },
+  creepster: { family: "Creepster", ttf: ["Creepster.ttf"], bobot: 400 },
 };
+
+/** v3.8.0 — daftar pilihan PEMILIH FONT cover (judul & part) — label ramah UI.
+ *  Nilai "" di Pengaturan = BAWAAN LAYOUT (font khas tiap layout, perilaku lama). */
+export const PILIHAN_FONT_COVER: { k: KunciFontCover; label: string }[] = [
+  { k: "impact", label: "ANTON" },
+  { k: "condensed", label: "BEBAS NEUE" },
+  { k: "cinzel", label: "CINZEL" },
+  { k: "serif", label: "CINZEL DECORATIVE" },
+  { k: "playfair", label: "PLAYFAIR DISPLAY" },
+  { k: "marcellus", label: "MARCELLUS" },
+  { k: "julius", label: "JULIUS SANS ONE" },
+  { k: "oswald", label: "OSWALD" },
+  { k: "sixcaps", label: "SIX CAPS" },
+  { k: "teko", label: "TEKO" },
+  { k: "alfaslab", label: "ALFA SLAB ONE" },
+  { k: "abril", label: "ABRIL FATFACE" },
+  { k: "display", label: "BLACK OPS ONE" },
+  { k: "creepster", label: "CREEPSTER" },
+  { k: "monoton", label: "MONOTON" },
+  { k: "sans", label: "DEJAVU SANS" },
+];
 
 /** Semua family yang harus didaftarkan ke resvg (fontFiles server) */
 export function daftarTtfCover(): string[] {
@@ -150,6 +199,17 @@ export function pengukurPerkiraan(): PengukurTeks {
     display: 0.62,
     sans: 0.58,
     monoton: 0.68,
+    // v3.8.0 — faktor lebar 10 font pilihan baru (konservatif — lihat bungkus.ts)
+    cinzel: 0.68,
+    playfair: 0.56,
+    marcellus: 0.58,
+    julius: 0.58,
+    oswald: 0.48,
+    sixcaps: 0.32,
+    teko: 0.48,
+    alfaslab: 0.62,
+    abril: 0.58,
+    creepster: 0.58,
   };
   return {
     lebar: (teks, font, fs) => teks.length * fs * FAKTOR[font],
@@ -245,6 +305,10 @@ export interface OpsiSvgCover {
   skalaPart?: number;
   /** v3.4.0 — bingkai cover di atas segalanya (port NCCOVER_FRAMES, alpha 0.75) */
   bingkai?: "none" | "klasik" | "modern" | "futuristik";
+  /** v3.8.0 — PILIHAN FONT judul cover (kunci FONT_COVER); ""/undefined = bawaan layout */
+  fontJudul?: KunciFontCover | "";
+  /** v3.8.0 — PILIHAN FONT part cover; ""/undefined = bawaan layout */
+  fontPart?: KunciFontCover | "";
 }
 
 /**
@@ -386,6 +450,11 @@ export function lapisanCover(o: OpsiSvgCover, ukur: PengukurTeks): LapisanCover 
   dasar = false;
   const pal = NOVACUT_PALETTES.find((p) => p.k === tpl.palet) ?? NOVACUT_PALETTES[0];
   const lay = tpl.layout ?? "impact";
+  // v3.8.0 — PILIHAN FONT user: kJ/kP = kunci pilihan; null = bawaan layout.
+  // Dipakai sbg ekspresi `kJ ?? "impact"` di fase title/part — pengukuran
+  // (pasFitJudul/ukur.lebar) & SVG ikut memakai metrik font terpilih.
+  const kJ = (o.fontJudul || null) as KunciFontCover | null;
+  const kP = (o.fontPart || null) as KunciFontCover | null;
   const fg = pal.fg;
   const acc = pal.acc;
 
@@ -471,74 +540,74 @@ export function lapisanCover(o: OpsiSvgCover, ukur: PengukurTeks): LapisanCover 
 
   if (judul) {
     if (lay === "impact") {
-      const ft = pasFitJudul(judul, "impact", H * 0.115, W * 0.84, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "impact", H * 0.115, W * 0.84, 3, H * 0.024, ukur);
       const lh = ft.fs * (0.125 / 0.115);
       const startY = H / 2 - ((ft.baris.length - 1) * lh) / 2 + H * 0.03;
       ft.baris.forEach((b, i) => {
         const y = startY + i * lh;
-        teks(b, W / 2 + H * 0.006, y + H * 0.006, "impact", ft.fs, b, { isiWarna: "#000000", anchor: "middle" });
-        teks(b, W / 2, y, "impact", ft.fs, b, { anchor: "middle" });
+        teks(b, W / 2 + H * 0.006, y + H * 0.006, kJ ?? "impact", ft.fs, b, { isiWarna: "#000000", anchor: "middle" });
+        teks(b, W / 2, y, kJ ?? "impact", ft.fs, b, { anchor: "middle" });
       });
       svg.push(`<rect x="${r2(W / 2 - W * 0.08)}" y="${r2(startY + ft.baris.length * lh - lh * 0.48)}" width="${r2(W * 0.16)}" height="${r2(H * 0.012)}" fill="${acc}"/>`);
     } else if (lay === "lower") {
-      const ft = pasFitJudul(judul, "impact", H * 0.085, W * 0.64, 2, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "impact", H * 0.085, W * 0.64, 2, H * 0.024, ukur);
       const lh = ft.fs * (0.095 / 0.085);
       ft.baris.forEach((b, i) => {
         const y = H * 0.79 + i * lh;
-        teks(b, W * 0.04 + 3, y + 3, "impact", ft.fs, b, { isiWarna: "#000000" });
-        teks(b, W * 0.04, y, "impact", ft.fs, b);
+        teks(b, W * 0.04 + 3, y + 3, kJ ?? "impact", ft.fs, b, { isiWarna: "#000000" });
+        teks(b, W * 0.04, y, kJ ?? "impact", ft.fs, b);
       });
     } else if (lay === "banner") {
-      let ft = pasFitJudul(judul, "condensed", H * 0.1, W * 0.86, 1, H * 0.07, ukur);
-      if (ft.baris.length > 1) ft = pasFitJudul(judul, "condensed", H * 0.062, W * 0.86, 3, H * 0.024, ukur);
+      let ft = pasFitJudul(judul, kJ ?? "condensed", H * 0.1, W * 0.86, 1, H * 0.07, ukur);
+      if (ft.baris.length > 1) ft = pasFitJudul(judul, kJ ?? "condensed", H * 0.062, W * 0.86, 3, H * 0.024, ukur);
       if (ft.baris.length > 1) {
         const lh = ft.fs * (0.08 / 0.062);
-        ft.baris.forEach((b, i) => teks(b, W / 2, H * 0.095 + i * lh, "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }));
-      } else teks(judul, W / 2, H * 0.15, "condensed", ft.fs, (ft.baris[0] || "").toUpperCase(), { anchor: "middle" });
+        ft.baris.forEach((b, i) => teks(b, W / 2, H * 0.095 + i * lh, kJ ?? "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }));
+      } else teks(judul, W / 2, H * 0.15, kJ ?? "condensed", ft.fs, (ft.baris[0] || "").toUpperCase(), { anchor: "middle" });
     } else if (lay === "side") {
-      const ft = pasFitJudul(judul, "impact", H * 0.095, W * 0.5, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "impact", H * 0.095, W * 0.5, 3, H * 0.024, ukur);
       const lh = ft.fs * (0.11 / 0.095);
-      ft.baris.forEach((b, i) => teks(b, W * 0.05, H * 0.42 + i * lh, "impact", ft.fs, b));
+      ft.baris.forEach((b, i) => teks(b, W * 0.05, H * 0.42 + i * lh, kJ ?? "impact", ft.fs, b));
     } else if (lay === "boxed") {
-      const ft = pasFitJudul(judul, "condensed", H * 0.09, W * 0.72, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "condensed", H * 0.09, W * 0.72, 3, H * 0.024, ukur);
       const lh = ft.fs * (0.105 / 0.09);
       ft.baris.forEach((b, i) =>
-        teks(b, W / 2, H * 0.47 + (i - (ft.baris.length - 1) / 2) * lh, "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }),
+        teks(b, W / 2, H * 0.47 + (i - (ft.baris.length - 1) / 2) * lh, kJ ?? "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }),
       );
     } else if (lay === "neon") {
-      const ft = pasFitJudul(judul, "display", H * 0.1, W * 0.8, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "display", H * 0.1, W * 0.8, 3, H * 0.024, ukur);
       const lh = ft.fs * 1.3;
       ft.baris.forEach((b, i) => {
         const y = H * 0.48 + (i - (ft.baris.length - 1) / 2) * lh;
-        teks(b, W / 2, y, "display", ft.fs, b.toUpperCase(), { isiWarna: "#ffffff", glow: true, anchor: "middle" });
+        teks(b, W / 2, y, kJ ?? "display", ft.fs, b.toUpperCase(), { isiWarna: "#ffffff", glow: true, anchor: "middle" });
       });
     } else if (lay === "bars") {
-      const ft = pasFitJudul(judul, "condensed", H * 0.075, W * 0.8, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "condensed", H * 0.075, W * 0.8, 3, H * 0.024, ukur);
       const lh = ft.fs * (0.085 / 0.075);
       ft.baris.forEach((b, i) =>
-        teks(b, W / 2, H * 0.62 + (i - (ft.baris.length - 1) / 2) * lh, "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }),
+        teks(b, W / 2, H * 0.62 + (i - (ft.baris.length - 1) / 2) * lh, kJ ?? "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }),
       );
     } else if (lay === "sticker") {
-      const ft = pasFitJudul(judul, "impact", H * 0.105, W * 0.8, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "impact", H * 0.105, W * 0.8, 3, H * 0.024, ukur);
       const lh = ft.fs * (0.115 / 0.105);
       ft.baris.forEach((b, i) => {
         const y = H * 0.62 + (i - (ft.baris.length - 1) / 2) * lh;
-        teks(b, W / 2 + 4, y + 4, "impact", ft.fs, b, { isiWarna: "#000000", anchor: "middle" });
-        teks(b, W / 2, y, "impact", ft.fs, b, { anchor: "middle" });
+        teks(b, W / 2 + 4, y + 4, kJ ?? "impact", ft.fs, b, { isiWarna: "#000000", anchor: "middle" });
+        teks(b, W / 2, y, kJ ?? "impact", ft.fs, b, { anchor: "middle" });
       });
     } else if (lay === "outline") {
-      const ft = pasFitJudul(judul.toUpperCase(), "impact", H * 0.17, W * 0.9, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul.toUpperCase(), kJ ?? "impact", H * 0.17, W * 0.9, 3, H * 0.024, ukur);
       const lh = ft.fs;
       ft.baris.forEach((b, i) => {
         const y = H * 0.52 + (i - (ft.baris.length - 1) / 2) * lh;
-        teks(b, W / 2, y, "impact", ft.fs, b, { stroke: fg, strokeW: H * 0.008, anchor: "middle" });
+        teks(b, W / 2, y, kJ ?? "impact", ft.fs, b, { stroke: fg, strokeW: H * 0.008, anchor: "middle" });
       });
     } else if (lay === "band") {
-      const ft = pasFitJudul(judul, "condensed", H * 0.085, W * 0.84, 3, H * 0.024, ukur);
+      const ft = pasFitJudul(judul, kJ ?? "condensed", H * 0.085, W * 0.84, 3, H * 0.024, ukur);
       const lh = ft.fs * (0.095 / 0.085);
       svg.push(`<g transform="rotate(-3.44 ${W / 2} ${H / 2})">`);
       ft.baris.forEach((b, i) =>
-        teks(b, W / 2, (i - (ft.baris.length - 1) / 2) * lh + H * 0.032, "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }),
+        teks(b, W / 2, (i - (ft.baris.length - 1) / 2) * lh + H * 0.032, kJ ?? "condensed", ft.fs, b.toUpperCase(), { anchor: "middle" }),
       );
       svg.push(`</g>`);
     }
@@ -548,43 +617,43 @@ export function lapisanCover(o: OpsiSvgCover, ukur: PengukurTeks): LapisanCover 
   svg = partS;
   if (part) {
     const badge = (px: number, py: number, size: number, align: "left" | "center" | "right") => {
-      const tw = ukur.lebar(part.toUpperCase(), "condensed", size);
+      const tw = ukur.lebar(part.toUpperCase(), kP ?? "condensed", size);
       const boxW = tw + size * 0.5 * 2;
       const boxH = size * 1.6;
       const bx = align === "center" ? px - boxW / 2 : align === "right" ? px - boxW : px;
       svg.push(`<rect x="${r2(bx)}" y="${r2(py)}" width="${r2(boxW)}" height="${r2(boxH)}" fill="${acc}"/>`);
       svg.push(
-        `<text x="${r2(bx + size * 0.5)}" y="${r2(py + boxH / 2 + size * 0.04)}" font-family="${FONT_COVER.condensed.family}" font-size="${r2(size)}" font-weight="${FONT_COVER.condensed.bobot}" fill="#000" dominant-baseline="middle">${esc(part.toUpperCase())}</text>`,
+        `<text x="${r2(bx + size * 0.5)}" y="${r2(py + boxH / 2 + size * 0.04)}" font-family="${FONT_COVER[kP ?? "condensed"].family}" font-size="${r2(size)}" font-weight="${FONT_COVER[kP ?? "condensed"].bobot}" fill="#000" dominant-baseline="middle">${esc(part.toUpperCase())}</text>`,
       );
     };
     if (lay === "impact") badge(W / 2, H * 0.74, H * 0.032 * ps, "center");
     else if (lay === "lower") {
       const fs = H * 0.03 * ps;
       svg.push(
-        `<text x="${r2(W * 0.04)}" y="${r2(H * 0.885)}" font-family="${FONT_COVER.sans.family}" font-size="${r2(fs)}" font-weight="${FONT_COVER.sans.bobot}" fill="${acc}">${esc(part.toUpperCase())}</text>`,
+        `<text x="${r2(W * 0.04)}" y="${r2(H * 0.885)}" font-family="${FONT_COVER[kP ?? "sans"].family}" font-size="${r2(fs)}" font-weight="${FONT_COVER[kP ?? "sans"].bobot}" fill="${acc}">${esc(part.toUpperCase())}</text>`,
       );
     } else if (lay === "banner") badge(W / 2, H * 0.8, H * 0.032 * ps, "center");
     else if (lay === "side") {
       const fs = H * 0.028 * ps;
       svg.push(
-        `<text x="${r2(W * 0.05)}" y="${r2(H * 0.42 - H * 0.06)}" font-family="${FONT_COVER.sans.family}" font-size="${r2(fs)}" font-weight="${FONT_COVER.sans.bobot}" fill="${acc}">${esc(part.toUpperCase())}</text>`,
+        `<text x="${r2(W * 0.05)}" y="${r2(H * 0.42 - H * 0.06)}" font-family="${FONT_COVER[kP ?? "sans"].family}" font-size="${r2(fs)}" font-weight="${FONT_COVER[kP ?? "sans"].bobot}" fill="${acc}">${esc(part.toUpperCase())}</text>`,
       );
     } else if (lay === "boxed") {
       const fs = H * 0.026 * ps;
-      const bw2 = Math.max(W * 0.32, ukur.lebar(part.toUpperCase(), "sans", fs) + fs * 2);
+      const bw2 = Math.max(W * 0.32, ukur.lebar(part.toUpperCase(), kP ?? "sans", fs) + fs * 2);
       svg.push(`<rect x="${r2(W / 2 - bw2 / 2)}" y="${r2(H * 0.28)}" width="${r2(bw2)}" height="${r2(H * 0.045 * ps)}" fill="${pal.bg1}"/>`);
       svg.push(
-        `<text x="${W / 2}" y="${r2(H * 0.312 + H * 0.0225 * (ps - 1))}" font-family="${FONT_COVER.sans.family}" font-size="${r2(fs)}" font-weight="${FONT_COVER.sans.bobot}" fill="${acc}" text-anchor="middle" dominant-baseline="middle">${esc(part.toUpperCase())}</text>`,
+        `<text x="${W / 2}" y="${r2(H * 0.312 + H * 0.0225 * (ps - 1))}" font-family="${FONT_COVER[kP ?? "sans"].family}" font-size="${r2(fs)}" font-weight="${FONT_COVER[kP ?? "sans"].bobot}" fill="${acc}" text-anchor="middle" dominant-baseline="middle">${esc(part.toUpperCase())}</text>`,
       );
     } else if (lay === "neon") {
       const fs = H * 0.028 * ps;
       svg.push(
-        `<text x="${W / 2}" y="${r2(H * 0.62)}" font-family="${FONT_COVER.sans.family}" font-size="${r2(fs)}" font-weight="${FONT_COVER.sans.bobot}" fill="#fff" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
+        `<text x="${W / 2}" y="${r2(H * 0.62)}" font-family="${FONT_COVER[kP ?? "sans"].family}" font-size="${r2(fs)}" font-weight="${FONT_COVER[kP ?? "sans"].bobot}" fill="#fff" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
       );
     } else if (lay === "bars") {
       const fs = H * 0.024 * ps;
       svg.push(
-        `<text x="${W / 2}" y="${r2(H * 0.8)}" font-family="${FONT_COVER.sans.family}" font-size="${r2(fs)}" font-weight="${FONT_COVER.sans.bobot}" fill="${acc}" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
+        `<text x="${W / 2}" y="${r2(H * 0.8)}" font-family="${FONT_COVER[kP ?? "sans"].family}" font-size="${r2(fs)}" font-weight="${FONT_COVER[kP ?? "sans"].bobot}" fill="${acc}" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
       );
     } else if (lay === "sticker") {
       const bw = W * 0.2 * ps, bh = H * 0.13 * ps;
@@ -592,15 +661,15 @@ export function lapisanCover(o: OpsiSvgCover, ukur: PengukurTeks): LapisanCover 
       svg.push(
         `<g transform="translate(${r2(W * 0.72)} ${r2(H * 0.24)}) rotate(-6.88)">` +
           `<rect x="${r2(-bw / 2)}" y="${r2(-bh / 2)}" width="${r2(bw)}" height="${r2(bh)}" rx="${r2(H * 0.02 * ps)}" fill="${acc}"/>` +
-          `<text x="0" y="${r2(H * 0.012 * ps)}" font-family="${FONT_COVER.impact.family}" font-size="${r2(fs)}" font-weight="900" fill="#000" text-anchor="middle">${esc(part.toUpperCase().slice(0, 12))}</text></g>`,
+          `<text x="0" y="${r2(H * 0.012 * ps)}" font-family="${FONT_COVER[kP ?? "impact"].family}" font-size="${r2(fs)}" font-weight="900" fill="#000" text-anchor="middle">${esc(part.toUpperCase().slice(0, 12))}</text></g>`,
       );
     } else if (lay === "outline") {
       const fs = H * 0.032 * ps;
-      const sw2 = Math.max(W * 0.6, ukur.lebar(part.toUpperCase(), "impact", fs) + fs * 2);
+      const sw2 = Math.max(W * 0.6, ukur.lebar(part.toUpperCase(), kP ?? "impact", fs) + fs * 2);
       const sh2 = H * 0.05 * ps;
       svg.push(`<rect x="${r2(W / 2 - sw2 / 2)}" y="${r2(H * 0.725 - sh2 / 2)}" width="${r2(sw2)}" height="${r2(sh2)}" fill="${acc}"/>`);
       svg.push(
-        `<text x="${W / 2}" y="${r2(H * 0.74 + (ps - 1) * H * 0.032 * 0.35)}" font-family="${FONT_COVER.impact.family}" font-size="${r2(fs)}" font-weight="900" fill="#000" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
+        `<text x="${W / 2}" y="${r2(H * 0.74 + (ps - 1) * H * 0.032 * 0.35)}" font-family="${FONT_COVER[kP ?? "impact"].family}" font-size="${r2(fs)}" font-weight="900" fill="#000" text-anchor="middle">${esc(part.toUpperCase())}</text>`,
       );
     } else if (lay === "band") badge(W * 0.06, H * 0.78, H * 0.03 * ps, "left");
   }
