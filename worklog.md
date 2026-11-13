@@ -1,4 +1,14 @@
 
+## v3.8.1 — JARAK VIDEO↔TIMELINE TETAP: BARIS GRID DIKUNCI TINGGI LAYAR (2026-11-13)
+
+Bug laporan user (video "jarak video dan frame nya terlalu jauh ke bawah.mp4"): setelah v3.8.0, saat menu pengaturan dibuka panjang (kolom kanan sangat tinggi), JARAK video pratinjau ↔ timeline bisa JAUH BANGET, dan scroll berpindah ke seluruh halaman — user minta: "untuk scroll tiap menu nya seperti sebelumnya aja, jadi tidak merubah posisi jarak video dan frame yang di bawahnya".
+
+AKAR: perombakan 3 kolom v3.8.0 memakai implicit auto row — baris grid mengikuti konten kolom TERPANJANG (menu pengaturan ribuan px) → kolom video ikut melar → stage flex-1 meregang → timeline terdorong jauh di bawah + halaman ikut scroll (v3.7.2 kebetulan aman krn konten menu umumnya terlipat; dengan menu terbuka bug sama muncul).
+
+FIX (src/app/page.tsx): (1) shell `<main>` definite di xl — `xl:h-[100dvh] xl:overflow-hidden` (min-h dipertahankan utk layar sempit/stacked); (2) grid video — `xl:grid-rows-[minmax(0,1fr)]`: baris = SISA TINGGI LAYAR PERSIS, tidak lagi ikut konten kolom → ketiga kolom scroll SENDIRI (overflow-y-auto yang sudah ada), video + timeline posisi TETAP berapa pun banyaknya menu dibuka.
+
+UJI: uji-v380 9/9, v330 18/18, v340 34/34, v350 27/27, v360 21/21, v370 15/15, v371 7/7 (rerun setelah 1x flaky render), v372 11/11 — total 142 hijau; tsc 0; build sukses. VERIFIKASI VISUAL (viewport persis user 1280×735): semua seksi menu terbuka → scroll halaman = 0/735 (tak bisa) ✓; scroll kolom tengah 1962px & kolom kanan 1270px → video y=149 SAMA, timeline y=591 SAMA (jarak konstan) ✓; screenshot: kolom tengah menampilkan Riwayat, kanan menampilkan menu VIDEO, video+timeline tak bergerak. package.json 3.8.1; badge v3.8.1; worklog v3.8.1.
+
 ## v3.8.0 — FOLDER HASIL WAJIB (TANPA NUMPUK DI OUTPUT) + PEMILIH FONT COVER + LAYOUT 3 KOLOM FULL-HEIGHT (2026-11-13)
 
 Permintaan user (4 poin + 3 gambar referensi): (1) "folder output dihilangkan — saat export & split pengguna HARUS memilih dulu folder hasil, video hasil split tidak otomatis tersimpan di folder output"; (2) menu Cover: pemilih FONT judul & part; (3) ref-1: "bagian bawah frame masih ada bagian kosong — buat tampilan full tanpa celah"; (4) ref-2/3: pindahkan "09 Ekspor & Split Antrian", "RK Ringkasan", "Riwayat Eksport" ke kolom berdampingan dengan menu lain.

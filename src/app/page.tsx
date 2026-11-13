@@ -888,7 +888,7 @@ export default function Halaman() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[100dvh] max-w-[1720px] flex-col px-4 pb-4 pt-4 sm:px-6">
+    <main className="mx-auto flex min-h-[100dvh] max-w-[1720px] flex-col px-4 pb-4 pt-4 sm:px-6 xl:h-[100dvh] xl:overflow-hidden">
       {/* ===== v2.6.0 — TOPBAR KINOSTRA (referensi user): logo + subjudul mono,
            chip status 100% OFFLINE / FFMPEG AKTIF, sakelar mode, IMPOR MEDIA ===== */}
       <header className="mb-4 flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2">
@@ -901,11 +901,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.8.0
+                v3.8.1
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.8.0
+              Suite video otomatis · Desktop v3.8.1
             </span>
           </span>
         </div>
@@ -1016,8 +1016,15 @@ export default function Halaman() {
           Isi tiap modul = fungsi asli VidSplit (nama menu dipertahankan). Gaya warna amber
           VidSplit tetap — struktur KolosalCut, rasa VidSplit. Mode Musik & Cerita dan mesin
           (POTONG LANGSUNG / KILAT GPU / ffmpeg) tidak disentuh sama sekali. */}
+      {/* v3.8.1 — BARIS GRID DIKUNCI TINGGI LAYAR (bug laporan user: "jarak video
+          dan frame nya terlalu jauh ke bawah" saat menu pengaturan dibuka panjang).
+          Akar: implicit auto row ikut konten kolom TERPANJANG → kolom video ikut
+          melar, timeline terdorong jauh, scroll pindah ke halaman. Kini shell
+          definite (xl:h-[100dvh]) + grid-rows minmax(0,1fr) → baris = sisa tinggi
+          LAYAR PERSIS; tiap kolom scroll SENDIRI (seperti sebelumnya), posisi
+          video & timeline TETAP berapa pun banyaknya menu dibuka. */}
       {mode === "video" && (
-      <div className="grid grow xl:min-h-0 xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)_minmax(0,400px)]">
+      <div className="grid grow xl:min-h-0 xl:grid-rows-[minmax(0,1fr)] xl:grid-cols-[minmax(0,1fr)_minmax(0,360px)_minmax(0,400px)]">
         {/* ============ KOLOM KIRI — STAGE + TIMELINE (persis KolosalCut) ============ */}
         <div className="flex min-h-0 min-w-0 flex-col">
           {/* stage — latarkisi 38px KINOSTRA + bracket; scroll sendiri anti-dorong timeline */}
@@ -1133,7 +1140,7 @@ export default function Halaman() {
         </div>
 
         {/* ============ SIDEBAR KANAN 400px — ANTREAN → TAB PENGATURAN → EKSPOR ============ */}
-                {/* ============ v3.8.0 KOLOM TENGAH — EKSPOR & SPLIT ANTREAN + RK RINGKASAN +
+                {/* ============ v3.8.1 KOLOM TENGAH — EKSPOR & SPLIT ANTREAN + RK RINGKASAN +
              RIWAYAT EKSPOR (permintaan user, gambar referensi 3: pindahkan dari
              bawah kolom kanan jadi kolom SENDIRI berdampingan dgn kolom pengaturan) ============ */}
         <aside className="panel-kino min-h-0 min-w-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
