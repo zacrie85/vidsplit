@@ -12,6 +12,7 @@ import {
   pathAman,
   pilihEncoder,
   pilihFfmpeg,
+  pilihHwaccel,
   resetUjiGpu,
   type InfoVideo,
   type PilihanEncoder,
@@ -816,6 +817,12 @@ export function mulaiEksporAntrean(
       if (!job.akselerasi.includes(enc.nama)) {
         job.akselerasi = `${job.akselerasi} + ${enc.nama}`;
       }
+      // v3.9.0 — DEKODE GPU (NVDEC/QSV) ala KINOSTRA: probe nyata 1 frame dari
+      // sumber; berhasil → semua part video ini dekode di GPU, gagal → CPU.
+      const hw = await pilihHwaccel(enc.nama, ff.bin, it.srcAbs);
+      if (hw.length && !job.akselerasi.includes("Dekode GPU")) {
+        job.akselerasi = `${job.akselerasi} + Dekode GPU (${hw[1].toUpperCase()})`;
+      }
       // v3.5.0 — BINGKAI JUDUL FUTURISTIK: PNG transparan kanvas penuh (kotak
       // frame mengikuti blok judul, posisi = judulX/judulY) → overlay DI BAWAH
       // drawtext. Gagal/umat judul kosong/mode template → null (nol regresi).
@@ -861,7 +868,9 @@ export function mulaiEksporAntrean(
               tag,
             })
           : null;
-      const { args, total } = bangunArgumenPart({
+      // v3.9.0 — opsi part disimpan: bila dekode GPU gagal di runtime, part
+      // diulang SEKALI tanpa hwaccel (filter & encoder sama persis — hasil byte sama).
+      const dasarPart = {
         src: it.srcAbs,
         bg: bgPart,
         logo: it.logoAbs,
@@ -915,13 +924,26 @@ export function mulaiEksporAntrean(
         dirTmp,
         tag,
         codecArgs: enc.codecArgs,
+        // v3.9.0 — dekode GPU ala KINOSTRA (kosong bila probe gagal = CPU)
+        hwaccel: hw,
         keluar,
-      });
+      };
+      const { args, total } = bangunArgumenPart(dasarPart);
       const slotIdx = pengisi++;
-      return jalankanFfmpeg(args, total, (f) => {
-        fraksi.set(`${vi}:${n}`, f);
-        perbaruiProgres();
-      }, ff.bin, (c) => daftarkanProses(id, c))
+      const jalanSatu = (daftarArgs: string[]) =>
+        jalankanFfmpeg(daftarArgs, total, (f) => {
+          fraksi.set(`${vi}:${n}`, f);
+          perbaruiProgres();
+        }, ff.bin, (c) => daftarkanProses(id, c));
+      // v3.9.0 — JARING PENGAMAN DEKODE GPU: bila hwaccel aktif dan sebuah part
+      // gagal (driver sesaat/batas sesi NVDEC), ulang SEKALI tanpa hwaccel —
+      // part tak jatuh hanya karena dekode GPU; hasil byte tak berubah (filter
+      // & encoder sama persis).
+      return jalanSatu(args).catch((e) =>
+        hw.length
+          ? jalanSatu(bangunArgumenPart({ ...dasarPart, hwaccel: [] }).args)
+          : Promise.reject(e),
+      )
         .then(() => {
           slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
           job.antrean[vi].selesai += 1;
@@ -1847,6 +1869,8 @@ export function mulaiGabungAntrean(
         })(),
         dirTmp,
         tag,
+        // v3.9.0 — dekode GPU ala KINOSTRA di jalur GABUNG juga
+        hwaccel: await pilihHwaccel(enc.nama, ff.bin, it.srcAbs),
         codecArgs: enc.codecArgs,
         keluar,
       });

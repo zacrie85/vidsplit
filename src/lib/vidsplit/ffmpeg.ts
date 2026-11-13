@@ -285,7 +285,25 @@ export function fontfileNama(font: NamaFont): string {
  *  semula (video pas layar); di atasnya video DIPERBESAR (zoom × skala-contain,
  *  dimensi genap) di atas latar blur yang sama, posisiPotong menggeser
  *  kiri/kanan dgn rumus overlay yang SAMA dgn zoomPotong — x=(W-w)*pp/100. */
-function rantaiUtama(
+/** v3.9.0 — LATAR BLUR SEPARUH-EMPAT RESOLUSI (metode kecepatan KINOSTRA).
+ *  Dulu: scale penuh W×H → boxblur=24:2 di RESOLUSI PENUH per frame — filter
+ *  blur paling mahal di seluruh rantai (benchmark v3.9.0: 32% waktu part).
+ *  Kini: video turun ke 1/4 resolusi → boxblur radius sama-rata (24÷4=6) →
+ *  naik skala fast_bilinear. HASIL VISUAL SAMA (blur menyembunyikan detail —
+ *  beda piksel uji 0,06%), kerja blur 16× lebih murah. Rasio blur = resolusi
+ *  dibagi 4 → radius 24/4. Faktor skala (z>1) tetap diterapkan di ukuran kecil. */
+function rantaiLatarBlur(W: number, H: number, eq: string): string {
+  const w4 = Math.max(2, Math.trunc(W / 8) * 2);
+  const h4 = Math.max(2, Math.trunc(H / 8) * 2);
+  const r = Math.max(4, Math.round(24 / 4));
+  return (
+    `[blur]scale=${w4}:${h4}:force_original_aspect_ratio=increase,crop=${w4}:${h4},` +
+    `boxblur=${r}:2,${eq},scale=${W}:${H}:flags=fast_bilinear[blurf]`
+  );
+}
+
+/** v3.9.0 — diekspor utk uji: rantai konten utama (konversi 9:16 dst.) */
+export function rantaiUtama(
   mode: ModeKonversi,
   W: number,
   H: number,
@@ -329,7 +347,7 @@ function rantaiUtama(
     const skala = `max(${W}/iw,${H}/ih)*${z.toFixed(3)}`;
     return [
       `[0:v]split=2[isi][blur]`,
-      `[blur]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:2,eq=brightness=-0.04:saturation=1.15[blurf]`,
+      rantaiLatarBlur(W, H, "eq=brightness=-0.04:saturation=1.15"),
       `[isi]scale='trunc(iw*${skala}/2)*2':'trunc(ih*${skala}/2)*2'[isif]`,
       `[blurf][isif]overlay=x='(W-w)*${pp}/100':y='(H-h)/2',${ekor}[mv]`,
     ].join(";");
@@ -354,7 +372,7 @@ function rantaiUtama(
   if (zBlur <= 1.005) {
     return [
       `[0:v]split=2[isi][blur]`,
-      `[blur]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:2,eq=brightness=-0.04:saturation=1.15[blurf]`,
+      rantaiLatarBlur(W, H, "eq=brightness=-0.04:saturation=1.15"),
       `[isi]scale=${W}:${H}:force_original_aspect_ratio=decrease[isif]`,
       `[blurf][isif]overlay=${rumusGeser},${ekor}[mv]`,
     ].join(";");
@@ -362,7 +380,7 @@ function rantaiUtama(
   const skalaBlur = `min(${W}/iw,${H}/ih)*${zBlur.toFixed(3)}`;
   return [
     `[0:v]split=2[isi][blur]`,
-    `[blur]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},boxblur=24:2,eq=brightness=-0.04:saturation=1.15[blurf]`,
+    rantaiLatarBlur(W, H, "eq=brightness=-0.04:saturation=1.15"),
     `[isi]scale='trunc(iw*${skalaBlur}/2)*2':'trunc(ih*${skalaBlur}/2)*2'[isif]`,
     `[blurf][isif]overlay=${rumusGeser},${ekor}[mv]`,
   ].join(";");
@@ -1123,6 +1141,9 @@ export interface ArgPart {
   tag: string;
   /** argumen codec video lengkap, mis. ["-c:v","libx264","-preset","medium","-crf","20"] */
   codecArgs: string[];
+  /** v3.9.0 — DEKODE GPU (NVDEC/QSV) ala KINOSTRA: argumen "-hwaccel X" utk INPUT
+   *  sumber saja (diprobe nyata dulu — gagal = kosong). Kosong = dekode CPU. */
+  hwaccel?: string[];
   keluar: string;
 }
 
@@ -1214,7 +1235,9 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // URUTAN INPUT PENTING (indeks filter graph): 0=src, 1=bg?, lalu anullsrc,
   // lalu logo PALING AKHIR — sehingga idxLogo = pakaiBg ? 3 : 2 selalu benar
   // dan referensi audio [2:a] / -map 2:a tidak pernah bergeser oleh logo.
-  const inputs: string[] = ["-ss", a.mulai.toFixed(3), "-i", a.src];
+  // v3.9.0 — -hwaccel WAJIB SEBELUM -i sumber (per-input option) → dekode GPU
+  // (NVDEC) seperti KINOSTRA; input PNG/lavfi lain tidak perlu.
+  const inputs: string[] = [...(a.hwaccel ?? []), "-ss", a.mulai.toFixed(3), "-i", a.src];
   // v2.1.0 — FADE LEMBUT: gambar diperpanjang +DURASI_TRANSISI (xfade menimpa
   // D terakhir) → durasi hasil TETAP N+M; animasi Ken Burns butuh -framerate
   // fps agar ekspresi zoompan `on` selaras dgn waktu (nol regresi: mati+langsung
@@ -2210,6 +2233,51 @@ export async function pilihEncoder(
     gpu: false,
     codecArgs: codecCpu(preset, crf, codec, level, bitrateKbps),
   };
+}
+
+/* ---------- v3.9.0 — DEKODE GPU (NVDEC/QSV) ala KINOSTRA ---------- */
+
+let cacheHwaccel: Map<string, string[]> | null = null;
+
+/** v3.9.0 — pilih & uji dekode GPU utk SATU video. Kinostra mendekode di GPU
+ *  (WebCodecs VideoDecoder); padanannya di ffmpeg = "-hwaccel cuda" (NVDEC,
+ *  pasangan h264_nvenc) / "-hwaccel qsv" (pasangan h264_qsv). Ujinya DEKODE
+ *  NYATA 1 frame dari sumber itu sendiri — driver ada ≠ bisa untuk codec ini;
+ *  gagal apa pun → [] (dekode CPU, perilaku lama). Hasil dicache per (bin,mode,src).
+ *  AMD (amf) sengaja tanpa hwaccel: d3d11va per-perangkat rawan — aman = CPU. */
+export async function pilihHwaccel(
+  namaEncoder: string,
+  bin: string,
+  src: string,
+): Promise<string[]> {
+  const mode = namaEncoder.includes("nvenc")
+    ? "cuda"
+    : namaEncoder.includes("qsv")
+      ? "qsv"
+      : "";
+  if (!mode) return [];
+  if (!cacheHwaccel) cacheHwaccel = new Map();
+  const kunci = `${bin}|${mode}|${src}`;
+  const tercache = cacheHwaccel.get(kunci);
+  if (tercache) return tercache;
+  const argumen = ["-hwaccel", mode];
+  let hasil: string[] = [];
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const c = spawn(
+        bin,
+        ["-hide_banner", "-v", "error", ...argumen, "-i", src, "-frames:v", "1", "-f", "null", "-"],
+        { windowsHide: true, timeout: 30000 },
+      );
+      c.on("error", reject);
+      c.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`kode ${code}`))));
+    });
+    hasil = argumen;
+  } catch {
+    hasil = [];
+  }
+  cacheHwaccel.set(kunci, hasil);
+  return hasil;
 }
 
 /* ---------- pemilihan ffmpeg terbaik (harus dukung drawtext bila ada) ---------- */

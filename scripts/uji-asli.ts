@@ -116,7 +116,10 @@ console.log("C) asli + background intro — bg mengisi frame seukuran sumber:");
 console.log("D) regresi mode lama (1080x1920):");
 {
   const blur = bangun(buat({ mode: "blur" }), 1080, 1920);
-  cek("blur: masih ada boxblur", /boxblur=24:2/.test(blur.filter));
+  // v3.9.0 — blur kini separuh-empat resolusi (metode kecepatan KINOSTRA)
+  cek("blur: masih ada boxblur (radius 6 di 1/4 resolusi)", /boxblur=6:2/.test(blur.filter));
+  cek("blur: tak ada lagi boxblur=24:2 resolusi penuh", !/boxblur=24:2/.test(blur.filter));
+  cek("blur: naik skala fast_bilinear", /scale=1080:1920:flags=fast_bilinear/.test(blur.filter));
   cek("blur: tetap scale increase+decrease", /force_original_aspect_ratio=increase/.test(blur.filter));
   const crop = bangun(buat({ mode: "crop" }), 1080, 1920);
   cek("crop: masih scale increase + crop", /force_original_aspect_ratio=increase,crop=1080:1920/.test(crop.filter));

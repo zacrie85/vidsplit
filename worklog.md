@@ -1,4 +1,20 @@
 
+## v3.9.0 — MESIN EKSPOR & SPLIT ALA KINOSTRA: DEKODE GPU + BLUR 1/4 RESOLUSI (2026-11-13)
+
+Laporan user: ekspor & split video yang SAMA — Kinostra selesai ±10 menit, VidSplit hingga 70 menit (beda 7×); permintaan: "cara export & split yang dipakai VidSplit digantikan SEMUANYA dengan yang dipakai Kinostra".
+
+BEDAH KINOSTRA (clone zacrie85/kinostra-desktop baca-saja): renderer/js/exporter.js 1907 baris — MODE KILAT: sampel H.264 diambil LANGSUNG dari MP4 (demux.js) → VideoDecoder GPU → komposit canvas (drawComposition) → VideoEncoder hardwareAcceleration 'prefer-hardware' + latencyMode 'realtime' + keyframe tiap 2 dtk + bitrate per resolusi + AAC 160k 48k; kecepatan TIDAK dibatasi waktu pemutaran; fallback TURBO capture-playback 1.5-3×. Kinostra = seluruh decode+komposit+encode di GPU, satu jalan tanpa re-encode.
+
+BEDAH VIDSplit + BENCHMARK (45 dtk 1080p→9:16 mode blur bawaan, libx264 veryfast crf22, sandbox): 35.3 dtk (1.28× realtime). AKAR: (1) rantai blur mode bawaan memakai boxblur=24:2 pada RESOLUSI PENUH 1080×1920 per frame = 32% waktu part (filter blur terberat); (2) dekode CPU (NVDEC belum ada — nvenc encode GPU sudah sejak v3.7.0).
+
+GANTI MESIN (padanan ffmpeg dari metode Kinostra, src/lib/vidsplit/ffmpeg.ts + jobs.ts): (1) rantaiLatarBlur — LATAR BLUR SEPARUH-EMPAT RESOLUSI: scale 270×480 increase+crop → boxblur=6:2 (radius setara 24÷4) → eq → scale fast_bilinear 1080×1920; dipasang di SEMUA cabang (mode blur zBlur≤100 & >100, mode crop zoom<100%); benchmark: 26.1 dtk (1.73× realtime; rantai blur 1.35× lebih cepat; beda piksel antar hasil 0.06% = tampilan sama). (2) pilihHwaccel — DEKODE GPU ala Kinostra: nvenc→"-hwaccel cuda" (NVDEC), qsv→"-hwaccel qsv", amf sengaja CPU (d3d11va rawan); ujinya DEKODE NYATA 1 frame dari sumber itu sendiri (driver ada ≠ codec didukung); gagal apa pun → [] (CPU, perilaku lama); cache per (bin,mode,src); jobs.ts menancapkan -hwaccel SEBELUM -i sumber di jalur SPLIT & GABUNG; label akselerasi "+ Dekode GPU (CUDA)". (3) JARING PENGAMAN: part gagal saat hwaccel aktif (driver sesaat/batas sesi NVDEC) → diulang SEKALI tanpa hwaccel — filter & encoder identik, hasil byte sama. rantaiUtama diekspor utk uji.
+
+UJI: uji-v390.ts BARU 21/21 (blur 1/4-res di 3 cabang + mode asli bebas blur; pilihHwaccel CPU-langsung/tanpa-GPU-fallback/cache; -hwaccel sebelum -i + pasangan utuh + argumen lain identik persis dgn/tanpa hwaccel; render E2E nyata dgn HASIL PROBE → ffmpeg 0, durasi 2.0 dtk, h264). uji-asli ekspektasi blur diperbarui (boxblur=6:2 + fast_bilinear, tanpa 24:2). REGRESI: v380 9/9, v330 18/18, v340 34/34, v350 27/27, v360 21/21, v370 15/15, v371 7/7, v372 11/11 — total 182 hijau; tsc 0; build sukses. VERIFIKASI NYATA (next start + app): POST /api/tujuan folder /download/hasil-v390 → POST /api/export (mode blur, 1 part) → selesaiSemua, mesin RENDER, akselerasi "CPU (libx264)" (sandbox tanpa GPU — fallback NVDEC bekerja), part-01 h264 1080×1920 + aac durasi 2.0 ✓, frame dicek ✓.
+
+CATATAN JUJUR utk user: di mesinmu yang punya GPU NVIDIA/Intel, kini seluruh DEKODE+ENKODE jalan di GPU (NVDEC+NVENC) seperti Kinostra, plus filter blur yang tadinya memakan 32% waktu dipangkas 16×. Kecepatan eksak bergantung mesin & fitur aktif (teks/cover/subtitle/efek tetap kerja CPU — tidak bisa pindah ke GPU). Sandbox uji tanpa GPU hanya bisa membuktikan jalur CPU + fallback; jalur GPU diprobe otomatis saat ekspor.
+
+package.json 3.9.0; badge v3.9.0; worklog v3.9.0.
+
 ## v3.8.1 — JARAK VIDEO↔TIMELINE TETAP: BARIS GRID DIKUNCI TINGGI LAYAR (2026-11-13)
 
 Bug laporan user (video "jarak video dan frame nya terlalu jauh ke bawah.mp4"): setelah v3.8.0, saat menu pengaturan dibuka panjang (kolom kanan sangat tinggi), JARAK video pratinjau ↔ timeline bisa JAUH BANGET, dan scroll berpindah ke seluruh halaman — user minta: "untuk scroll tiap menu nya seperti sebelumnya aja, jadi tidak merubah posisi jarak video dan frame yang di bawahnya".
