@@ -622,7 +622,9 @@ export function rantaiIntroKino(
       `,trim=duration=${panjang.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps}[bgv]`,
   );
 
-  // ---- lapis judul + part (animasi masuk) ----
+  // ---- lapis judul + part (animasi masuk; tanpa anim = overlay STATIS) ----
+  // v3.7.2 — lapis dgn idx tapi TANPA animasi tetap digambar (statis, tanpa
+  // geq) — dulu `!anim → null` membuat lapis non-anim HILANG dari hasil ekspor.
   const lapis = (
     labelIn: string,
     idx: number,
@@ -630,7 +632,15 @@ export function rantaiIntroKino(
     t0: number,
     tag: string,
   ): string | null => {
-    if (!anim || idx < 0) return null;
+    if (idx < 0) return null;
+    if (!anim) {
+      rantai.push(
+        `[${idx}:v]format=rgba,setsar=1,trim=duration=${panjang.toFixed(3)},setpts=PTS-STARTPTS,fps=${fps}[${tag}t]`,
+      );
+      rantai.push(`[bgv][${tag}t]overlay=0:0[bgv]`);
+      void labelIn;
+      return tag;
+    }
     const langkah: string[] = [`[${idx}:v]`];
     const slam = anim === "slam";
     if (slam) langkah.push(zoompanSlam(fps, t0, inD, W, H));
@@ -1283,10 +1293,11 @@ export function bangunArgumenPart(a: ArgPart): { args: string[]; total: number }
   // ditambahkan SETELAH suara intro (pola input-di-akhir — indeks audio tetap).
   // rantai intro memakai rantaiIntroKino (animasi masuk geq/zoompan).
   // Input hanya untuk lapis yang BENAR-BENAR dianimasikan (tanpa input nganggur).
-  const pakaiJudulLapis =
-    pakaiBg && !!a.bgJudul && existsSync(a.bgJudul) && (p.coverAnimJudul || "") !== "";
-  const pakaiPartLapis =
-    pakaiBg && !!a.bgPartLapis && existsSync(a.bgPartLapis) && (p.coverAnimPart || "") !== "";
+  // v3.7.2 — lapis judul/part TAMPIL SELALU saat mode lapis aktif: yang
+  // dianimasikan mengikuti coverAnimJudul/coverAnimPart, yang tidak → overlay
+  // STATIS di rantaiIntroKino (dulu butuh anim → lapis non-anim hilang total).
+  const pakaiJudulLapis = pakaiBg && !!a.bgJudul && existsSync(a.bgJudul);
+  const pakaiPartLapis = pakaiBg && !!a.bgPartLapis && existsSync(a.bgPartLapis);
   const pakaiBingkaiLapis =
     pakaiBg && !!a.bgBingkai && existsSync(a.bgBingkai) && (p.coverBingkai || "none") !== "none";
   const inputLapis: string[] = [];

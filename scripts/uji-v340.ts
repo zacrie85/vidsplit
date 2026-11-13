@@ -272,12 +272,16 @@ uji("coverTrans kosong + introFade false → concat kering", () => {
   const filter = args[args.indexOf("-filter_complex") + 1];
   if (filter.includes("xfade=")) throw new Error("tidak boleh ada xfade");
 });
-uji("lapisan cover → input PNG hanya lapis aktif + rantai geq + koma benar", () => {
+uji("lapisan cover → lapis beranimasi geq + lapis TANPA anim tetap digambar statis (v3.7.2)", () => {
   const { args } = argPart({ introAktif: true, coverAnimJudul: "fade", coverAnimPart: "" }, true);
   const filter = args[args.indexOf("-filter_complex") + 1];
   if (!filter.includes("[3:v]")) throw new Error("indeks judul lapis salah");
-  if (filter.includes("[4:v]")) throw new Error("input lapis nganggur tidak boleh ada");
-  if (!filter.includes("geq=r='r(X,Y)'")) throw new Error("geq alpha lapis absen");
+  // v3.7.2 — lapis TANPA animasi tetap digambar (overlay statis), bukan dibuang:
+  // dulu "input lapis nganggur tidak boleh ada" → judul/part tanpa anim HILANG
+  // dari ekspor saat pasangannya beranimasi (mode lapis).
+  if (!filter.includes("[4:v]")) throw new Error("lapis part tanpa anim harus tetap digambar statis (v3.7.2)");
+  const nGeq = (filter.match(/geq=r='r\(X,Y\)'/g) || []).length;
+  if (nGeq !== 1) throw new Error(`geq hanya utk lapis beranimasi (dapat ${nGeq})`);
   if (filter.includes("setsar=1geq")) throw new Error("koma antar filter hilang");
   if (filter.includes("fps=30format=")) throw new Error("koma sesudah zoompan hilang");
 });

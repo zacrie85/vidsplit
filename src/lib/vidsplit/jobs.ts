@@ -672,6 +672,13 @@ export function mulaiEksporAntrean(
             }
             // v3.4.0 — LAPIS TERPISAH utk ANIMASI MASUK (port ncBuildCoverLayers):
             // bg + judul + part + bingkai dirender 4 PNG → rantaiIntroKino
+            // v3.7.2 — COVER TIDAK DOBEL LAGI (laporan user: "tulisan sudah
+            // nempel duluan tidak mengikuti transisi efeknya"): dulu dasar
+            // ekspor = komposit ber-teks-terbakar → judul/part/bingkai tampil
+            // STATIS dari frame 0 + salinan beranimasi masuk di atasnya (dobel,
+            // posisi terlihat tak sesuai layout). Kini dasar = frame + LAPIS
+            // BG SAJA (efek palet TANPA teks); judul/part/bingkai datang dr
+            // lapis — beranimasi ikut coverAnim*, tanpa anim = overlay statis.
             if (bgPart && ((p.coverAnimJudul || "") !== "" || (p.coverAnimPart || "") !== "")) {
               try {
                 const lapis = svgCoverLapis(
@@ -687,12 +694,31 @@ export function mulaiEksporAntrean(
                   },
                   pengukurTeksServer(),
                 );
+                const fileBgLapis = path.join(dirTmp, `${tag}-lap-bg.png`);
+                writeFileSync(fileBgLapis, renderSvgCoverPng(lapis.bg, W, H));
                 bgJudulLapis = path.join(dirTmp, `${tag}-lap-judul.png`);
                 bgPartLapis = path.join(dirTmp, `${tag}-lap-part.png`);
                 bgBingkaiLapis = path.join(dirTmp, `${tag}-lap-bingkai.png`);
                 writeFileSync(bgJudulLapis, renderSvgCoverPng(lapis.judul, W, H));
                 writeFileSync(bgPartLapis, renderSvgCoverPng(lapis.part, W, H));
                 writeFileSync(bgBingkaiLapis, renderSvgCoverPng(lapis.bingkai, W, H));
+                // dasar bersih: frame sumber + efek palet (TANPA teks apa pun)
+                if (existsSync(fileFrame)) {
+                  const fileBersih = path.join(dirTmp, `${tag}-introbg-bersih.png`);
+                  await jalankanFfmpeg(
+                    [
+                      "-y", "-hide_banner", "-loglevel", "error",
+                      "-i", fileFrame, "-i", fileBgLapis,
+                      "-filter_complex", "[0:v][1:v]overlay=0:0,format=rgba",
+                      "-frames:v", "1",
+                      fileBersih,
+                    ],
+                    1,
+                    undefined,
+                    ff.bin,
+                  );
+                  if (existsSync(fileBersih)) bgPart = fileBersih;
+                }
               } catch {
                 bgJudulLapis = bgPartLapis = bgBingkaiLapis = null;
               }
