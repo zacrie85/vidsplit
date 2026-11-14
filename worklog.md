@@ -1,4 +1,16 @@
 
+## v3.9.2 — VIDEO BISU TIDAK LAGI MENGGAGALKAN EKSPOR & SPLIT (2026-11-14)
+
+Laporan user dgn screenshot: "ffmpeg keluar dengan kode 4294967274: ... [0:a]aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,asetpts=PTS-STARTPTS[aout] matches no streams. Error initializing complex filters: Invalid argument" — video "Gadis Ini Masuk Novel..." (video cerita/AI, TANPA trek audio), encoder Intel Quick Sync (GPU), 1 video 100% → gagal.
+
+BEDAH: kode ffmpeg error = cabang audio tanpa-bg dgn flag adaAudio=TRUE (ffmpeg.ts lama baris 353). Jalur tanpa-audio (anullsrc → -map 1:a) sudah ada sejak v0.6.0 — berarti flag dari waktu IMPOR salah (probe ffprobe saat impor bilang ada audio, tapi saat render sumber ternyata tanpa trek audio: berkas diganti / demux beda pendapat / kasus demux aneh) → SEMUA part jatuh EINVAL. REPRO: video bisu uji + flag true → gagal PERSIS "matches no streams" ✓; video bisu + flag false → sukses ✓. (Repro alur app nyata di v3.9.1 dgn video bisu probe-benar: SUKSES — bukti flag-lah penyebabnya, bukan grafiknya.)
+
+FIX DUA LAPIS (jobs.ts + ffmpeg.ts + PanelEkspor.tsx): (1) KEBENARAN AUDIO SAAT RENDER — adaAudioSaatRender(): probe ulang sumber dgn ffprobe yang sama sebelum render (1 spawn ms per video, fallback ke bawaan bila probe gagal); dipakai di jalur SPLIT (dasarPart) & GABUNG (dasarGabung) — flag impor basi tak lagi merusak grafik; mismatch dicatat job.catatanAudio = "Video sumber ternyata tidak punya trek audio — hasil diberi audio senyap". (2) JARING PENGAMAN AUDIO — part GAGAL dgn /matches no streams/i → ulang SEKALI dibangun ulang dgn adaAudio:false (pola jaring pengaman dekode GPU v3.9.0); jalur GABUNG sama (try/catch + rebuild); job.catatanAudio → toast.info di PanelEkspor (sejajar peringatanSalin/peringatanSubtitle). Hasil part = video + trek audio AAC senyap (konsisten utk GABUNG/ZIP).
+
+UJI: uji-v392.ts BARU 11/11 (probe saat render bisu/ber-audio/probe-gagal→bawaan; unit argumen flag false tanpa [0:a] + map 1:a, flag true [0:a] ada; E2E rantai penyelamatan PERSIS kasus user: flag salah+src bisu → ffmpeg GAGAL 'matches no streams' → rebuild flag false → SUKSES + trek aac senyap; flag benar → sukses tanpa retry). REGRESI 206 cek hijau (v392 11, v391 17, v390 17, v380 9, v372 11, v371 7 [flaky saat paralel, hijau mandiri], v370 15, v360 21, v350 27, v340 34, v330 18, asli 19); tsc 0; build sukses. CATATAN OPERASIONAL: sandbox rollback disk LAGI di antara giliran (v0.15.0 snapshot) — pulih dari origin/main e39810b; rilis v3.9.1 (5f107e3) tetap aman di GitHub.
+
+package.json 3.9.2; badge v3.9.2; worklog v3.9.2.
+
 ## v3.9.1 — FOLDER OUTPUT APLIKASI TIDAK LAGI MENYIMPAN SALINAN + TOMBOL BERSIH-BERSIH (2026-11-13)
 
 Laporan user (konfirmasi lanjutan): "aplikasi masih menyimpan otomatis video hasil export & split pada C:\Users\...\AppData\Roaming\vidsplit\data\output" — padahal folder tujuan sudah dipilih (folder-wajib sudah berlaku sejak v3.8.0; uji v3.9.0 membuktikan POST /api/export tanpa folder = 400).

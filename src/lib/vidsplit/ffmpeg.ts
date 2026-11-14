@@ -169,6 +169,21 @@ export async function probe(file: string): Promise<InfoVideo> {
   };
 }
 
+/** v3.9.2 — KEBENARAN AUDIO SAAT RENDER: probe ulang sumber sebelum render.
+ *  Flag dari waktu impor bisa basi (berkas diganti / demux beda pendapat dgn
+ *  ffprobe waktu impor) → grafik merujuk [0:a] yang TIDAK ADA → SEMUA part
+ *  jatuh dgn EINVAL "matches no streams" (laporan user v3.9.2). Probe ulang
+ *  dgn ffprobe yang sama dgn render = satu sumber kebenaran; probe gagal →
+ *  pakai bawaan (perilaku lama). */
+export async function adaAudioSaatRender(abs: string, bawaan: boolean): Promise<boolean> {
+  try {
+    const info = await probe(abs);
+    return info.adaAudio;
+  } catch {
+    return bawaan;
+  }
+}
+
 /* ---------- util filter graph ---------- */
 
 /** #rrggbbaa → 0xrrggbb@a (format warna ffmpeg) */

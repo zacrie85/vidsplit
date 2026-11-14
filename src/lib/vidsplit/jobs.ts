@@ -6,6 +6,7 @@ import path from "node:path";
 import { apakahBatal, bersihkanBatal, daftarkanProses, mintaBatal } from "./batal";
 import {
   bangunArgumenPart,
+  adaAudioSaatRender,
   dirWork,
   fontfileNama,
   jalankanFfmpeg,
@@ -129,6 +130,8 @@ export interface InfoJob {
   folderTersimpan?: string | null;
   /** v0.6.4 — pesan peringatan bila penyalinan sebagian/total gagal */
   peringatanSalin?: string | null;
+  /** v3.9.2 — catatan audio: sumber ternyata tanpa trek audio → hasil audio senyap */
+  catatanAudio?: string | null;
   /** v0.44.0 — pesan peringatan subtitle AI (mis. penerjemah tidak tersedia) */
   peringatanSubtitle?: string | null;
 }
@@ -823,6 +826,16 @@ export function mulaiEksporAntrean(
       if (hw.length && !job.akselerasi.includes("Dekode GPU")) {
         job.akselerasi = `${job.akselerasi} + Dekode GPU (${hw[1].toUpperCase()})`;
       }
+      // v3.9.2 — KEBENARAN AUDIO SAAT RENDER (laporan user: part gagal EINVAL
+      // "matches no streams" padahal grafik memakai [0:a]): flag dr waktu impor
+      // bisa basi (berkas diganti/demux beda pendapat) → grafik merujuk trek
+      // audio yang TIDAK ADA dan SEMUA part jatuh. Probe ulang sumber sebelum
+      // render dgn ffprobe yang sama = satu sumber kebenaran.
+      const audioNyata = await adaAudioSaatRender(it.srcAbs, it.info.adaAudio);
+      if (it.info.adaAudio && !audioNyata) {
+        job.catatanAudio =
+          "Video sumber ternyata tidak punya trek audio — hasil diberi audio senyap";
+      }
       // v3.5.0 — BINGKAI JUDUL FUTURISTIK: PNG transparan kanvas penuh (kotak
       // frame mengikuti blok judul, posisi = judulX/judulY) → overlay DI BAWAH
       // drawtext. Gagal/umat judul kosong/mode template → null (nol regresi).
@@ -884,7 +897,8 @@ export function mulaiEksporAntrean(
         W,
         H,
         fps,
-        adaAudio: it.info.adaAudio,
+        // v3.9.2 — pakai kebenaran audio saat render (bukan flag waktu impor)
+        adaAudio: audioNyata,
         judulTxt: p.judul || "",
         // v2.9.0 — kataPart kosong = tanpa label part (bukan paksa "Part")
         partTxt: p.kataPart ? `${p.kataPart} ${n}` : "",
@@ -944,6 +958,19 @@ export function mulaiEksporAntrean(
           ? jalanSatu(bangunArgumenPart({ ...dasarPart, hwaccel: [] }).args)
           : Promise.reject(e),
       )
+        // v3.9.2 — JARING PENGAMAN AUDIO: "matches no streams" = sumber ternyata
+        // TANPA trek audio saat render (kasus user: grafik [0:a] EINVAL, semua
+        // part jatuh) → ulang SEKALI dgn jalur audio senyap (anullsrc). Part tak
+        // jatuh hanya karena flag audio basi; hasil tetap lengkap.
+        .catch((e) => {
+          const pesan = e instanceof Error ? e.message : String(e);
+          if (dasarPart.adaAudio && /matches no streams/i.test(pesan)) {
+            job.catatanAudio =
+              "Sebagian/semua hasil memakai audio senyap — sumber tak punya trek audio saat render";
+            return jalanSatu(bangunArgumenPart({ ...dasarPart, adaAudio: false }).args);
+          }
+          throw e;
+        })
         .then(() => {
           slot[slotIdx] = { video: it.nama, file: nama, ukuran: statSync(keluar).size };
           job.antrean[vi].selesai += 1;
@@ -1824,7 +1851,14 @@ export function mulaiGabungAntrean(
               tag,
             })
           : null;
-      const { args, total } = bangunArgumenPart({
+      // v3.9.2 — kebenaran audio saat render di jalur GABUNG (sama dgn jalur split):
+      // flag waktu impor bisa basi → grafik [0:a] EINVAL "matches no streams"
+      const audioNyata = await adaAudioSaatRender(it.srcAbs, it.info.adaAudio);
+      if (it.info.adaAudio && !audioNyata) {
+        job.catatanAudio =
+          "Video sumber ternyata tidak punya trek audio — hasil diberi audio senyap";
+      }
+      const dasarGabung = {
         src: it.srcAbs,
         // v2.2.0 — GABUNG VIDEO TANPA intro (permintaan user): bg selalu null
         bg: null,
@@ -1839,7 +1873,8 @@ export function mulaiGabungAntrean(
         W,
         H,
         fps: fpsTarget,
-        adaAudio: it.info.adaAudio,
+        // v3.9.2 — kebenaran audio saat render di jalur GABUNG juga
+        adaAudio: audioNyata,
         judulTxt: p.judul || "",
         partTxt: "", // GABUNG: tanpa kata Part — judul per film tetap tampil
         deskripsiTxt: p.deskripsi || "",
@@ -1873,8 +1908,23 @@ export function mulaiGabungAntrean(
         hwaccel: await pilihHwaccel(enc.nama, ff.bin, it.srcAbs),
         codecArgs: enc.codecArgs,
         keluar,
-      });
-      await jalankanFfmpeg(args, total, (f) => perbarui((vi + f) / daftar.length), ff.bin, (c) => daftarkanProses(id, c));
+      };
+      const { args, total } = bangunArgumenPart(dasarGabung);
+      // v3.9.2 — jaring pengaman audio di GABUNG: "matches no streams" → ulang
+      // SEKALI dgn jalur audio senyap (anullsrc)
+      try {
+        await jalankanFfmpeg(args, total, (f) => perbarui((vi + f) / daftar.length), ff.bin, (c) => daftarkanProses(id, c));
+      } catch (e) {
+        const pesan = e instanceof Error ? e.message : String(e);
+        if (audioNyata && /matches no streams/i.test(pesan)) {
+          job.catatanAudio =
+            "Sebagian/semua hasil memakai audio senyap — sumber tak punya trek audio saat render";
+          const ulang = bangunArgumenPart({ ...dasarGabung, adaAudio: false });
+          await jalankanFfmpeg(ulang.args, ulang.total, (f) => perbarui((vi + f) / daftar.length), ff.bin, (c) => daftarkanProses(id, c));
+        } else {
+          throw e;
+        }
+      }
       segmen.push(namaSeg);
       job.antrean[vi].selesai = 1;
       dasarSelesai = vi + 1;

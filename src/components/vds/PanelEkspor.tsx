@@ -141,6 +141,10 @@ export function PanelEkspor({
         if (job.peringatanSubtitle) {
           toast.warning(job.peringatanSubtitle);
         }
+        // v3.9.2 — sumber ternyata tanpa trek audio → hasil diberi audio senyap
+        if (job.catatanAudio) {
+          toast.info(job.catatanAudio);
+        }
       }
       if (job?.error && !job.selesaiSemua) toast.error(`Ekspor gagal: ${job.error}`);
       return;

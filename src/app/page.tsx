@@ -901,11 +901,11 @@ export default function Halaman() {
                 VID<span className="text-amber-500">SPLIT</span>
               </h1>
               <span className="hud rounded-sm border border-slate-700 px-1 py-px text-[9px] text-slate-400">
-                v3.9.1
+                v3.9.2
               </span>
             </span>
             <span className="hud block text-[9px] leading-3 text-slate-500">
-              Suite video otomatis · Desktop v3.9.1
+              Suite video otomatis · Desktop v3.9.2
             </span>
           </span>
         </div>
@@ -1016,7 +1016,7 @@ export default function Halaman() {
           Isi tiap modul = fungsi asli VidSplit (nama menu dipertahankan). Gaya warna amber
           VidSplit tetap — struktur KolosalCut, rasa VidSplit. Mode Musik & Cerita dan mesin
           (POTONG LANGSUNG / KILAT GPU / ffmpeg) tidak disentuh sama sekali. */}
-      {/* v3.9.1 — BARIS GRID DIKUNCI TINGGI LAYAR (bug laporan user: "jarak video
+      {/* v3.9.2 — BARIS GRID DIKUNCI TINGGI LAYAR (bug laporan user: "jarak video
           dan frame nya terlalu jauh ke bawah" saat menu pengaturan dibuka panjang).
           Akar: implicit auto row ikut konten kolom TERPANJANG → kolom video ikut
           melar, timeline terdorong jauh, scroll pindah ke halaman. Kini shell
@@ -1140,7 +1140,7 @@ export default function Halaman() {
         </div>
 
         {/* ============ SIDEBAR KANAN 400px — ANTREAN → TAB PENGATURAN → EKSPOR ============ */}
-                {/* ============ v3.9.1 KOLOM TENGAH — EKSPOR & SPLIT ANTREAN + RK RINGKASAN +
+                {/* ============ v3.9.2 KOLOM TENGAH — EKSPOR & SPLIT ANTREAN + RK RINGKASAN +
              RIWAYAT EKSPOR (permintaan user, gambar referensi 3: pindahkan dari
              bawah kolom kanan jadi kolom SENDIRI berdampingan dgn kolom pengaturan) ============ */}
         <aside className="panel-kino min-h-0 min-w-0 overflow-y-auto border-l border-[#1c2128] bg-[#0c0e11]">
